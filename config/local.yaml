@@ -1,0 +1,14 @@
+env: local
+debug: true
+log_level: DEBUG
+
+model:
+  type: local
+  path: "models/llama/model.gguf"
+
+vector_store:
+  type: in_memory
+
+database:
+  type: sqlite
+  uri: "sqlite:///data/kbd_local.db"
