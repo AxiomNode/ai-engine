@@ -42,8 +42,8 @@ class TestExtractJsonFromText:
         assert result is not None
         assert '"item"' in result
 
-    def test_handles_json_with_escaped_braces_in_strings(self):
-        raw = 'text {"msg": "use \\{x\\} here"} end'
+    def test_handles_json_with_braces_in_strings(self):
+        raw = 'text {"msg": "use {x} here"} end'
         result = extract_json_from_text(raw)
         assert result is not None
 

@@ -2,7 +2,7 @@
 
 import pytest
 
-from ai_engine.llm.llama_client import LlamaClient
+from ai_engine.llm.llama_client import JSON_GRAMMAR, LlamaClient
 
 
 class TestLlamaClientInit:
@@ -27,6 +27,16 @@ class TestLlamaClientInit:
         client = LlamaClient(api_url="http://localhost:8080/completion")
         assert client.default_max_tokens == 256
         assert client.temperature >= 0
+        assert client.top_p == 0.95
+        assert client.repeat_penalty == 1.1
+
+    def test_json_mode_off_by_default(self):
+        client = LlamaClient(api_url="http://localhost:8080/completion")
+        assert client.json_mode is False
+
+    def test_json_mode_on(self):
+        client = LlamaClient(api_url="http://x", json_mode=True)
+        assert client.json_mode is True
 
 
 class TestLlamaClientGenerateAPI:
@@ -79,6 +89,57 @@ class TestLlamaClientGenerateAPI:
         client.generate("Say hi", max_tokens=128)
         assert captured.get("n_predict") == 128
 
+    def test_json_mode_sends_grammar(self, monkeypatch):
+        """When json_mode=True, the grammar should be sent to the API."""
+        captured = {}
+
+        class FakeResponse:
+            status_code = 200
+
+            def json(self):
+                return {"content": '{"a":1}'}
+
+            def raise_for_status(self):
+                pass
+
+        def fake_post(url, json=None, timeout=None):
+            captured.update(json or {})
+            return FakeResponse()
+
+        import ai_engine.llm.llama_client as mod
+
+        monkeypatch.setattr(mod.requests, "post", fake_post)
+
+        client = LlamaClient(api_url="http://localhost:8080/completion", json_mode=True)
+        client.generate("Give me JSON")
+        assert "grammar" in captured
+        assert "root" in captured["grammar"]
+
+    def test_json_mode_override_per_call(self, monkeypatch):
+        """json_mode can be overridden per generate() call."""
+        captured = {}
+
+        class FakeResponse:
+            status_code = 200
+
+            def json(self):
+                return {"content": "ok"}
+
+            def raise_for_status(self):
+                pass
+
+        def fake_post(url, json=None, timeout=None):
+            captured.update(json or {})
+            return FakeResponse()
+
+        import ai_engine.llm.llama_client as mod
+
+        monkeypatch.setattr(mod.requests, "post", fake_post)
+
+        client = LlamaClient(api_url="http://localhost:8080/completion", json_mode=False)
+        client.generate("Give me JSON", json_mode=True)
+        assert "grammar" in captured
+
     def test_generate_raises_on_http_error(self, monkeypatch):
         class FakeResponse:
             status_code = 500
@@ -97,6 +158,30 @@ class TestLlamaClientGenerateAPI:
         with pytest.raises(Exception, match="Server Error"):
             client.generate("Say hi")
 
+    def test_seed_sent_when_non_negative(self, monkeypatch):
+        captured = {}
+
+        class FakeResponse:
+            status_code = 200
+
+            def json(self):
+                return {"content": "ok"}
+
+            def raise_for_status(self):
+                pass
+
+        def fake_post(url, json=None, timeout=None):
+            captured.update(json or {})
+            return FakeResponse()
+
+        import ai_engine.llm.llama_client as mod
+
+        monkeypatch.setattr(mod.requests, "post", fake_post)
+
+        client = LlamaClient(api_url="http://x", seed=42)
+        client.generate("test")
+        assert captured.get("seed") == 42
+
 
 class TestLlamaClientProtocol:
     """Ensure LlamaClient satisfies the protocol expected by RAGPipeline."""
@@ -104,3 +189,14 @@ class TestLlamaClientProtocol:
     def test_has_generate_method(self):
         client = LlamaClient(api_url="http://localhost:8080/completion")
         assert callable(getattr(client, "generate", None))
+
+
+class TestJsonGrammar:
+    """Verify the JSON GBNF grammar string is well-formed."""
+
+    def test_grammar_contains_root_rule(self):
+        assert "root" in JSON_GRAMMAR
+
+    def test_grammar_contains_object_and_array(self):
+        assert "object" in JSON_GRAMMAR
+        assert "array" in JSON_GRAMMAR
