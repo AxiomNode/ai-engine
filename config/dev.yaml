@@ -1,0 +1,15 @@
+env: dev
+debug: true
+log_level: DEBUG
+
+model:
+  type: local
+  path: "${MODEL_PATH:-models/llama/model.gguf}"
+
+vector_store:
+  type: chroma
+  chroma_persist_dir: "${CHROMA_PERSIST_DIR:-.chromadb}"
+
+database:
+  type: sqlite
+  uri: "sqlite:///data/kbd_dev.db"

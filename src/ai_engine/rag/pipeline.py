@@ -7,6 +7,9 @@ from ai_engine.rag.document import Document
 from ai_engine.rag.embedder import Embedder
 from ai_engine.rag.retriever import Retriever
 from ai_engine.rag.vector_store import VectorStore
+from ai_engine.rag.utils import extract_json_from_text
+from ai_engine.llm.llama_client import LlamaClient
+import json
 
 
 class RAGPipeline:
@@ -28,11 +31,13 @@ class RAGPipeline:
         vector_store: VectorStore,
         chunker: Chunker | None = None,
         top_k: int = 5,
+        llm_client: LlamaClient | None = None,
     ) -> None:
         self.embedder = embedder
         self.vector_store = vector_store
         self.chunker = chunker or Chunker()
         self.retriever = Retriever(embedder, vector_store, top_k=top_k)
+        self.llm_client = llm_client
 
     # ------------------------------------------------------------------
     # Ingestion
@@ -85,3 +90,30 @@ class RAGPipeline:
         """
         docs = self.retrieve(query, top_k=top_k)
         return "\n\n".join(doc.content for doc in docs)
+
+    # ------------------------------------------------------------------
+    # Generation
+    # ------------------------------------------------------------------
+
+    PROMPT_TEMPLATE = (
+        "You are an expert pedagogue. Use the following context and goal to design a short educational game.\n"
+        "Context:\n{context}\n\nGoal:\n{goal}\n\n"
+        "First think step-by-step, then output ONLY the final game definition as strict JSON."
+    )
+
+    def generate(self, query: str, goal: str, max_tokens: int = 512) -> dict:
+        """Generate a game/answer using retrieved context and the configured LLM client.
+
+        Returns parsed JSON output from the model.
+        """
+        if self.llm_client is None:
+            raise RuntimeError("No LLM client configured for generation")
+
+        context = self.build_context(query)
+        prompt = self.PROMPT_TEMPLATE.format(context=context, goal=goal)
+        raw = self.llm_client.generate(prompt, max_tokens=max_tokens)
+        json_text = extract_json_from_text(raw)
+        if not json_text:
+            # If extraction fails, raise with the raw model output for debugging
+            raise ValueError(f"Failed to extract JSON from model output: {raw}")
+        return json.loads(json_text)

@@ -1,0 +1,16 @@
+env: prod
+debug: false
+log_level: INFO
+
+# In production store sensitive values in environment variables or secret manager
+model:
+  type: local
+  path: "${MODEL_PATH}"
+
+vector_store:
+  type: chroma
+  chroma_persist_dir: "${CHROMA_PERSIST_DIR}"
+
+database:
+  type: postgres
+  uri: "${DATABASE_URL}"
