@@ -1,0 +1,73 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Dockerfile.llama – llama.cpp HTTP inference server
+#
+# Runs the OpenAI-compatible HTTP server built into llama-cpp-python:
+#   python -m llama_cpp.server
+#
+# This avoids pulling any external image (ghcr.io/ggerganov/llama.cpp) and
+# keeps the entire stack buildable from this repository alone.
+#
+# The GGUF model file is NOT baked into the image — it must be present in
+# the ./models directory on the host and is mounted read-only at runtime.
+#
+# Build (handled automatically by docker compose up --build):
+#   docker build -f Dockerfile.llama -t ai-engine-llama .
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Stage 1 – builder: compile llama-cpp-python native extensions
+# ──────────────────────────────────────────────────────────────────────────────
+FROM python:3.11-slim AS builder
+
+WORKDIR /build
+
+# Build tools required to compile llama.cpp C++ bindings
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       gcc g++ cmake make \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install llama-cpp-python with the built-in HTTP server extras.
+# CPU-only build (no CUDA) — set CMAKE_ARGS to enable GPU layers if needed.
+# The [server] extra pulls in FastAPI + uvicorn for the HTTP API.
+RUN pip install --no-cache-dir --prefix=/install \
+    "llama-cpp-python[server]>=0.2.0"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Stage 2 – runtime: minimal image
+# ──────────────────────────────────────────────────────────────────────────────
+FROM python:3.11-slim AS runtime
+
+LABEL org.opencontainers.image.title="ai-engine – llama.cpp server"
+LABEL org.opencontainers.image.description="OpenAI-compatible llama.cpp HTTP inference server for AxiomNode"
+
+RUN useradd --create-home --no-log-init appuser
+WORKDIR /app
+
+COPY --from=builder /install /usr/local
+
+# Models directory — mounted from host via volume at runtime
+RUN mkdir -p /app/models && chown appuser:appuser /app/models
+
+USER appuser
+
+ENV AI_ENGINE_MODELS_DIR=/app/models \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    # llama-cpp-python server reads these env vars
+    MODEL=/app/models/Qwen2.5-3B-Instruct-Q4_K_M.gguf \
+    HOST=0.0.0.0 \
+    PORT=8080 \
+    N_CTX=4096 \
+    N_GPU_LAYERS=0
+
+EXPOSE 8080
+
+# Health check — llama-cpp-python server exposes GET /health
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=5 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"
+
+# llama-cpp-python[server] exposes python -m llama_cpp.server
+# All configuration is read from environment variables (MODEL, HOST, PORT, etc.)
+CMD ["python", "-m", "llama_cpp.server"]

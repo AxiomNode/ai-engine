@@ -1,6 +1,5 @@
 """Tests for ai_engine.rag.utils – JSON extraction helpers."""
 
-import pytest
 
 from ai_engine.rag.utils import extract_json_from_text
 

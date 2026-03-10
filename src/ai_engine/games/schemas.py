@@ -1,21 +1,27 @@
 """Data models for structured educational games.
 
-All models use plain dataclasses so they stay free of heavy dependencies
-and can be serialised to / deserialised from JSON trivially.
+All models use Pydantic :class:`~pydantic.BaseModel` for automatic
+validation, serialisation, and JSON-schema generation.  Keeping them as
+Pydantic models eliminates the manual ``to_dict`` / ``from_dict``
+boilerplate and enables first-class OpenAPI schema export.
+
+Compatibility aliases (:meth:`to_dict`, :meth:`from_dict`) are preserved so
+existing call sites continue to work without modification.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, Union
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ------------------------------------------------------------------
 # Quiz
 # ------------------------------------------------------------------
 
-@dataclass
-class QuizQuestion:
+
+class QuizQuestion(BaseModel):
     """A single multiple-choice question.
 
     Attributes:
@@ -30,83 +36,99 @@ class QuizQuestion:
     correct_index: int
     explanation: str = ""
 
-    def __post_init__(self) -> None:
-        if not self.question:
+    @field_validator("question")
+    @classmethod
+    def question_not_empty(cls, v: str) -> str:
+        """Ensure the question text is not empty."""
+        if not v:
             raise ValueError("question must not be empty")
-        if len(self.options) < 2:
+        return v
+
+    @field_validator("options")
+    @classmethod
+    def options_min_two(cls, v: list[str]) -> list[str]:
+        """Require at least two answer choices."""
+        if len(v) < 2:
             raise ValueError("options must contain at least 2 choices")
+        return v
+
+    @model_validator(mode="after")
+    def correct_index_in_range(self) -> "QuizQuestion":
+        """Validate that correct_index refers to an existing option."""
         if not 0 <= self.correct_index < len(self.options):
             raise ValueError(
                 f"correct_index {self.correct_index} out of range "
                 f"for {len(self.options)} options"
             )
+        return self
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "question": self.question,
-            "options": list(self.options),
-            "correct_index": self.correct_index,
-            "explanation": self.explanation,
-        }
+        """Serialise to a plain dictionary.
+
+        Compatibility alias for :meth:`model_dump`.
+        """
+        return self.model_dump()
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> QuizQuestion:
-        return cls(
-            question=data["question"],
-            options=list(data["options"]),
-            correct_index=int(data["correct_index"]),
-            explanation=data.get("explanation", ""),
-        )
+    def from_dict(cls, data: dict[str, Any]) -> "QuizQuestion":
+        """Deserialise from a plain dictionary.
+
+        Compatibility alias for :meth:`model_validate`.
+        """
+        return cls.model_validate(data)
 
 
-@dataclass
-class QuizGame:
+class QuizGame(BaseModel):
     """A complete quiz game definition.
 
     Attributes:
+        game_type: Always ``"quiz"``; included in serialisation for type
+            discrimination.
         title: Human-readable title for the quiz.
         topic: The educational topic covered.
         questions: Ordered list of quiz questions.
     """
 
+    game_type: Literal["quiz"] = "quiz"
     title: str
     topic: str
-    questions: list[QuizQuestion] = field(default_factory=list)
+    questions: list[QuizQuestion] = Field(default_factory=list)
 
-    def __post_init__(self) -> None:
-        if not self.title:
+    @field_validator("title")
+    @classmethod
+    def title_not_empty(cls, v: str) -> str:
+        """Ensure the title is not empty."""
+        if not v:
             raise ValueError("title must not be empty")
+        return v
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "game_type": "quiz",
-            "title": self.title,
-            "topic": self.topic,
-            "questions": [q.to_dict() for q in self.questions],
-        }
+        """Serialise to a plain dictionary.
+
+        Compatibility alias for :meth:`model_dump`.
+        """
+        return self.model_dump()
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> QuizGame:
-        return cls(
-            title=data["title"],
-            topic=data.get("topic", ""),
-            questions=[
-                QuizQuestion.from_dict(q)
-                for q in data.get("questions", [])
-            ],
-        )
+    def from_dict(cls, data: dict[str, Any]) -> "QuizGame":
+        """Deserialise from a plain dictionary.
+
+        Compatibility alias for :meth:`model_validate`.
+        """
+        return cls.model_validate(data)
 
 
 # ------------------------------------------------------------------
 # Pasapalabra (rosco)
 # ------------------------------------------------------------------
 
-@dataclass
-class PasapalabraWord:
+
+class PasapalabraWord(BaseModel):
     """A single word entry for a Pasapalabra rosco.
 
     Attributes:
         letter: The letter of the alphabet this entry covers (A–Z).
+            Normalised to upper-case on input.
         hint: Clue or definition read aloud to the player.
         answer: The correct word (starts with or contains *letter*).
         starts_with: True if the answer starts with *letter*;
@@ -118,77 +140,94 @@ class PasapalabraWord:
     answer: str
     starts_with: bool = True
 
-    def __post_init__(self) -> None:
-        if len(self.letter) != 1 or not self.letter.isalpha():
-            raise ValueError(f"letter must be a single alphabetic character, got {self.letter!r}")
-        self.letter = self.letter.upper()
-        if not self.hint:
+    @field_validator("letter")
+    @classmethod
+    def letter_valid(cls, v: str) -> str:
+        """Validate that letter is a single alphabetic character and upper-case it."""
+        if len(v) != 1 or not v.isalpha():
+            raise ValueError(
+                f"letter must be a single alphabetic character, got {v!r}"
+            )
+        return v.upper()
+
+    @field_validator("hint")
+    @classmethod
+    def hint_not_empty(cls, v: str) -> str:
+        """Ensure the hint is not empty."""
+        if not v:
             raise ValueError("hint must not be empty")
-        if not self.answer:
+        return v
+
+    @field_validator("answer")
+    @classmethod
+    def answer_not_empty(cls, v: str) -> str:
+        """Ensure the answer is not empty."""
+        if not v:
             raise ValueError("answer must not be empty")
+        return v
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "letter": self.letter,
-            "hint": self.hint,
-            "answer": self.answer,
-            "starts_with": self.starts_with,
-        }
+        """Serialise to a plain dictionary.
+
+        Compatibility alias for :meth:`model_dump`.
+        """
+        return self.model_dump()
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> PasapalabraWord:
-        return cls(
-            letter=data["letter"],
-            hint=data["hint"],
-            answer=data["answer"],
-            starts_with=data.get("starts_with", True),
-        )
+    def from_dict(cls, data: dict[str, Any]) -> "PasapalabraWord":
+        """Deserialise from a plain dictionary.
+
+        Compatibility alias for :meth:`model_validate`.
+        """
+        return cls.model_validate(data)
 
 
-@dataclass
-class PasapalabraGame:
+class PasapalabraGame(BaseModel):
     """A full Pasapalabra (rosco) game.
 
     Attributes:
+        game_type: Always ``"pasapalabra"``; included in serialisation for
+            type discrimination.
         title: Human-readable title.
         topic: The educational topic.
         words: List of word entries (ideally one per letter A-Z).
     """
 
+    game_type: Literal["pasapalabra"] = "pasapalabra"
     title: str
     topic: str
-    words: list[PasapalabraWord] = field(default_factory=list)
+    words: list[PasapalabraWord] = Field(default_factory=list)
 
-    def __post_init__(self) -> None:
-        if not self.title:
+    @field_validator("title")
+    @classmethod
+    def title_not_empty(cls, v: str) -> str:
+        """Ensure the title is not empty."""
+        if not v:
             raise ValueError("title must not be empty")
+        return v
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "game_type": "pasapalabra",
-            "title": self.title,
-            "topic": self.topic,
-            "words": [w.to_dict() for w in self.words],
-        }
+        """Serialise to a plain dictionary.
+
+        Compatibility alias for :meth:`model_dump`.
+        """
+        return self.model_dump()
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> PasapalabraGame:
-        return cls(
-            title=data["title"],
-            topic=data.get("topic", ""),
-            words=[
-                PasapalabraWord.from_dict(w)
-                for w in data.get("words", [])
-            ],
-        )
+    def from_dict(cls, data: dict[str, Any]) -> "PasapalabraGame":
+        """Deserialise from a plain dictionary.
+
+        Compatibility alias for :meth:`model_validate`.
+        """
+        return cls.model_validate(data)
 
 
 # ------------------------------------------------------------------
 # True / False
 # ------------------------------------------------------------------
 
-@dataclass
-class TrueFalseStatement:
+
+class TrueFalseStatement(BaseModel):
     """A single true/false statement.
 
     Attributes:
@@ -201,77 +240,82 @@ class TrueFalseStatement:
     is_true: bool
     explanation: str = ""
 
-    def __post_init__(self) -> None:
-        if not self.statement:
+    @field_validator("statement")
+    @classmethod
+    def statement_not_empty(cls, v: str) -> str:
+        """Ensure the statement text is not empty."""
+        if not v:
             raise ValueError("statement must not be empty")
+        return v
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "statement": self.statement,
-            "is_true": self.is_true,
-            "explanation": self.explanation,
-        }
+        """Serialise to a plain dictionary.
+
+        Compatibility alias for :meth:`model_dump`.
+        """
+        return self.model_dump()
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> TrueFalseStatement:
-        return cls(
-            statement=data["statement"],
-            is_true=bool(data["is_true"]),
-            explanation=data.get("explanation", ""),
-        )
+    def from_dict(cls, data: dict[str, Any]) -> "TrueFalseStatement":
+        """Deserialise from a plain dictionary.
+
+        Compatibility alias for :meth:`model_validate`.
+        """
+        return cls.model_validate(data)
 
 
-@dataclass
-class TrueFalseGame:
+class TrueFalseGame(BaseModel):
     """A complete true/false game.
 
     Attributes:
+        game_type: Always ``"true_false"``; included in serialisation for
+            type discrimination.
         title: Human-readable title.
         topic: The educational topic.
         statements: Ordered list of true/false statements.
     """
 
+    game_type: Literal["true_false"] = "true_false"
     title: str
     topic: str
-    statements: list[TrueFalseStatement] = field(default_factory=list)
+    statements: list[TrueFalseStatement] = Field(default_factory=list)
 
-    def __post_init__(self) -> None:
-        if not self.title:
+    @field_validator("title")
+    @classmethod
+    def title_not_empty(cls, v: str) -> str:
+        """Ensure the title is not empty."""
+        if not v:
             raise ValueError("title must not be empty")
+        return v
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "game_type": "true_false",
-            "title": self.title,
-            "topic": self.topic,
-            "statements": [s.to_dict() for s in self.statements],
-        }
+        """Serialise to a plain dictionary.
+
+        Compatibility alias for :meth:`model_dump`.
+        """
+        return self.model_dump()
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> TrueFalseGame:
-        return cls(
-            title=data["title"],
-            topic=data.get("topic", ""),
-            statements=[
-                TrueFalseStatement.from_dict(s)
-                for s in data.get("statements", [])
-            ],
-        )
+    def from_dict(cls, data: dict[str, Any]) -> "TrueFalseGame":
+        """Deserialise from a plain dictionary.
+
+        Compatibility alias for :meth:`model_validate`.
+        """
+        return cls.model_validate(data)
 
 
 # ------------------------------------------------------------------
 # Envelope (wraps any game type)
 # ------------------------------------------------------------------
 
-GAME_TYPE_REGISTRY: dict[str, type] = {
+GAME_TYPE_REGISTRY: dict[str, type[Union[QuizGame, PasapalabraGame, TrueFalseGame]]] = {
     "quiz": QuizGame,
     "pasapalabra": PasapalabraGame,
     "true_false": TrueFalseGame,
 }
 
 
-@dataclass
-class GameEnvelope:
+class GameEnvelope(BaseModel):
     """Generic wrapper that holds any supported game type.
 
     Attributes:
@@ -280,16 +324,27 @@ class GameEnvelope:
     """
 
     game_type: str
-    game: QuizGame | PasapalabraGame | TrueFalseGame
+    game: Union[QuizGame, PasapalabraGame, TrueFalseGame]
 
     def to_dict(self) -> dict[str, Any]:
-        return self.game.to_dict()
+        """Serialise the wrapped game to a plain dictionary, including ``game_type``."""
+        return self.game.model_dump()
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> GameEnvelope:
+    def from_dict(cls, data: dict[str, Any]) -> "GameEnvelope":
         """Deserialise a game envelope from a dictionary.
 
-        The ``game_type`` key selects the concrete game class.
+        The ``game_type`` key selects the concrete game class via
+        :data:`GAME_TYPE_REGISTRY`.
+
+        Args:
+            data: Dictionary with at least a ``game_type`` key.
+
+        Returns:
+            A fully validated :class:`GameEnvelope` instance.
+
+        Raises:
+            ValueError: If ``game_type`` is not in the registry.
         """
         game_type = data.get("game_type", "quiz")
         game_cls = GAME_TYPE_REGISTRY.get(game_type)
@@ -298,5 +353,5 @@ class GameEnvelope:
                 f"Unknown game_type {game_type!r}. "
                 f"Supported: {list(GAME_TYPE_REGISTRY)}"
             )
-        game = game_cls.from_dict(data)
+        game = game_cls.model_validate(data)
         return cls(game_type=game_type, game=game)

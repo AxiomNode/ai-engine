@@ -1,0 +1,121 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# AxiomNode – ai-engine docker-compose
+#
+# Services:
+#   llama-server  – llama.cpp HTTP inference server (built locally, no external image)
+#   ai-stats      – ai-engine observability / statistics FastAPI (port 8000)
+#   ai-api        – ai-engine generation FastAPI  POST /generate  (port 8001)
+#
+# Prerequisites:
+#   1. Download at least one model:
+#        python -m ai_engine.llm.model_manager download qwen2.5-3b
+#   2. Copy the env template:
+#        cp .env.example .env
+#
+# Usage:
+#   docker compose up --build
+# ──────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # llama.cpp HTTP inference server (built locally from Dockerfile.llama)
+  # Exposes an OpenAI-compatible /completion endpoint on port 8080.
+  # No external image — everything is built from this repository.
+  # ---------------------------------------------------------------------------
+  llama-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.llama
+      target: runtime
+    restart: unless-stopped
+    ports:
+      - "${LLAMA_PORT:-8080}:8080"
+    volumes:
+      # Mount the local models directory (read-only inside the container).
+      # Download models first: python -m ai_engine.llm.model_manager download
+      - ./models:/app/models:ro
+    environment:
+      MODEL: "/app/models/${LLAMA_MODEL_FILE:-Qwen2.5-3B-Instruct-Q4_K_M.gguf}"
+      HOST: "0.0.0.0"
+      PORT: "8080"
+      N_CTX: "${LLAMA_CTX_SIZE:-4096}"
+      N_GPU_LAYERS: "0"
+      PYTHONUNBUFFERED: "1"
+    healthcheck:
+      # llama-cpp-python server exposes GET /health — no curl needed.
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s  # model loading + cold start can take up to 2 min
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # ai-engine observability / statistics API
+  # Exposes: GET /health  GET /stats  GET /stats/history  POST /stats/reset
+  # ---------------------------------------------------------------------------
+  ai-stats:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    restart: unless-stopped
+    ports:
+      - "${STATS_PORT:-8000}:8000"
+    environment:
+      AI_ENGINE_MODELS_DIR: /app/models
+      PYTHONUNBUFFERED: "1"
+      PORT: "8000"
+    volumes:
+      - ./models:/app/models:ro
+    # ai-stats is independent of the model — it only records events.
+    # Game microservices push stats here directly; no llama-server dependency.
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # ai-engine generation API
+  # Exposes: POST /generate  POST /ingest  GET /health  GET /stats (port 8001)
+  # ---------------------------------------------------------------------------
+  ai-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-8001}:8001"
+    environment:
+      # Point to the llama.cpp server – no local model needed in this container.
+      AI_ENGINE_LLAMA_URL: "http://llama-server:8080/completion"
+      AI_ENGINE_EMBEDDING_MODEL: "${AI_ENGINE_EMBEDDING_MODEL:-all-MiniLM-L6-v2}"
+      AI_ENGINE_MODELS_DIR: /app/models
+      PYTHONUNBUFFERED: "1"
+      PORT: "8001"
+    volumes:
+      - ./models:/app/models:ro
+    command:
+      - uvicorn
+      - "ai_engine.api.app:app"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8001"
+      - "--workers"
+      - "2"
+    depends_on:
+      llama-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s   # sentence-transformers model download on first start
+      retries: 3

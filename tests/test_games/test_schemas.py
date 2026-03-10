@@ -1,6 +1,7 @@
 """Tests for ai_engine.games.schemas – educational game data models."""
 
 import pytest
+from pydantic import ValidationError
 
 from ai_engine.games.schemas import (
     GameEnvelope,
@@ -29,15 +30,15 @@ class TestQuizQuestion:
         assert q.correct_index == 1
 
     def test_empty_question_raises(self):
-        with pytest.raises(ValueError, match="question must not be empty"):
+        with pytest.raises(ValidationError, match="question must not be empty"):
             QuizQuestion(question="", options=["a", "b"], correct_index=0)
 
     def test_too_few_options_raises(self):
-        with pytest.raises(ValueError, match="at least 2 choices"):
+        with pytest.raises(ValidationError, match="at least 2 choices"):
             QuizQuestion(question="Q?", options=["only one"], correct_index=0)
 
     def test_correct_index_out_of_range_raises(self):
-        with pytest.raises(ValueError, match="out of range"):
+        with pytest.raises(ValidationError, match="out of range"):
             QuizQuestion(question="Q?", options=["a", "b"], correct_index=5)
 
     def test_round_trip(self):
@@ -67,12 +68,12 @@ class TestQuizGame:
         assert game.questions == []
 
     def test_empty_title_raises(self):
-        with pytest.raises(ValueError, match="title must not be empty"):
+        with pytest.raises(ValidationError, match="title must not be empty"):
             QuizGame(title="", topic="Math")
 
     def test_to_dict_includes_game_type(self):
         game = QuizGame(title="T", topic="X", questions=[
-            QuizQuestion("Q?", ["a", "b"], 0),
+            QuizQuestion(question="Q?", options=["a", "b"], correct_index=0),
         ])
         d = game.to_dict()
         assert d["game_type"] == "quiz"
@@ -80,7 +81,7 @@ class TestQuizGame:
 
     def test_from_dict_round_trip(self):
         game = QuizGame(title="T", topic="X", questions=[
-            QuizQuestion("Q?", ["a", "b", "c", "d"], 1, "explanation"),
+            QuizQuestion(question="Q?", options=["a", "b", "c", "d"], correct_index=1, explanation="explanation"),
         ])
         d = game.to_dict()
         game2 = QuizGame.from_dict(d)
@@ -105,15 +106,15 @@ class TestPasapalabraWord:
         assert w.letter == "B"
 
     def test_invalid_letter_raises(self):
-        with pytest.raises(ValueError, match="single alphabetic character"):
+        with pytest.raises(ValidationError, match="single alphabetic character"):
             PasapalabraWord(letter="AB", hint="H", answer="A")
 
     def test_empty_hint_raises(self):
-        with pytest.raises(ValueError, match="hint must not be empty"):
+        with pytest.raises(ValidationError, match="hint must not be empty"):
             PasapalabraWord(letter="A", hint="", answer="A")
 
     def test_empty_answer_raises(self):
-        with pytest.raises(ValueError, match="answer must not be empty"):
+        with pytest.raises(ValidationError, match="answer must not be empty"):
             PasapalabraWord(letter="A", hint="H", answer="")
 
     def test_round_trip(self):
@@ -136,7 +137,7 @@ class TestPasapalabraGame:
 
     def test_to_dict_game_type(self):
         game = PasapalabraGame(title="R", topic="G", words=[
-            PasapalabraWord("A", "Capital of France – not!", "Amsterdam"),
+            PasapalabraWord(letter="A", hint="Capital of France \u2013 not!", answer="Amsterdam"),
         ])
         d = game.to_dict()
         assert d["game_type"] == "pasapalabra"
@@ -154,11 +155,11 @@ class TestTrueFalseStatement:
         assert s.is_true is True
 
     def test_empty_statement_raises(self):
-        with pytest.raises(ValueError, match="statement must not be empty"):
+        with pytest.raises(ValidationError, match="statement must not be empty"):
             TrueFalseStatement(statement="", is_true=True)
 
     def test_round_trip(self):
-        s = TrueFalseStatement("S", False, "E")
+        s = TrueFalseStatement(statement="S", is_true=False, explanation="E")
         d = s.to_dict()
         s2 = TrueFalseStatement.from_dict(d)
         assert s2.is_true is False
@@ -176,7 +177,7 @@ class TestTrueFalseGame:
 
     def test_to_dict_game_type(self):
         d = TrueFalseGame(title="T", topic="S", statements=[
-            TrueFalseStatement("The sun is a star", True),
+            TrueFalseStatement(statement="The sun is a star", is_true=True),
         ]).to_dict()
         assert d["game_type"] == "true_false"
 

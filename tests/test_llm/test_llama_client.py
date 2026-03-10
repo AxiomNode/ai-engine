@@ -191,6 +191,100 @@ class TestLlamaClientProtocol:
         assert callable(getattr(client, "generate", None))
 
 
+class TestLlamaClientGenerateLocal:
+    """Tests for generate() via local GGUF model using monkeypatching."""
+
+    def _fake_model(self, output_text: str = "local output"):
+        """Return a callable that mimics llama-cpp-python Llama output."""
+
+        def _call(prompt, **kwargs):
+            return {"choices": [{"text": output_text}]}
+
+        return _call
+
+    def test_generate_local_returns_text(self, monkeypatch):
+        """generate() delegates to _generate_local when api_url is None."""
+        client = LlamaClient(model_path="/fake/model.gguf")
+        fake_model = self._fake_model("hello local")
+        monkeypatch.setattr(client, "_get_or_load_model", lambda: fake_model)
+        result = client.generate("Say hello")
+        assert result == "hello local"
+
+    def test_generate_local_passes_max_tokens(self, monkeypatch):
+        """max_tokens is forwarded to the model call."""
+        captured: dict = {}
+        client = LlamaClient(model_path="/fake/model.gguf")
+
+        def fake_model(prompt, **kwargs):
+            captured.update(kwargs)
+            return {"choices": [{"text": "ok"}]}
+
+        monkeypatch.setattr(client, "_get_or_load_model", lambda: fake_model)
+        client.generate("test", max_tokens=64)
+        assert captured.get("max_tokens") == 64
+
+    def test_generate_local_with_seed(self, monkeypatch):
+        """A non-negative seed is forwarded to the local model."""
+        captured: dict = {}
+        client = LlamaClient(model_path="/fake/model.gguf", seed=7)
+
+        def fake_model(prompt, **kwargs):
+            captured.update(kwargs)
+            return {"choices": [{"text": "ok"}]}
+
+        monkeypatch.setattr(client, "_get_or_load_model", lambda: fake_model)
+        client.generate("test")
+        assert captured.get("seed") == 7
+
+    def test_generate_local_json_mode_grammar_import_error(self, monkeypatch):
+        """When llama_cpp.LlamaGrammar is unavailable, generation still works."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def _fail_llama_grammar(name, *args, **kwargs):
+            if name == "llama_cpp":
+                raise ImportError("llama_cpp not available")
+            return real_import(name, *args, **kwargs)
+
+        client = LlamaClient(model_path="/fake/model.gguf", json_mode=True)
+        fake_model = self._fake_model("{}")
+        monkeypatch.setattr(client, "_get_or_load_model", lambda: fake_model)
+        monkeypatch.setattr(builtins, "__import__", _fail_llama_grammar)
+
+        result = client.generate("test")
+        assert result == "{}"
+
+    def test_get_or_load_model_raises_if_llama_cpp_missing(self, monkeypatch):
+        """_get_or_load_model raises ImportError when llama-cpp-python is absent."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def _fail_llama(name, *args, **kwargs):
+            if name == "llama_cpp":
+                raise ImportError("not installed")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", _fail_llama)
+
+        client = LlamaClient(model_path="/fake/model.gguf")
+        client._local_model = None  # ensure not cached
+        with pytest.raises(ImportError, match="llama-cpp-python"):
+            client._get_or_load_model()
+
+    def test_generate_local_empty_choices(self, monkeypatch):
+        """An empty choices list returns an empty string gracefully."""
+        client = LlamaClient(model_path="/fake/model.gguf")
+
+        def fake_model(prompt, **kwargs):
+            return {"choices": []}
+
+        monkeypatch.setattr(client, "_get_or_load_model", lambda: fake_model)
+        result = client.generate("test")
+        assert result == ""
+
+
 class TestJsonGrammar:
     """Verify the JSON GBNF grammar string is well-formed."""
 

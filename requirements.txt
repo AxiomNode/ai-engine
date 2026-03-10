@@ -1,6 +1,12 @@
-# Runtime dependencies
-# (add LLM / vector-store libraries here as needed, e.g. openai, chromadb, langchain)
-
-# Development / testing
-pytest>=7.4
-pytest-cov>=4.1
+# This file is intentionally minimal.
+# All runtime and optional dependencies are managed via pyproject.toml extras.
+# Install with one of:
+#   pip install -e .            (core only)
+#   pip install -e ".[dev]"      (development tools)
+#   pip install -e ".[rag]"      (RAG + embeddings)
+#   pip install -e ".[llm]"      (local LLM inference)
+#   pip install -e ".[games]"    (game generation)
+#   pip install -e ".[api]"      (observability FastAPI)
+#
+# See pyproject.toml [project.optional-dependencies] for the full list.
+requests>=2.30

@@ -1,4 +1,5 @@
-import json
+"""Tests for RAGPipeline.generate() – JSON extraction from LLM output."""
+
 
 from ai_engine.rag.document import Document
 from ai_engine.rag.pipeline import RAGPipeline
@@ -7,13 +8,16 @@ from ai_engine.rag.embedder import Embedder
 
 
 class DummyEmbedder(Embedder):
-    def embed_text(self, text: str):
+    """Embedder that returns a fixed vector."""
+
+    def embed_text(self, text: str) -> list[float]:
         return [1.0, 0.0, 0.0]
 
 
 class MockLLM:
-    def generate(self, prompt: str, max_tokens: int = 256):
-        # Return some chain-of-thought text followed by strict JSON
+    """Mock LLM that returns chain-of-thought followed by JSON."""
+
+    def generate(self, prompt: str, max_tokens: int = 256, **kwargs: object) -> str:
         return "Thinking step 1...\nThinking step 2...\n\n{" + '"title": "TestGame", "questions": []}'
 
 

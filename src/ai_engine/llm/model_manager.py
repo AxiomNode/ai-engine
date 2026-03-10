@@ -1,18 +1,19 @@
 """Model management utilities – download, verify, and locate GGUF models.
 
 The recommended model for structured JSON educational-game generation is
-**Phi-3.5-mini-instruct** (GGUF Q4_K_M, ~2.4 GB):
+**Qwen2.5-7B-Instruct** (GGUF Q4_K_M, ~4.8 GB):
 
-- Strong instruction-following and structured output.
-- MIT licence — free for commercial use.
-- Fits comfortably in 8 GB RAM (CPU) or a modest GPU.
+- Best Spanish language quality among local <10 B models.
+- Excellent structured JSON output with GBNF grammar constraints.
+- Higher factual accuracy than 3 B variants — critical for educational content.
+- Apache-2.0 licence — free for commercial use.
+- Requires ~5.5 GB peak RAM; fits on an 8 GB GPU or modern CPU.
 """
 
 from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,20 @@ logger = logging.getLogger(__name__)
 # ------------------------------------------------------------------
 
 MODELS: dict[str, dict[str, Any]] = {
+    "qwen2.5-7b": {
+        "filename": "Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+        "url": (
+            "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF"
+            "/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+        ),
+        "size_mb": 4800,
+        "description": (
+            "Qwen2.5-7B-Instruct Q4_K_M – recommended for AxiomNode. "
+            "Best Spanish quality + JSON fidelity among local models. ~4.8 GB download."
+        ),
+        "n_ctx": 4096,
+        "sha256": None,  # Optional; set to enable integrity check.
+    },
     "phi-3.5-mini": {
         "filename": "Phi-3.5-mini-instruct-Q4_K_M.gguf",
         "url": (
@@ -34,11 +49,11 @@ MODELS: dict[str, dict[str, Any]] = {
         ),
         "size_mb": 2390,
         "description": (
-            "Phi-3.5-mini-instruct Q4_K_M – 3.8 B params, great for "
-            "structured JSON generation. ~2.4 GB download."
+            "Phi-3.5-mini-instruct Q4_K_M – 3.8 B params, lightweight fallback "
+            "for structured JSON generation. ~2.4 GB download."
         ),
         "n_ctx": 4096,
-        "sha256": None,  # Optional; set to enable integrity check.
+        "sha256": None,
     },
     "qwen2.5-3b": {
         "filename": "Qwen2.5-3B-Instruct-Q4_K_M.gguf",
@@ -48,25 +63,24 @@ MODELS: dict[str, dict[str, Any]] = {
         ),
         "size_mb": 2050,
         "description": (
-            "Qwen 2.5 3B Instruct Q4_K_M – strong multilingual, "
-            "good JSON output. ~2 GB download."
+            "Qwen2.5-3B-Instruct Q4_K_M – ultra-light fallback, "
+            "multilingual, acceptable JSON output. ~2 GB download."
         ),
         "n_ctx": 4096,
         "sha256": None,
     },
 }
 
-DEFAULT_MODEL = "phi-3.5-mini"
-
-# Default directory: <project_root>/models/
-_DEFAULT_DIR = Path(__file__).resolve().parent.parent.parent.parent / "models"
+DEFAULT_MODEL = "qwen2.5-7b"
 
 
 def get_models_dir() -> Path:
     """Return the models directory, respecting the ``AI_ENGINE_MODELS_DIR``
     env variable.  Creates the directory if it does not exist.
     """
-    d = Path(os.environ.get("AI_ENGINE_MODELS_DIR", str(_DEFAULT_DIR)))
+    from ai_engine.config import get_settings  # local import avoids circular deps
+
+    d = Path(get_settings().models_dir)
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -138,8 +152,12 @@ def download_model(
                     downloaded += len(chunk)
                     if total:
                         pct = downloaded * 100 // total
-                        print(f"\r  {pct}% ({downloaded // (1024*1024)} MB / {total // (1024*1024)} MB)", end="", flush=True)
-            print()  # newline after progress
+                        logger.info(
+                            "  %d%% (%d MB / %d MB)",
+                            pct,
+                            downloaded // (1024 * 1024),
+                            total // (1024 * 1024),
+                        )
     except Exception:
         if tmp.exists():
             tmp.unlink()

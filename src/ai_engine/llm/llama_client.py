@@ -16,7 +16,6 @@ At least one of ``api_url`` or ``model_path`` must be provided.
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Any
 
 import requests

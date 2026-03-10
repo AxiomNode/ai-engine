@@ -1,0 +1,154 @@
+"""Tests for the FastAPI observability API endpoints."""
+
+from __future__ import annotations
+
+import pytest
+
+try:
+    from fastapi.testclient import TestClient
+
+    _HAS_FASTAPI = True
+except ImportError:
+    _HAS_FASTAPI = False
+
+from ai_engine.observability.collector import StatsCollector
+
+pytestmark = pytest.mark.skipif(not _HAS_FASTAPI, reason="fastapi not installed")
+
+
+def _make_client() -> tuple["TestClient", StatsCollector]:
+    """Create a fresh TestClient + collector pair."""
+    from ai_engine.observability.api import create_app
+
+    collector = StatsCollector()
+    app = create_app(collector)
+    return TestClient(app), collector
+
+
+class TestHealthEndpoint:
+    """Tests for GET /health."""
+
+    def test_health_returns_ok(self) -> None:
+        """Health check returns status ok."""
+        client, _ = _make_client()
+        resp = client.get("/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert "uptime_seconds" in data
+
+    def test_health_event_count(self) -> None:
+        """Health reports event count."""
+        client, collector = _make_client()
+        collector.record_call(prompt="p", response="r", latency_ms=1.0, max_tokens=64)
+        resp = client.get("/health")
+        assert resp.json()["total_events"] == 1
+
+
+class TestStatsEndpoint:
+    """Tests for GET /stats."""
+
+    def test_empty_stats(self) -> None:
+        """Returns zeros when nothing has been recorded."""
+        client, _ = _make_client()
+        resp = client.get("/stats")
+        assert resp.status_code == 200
+        assert resp.json()["total_calls"] == 0
+
+    def test_stats_after_recording(self) -> None:
+        """Returns proper aggregates after recording events."""
+        client, collector = _make_client()
+        collector.record_call(prompt="p", response="r", latency_ms=10.0, max_tokens=64, game_type="quiz")
+        collector.record_call(prompt="p", response="r", latency_ms=20.0, max_tokens=64, game_type="quiz")
+        resp = client.get("/stats")
+        data = resp.json()
+        assert data["total_calls"] == 2
+        assert data["avg_latency_ms"] == 15.0
+        assert data["game_type_counts"]["quiz"] == 2
+
+
+class TestHistoryEndpoint:
+    """Tests for GET /stats/history."""
+
+    def test_empty_history(self) -> None:
+        """Returns empty list when no events exist."""
+        client, _ = _make_client()
+        resp = client.get("/stats/history")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_history_returns_events(self) -> None:
+        """Returns recorded events."""
+        client, collector = _make_client()
+        collector.record_call(prompt="p", response="r", latency_ms=5.0, max_tokens=64)
+        resp = client.get("/stats/history")
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["latency_ms"] == 5.0
+
+    def test_history_last_n(self) -> None:
+        """last_n query parameter limits results."""
+        client, collector = _make_client()
+        for i in range(5):
+            collector.record_call(prompt="p", response="r", latency_ms=float(i), max_tokens=64)
+        resp = client.get("/stats/history", params={"last_n": 2})
+        data = resp.json()
+        assert len(data) == 2
+        assert data[0]["latency_ms"] == 3.0
+
+
+class TestResetEndpoint:
+    """Tests for POST /stats/reset."""
+
+    def test_reset_clears_stats(self) -> None:
+        """Reset endpoint clears all events."""
+        client, collector = _make_client()
+        collector.record_call(prompt="p", response="r", latency_ms=1.0, max_tokens=64)
+        resp = client.post("/stats/reset")
+        assert resp.status_code == 200
+        assert len(collector) == 0
+
+
+# ------------------------------------------------------------------
+# API Key authentication (observability API)
+# ------------------------------------------------------------------
+
+class TestObsAPIKeyAuth:
+    """Tests for X-API-Key authentication on the observability API."""
+
+    def _make_secured_client(self, api_key: str = "obs-secret") -> "TestClient":
+        """Return a TestClient with API key enforcement enabled."""
+        import os
+
+        from ai_engine.observability.api import create_app
+
+        os.environ["AI_ENGINE_API_KEY"] = api_key
+        try:
+            app = create_app(StatsCollector())
+        finally:
+            del os.environ["AI_ENGINE_API_KEY"]
+        return TestClient(app, raise_server_exceptions=False)
+
+    def test_no_key_required_when_env_not_set(self) -> None:
+        """All requests pass through when AI_ENGINE_API_KEY is not set."""
+        client, _ = _make_client()
+        resp = client.get("/health")
+        assert resp.status_code == 200
+
+    def test_request_without_key_returns_401(self) -> None:
+        """Missing X-API-Key returns 401 when key is configured."""
+        client = self._make_secured_client()
+        resp = client.get("/health")
+        assert resp.status_code == 401
+
+    def test_request_with_wrong_key_returns_403(self) -> None:
+        """Wrong X-API-Key returns 403."""
+        client = self._make_secured_client()
+        resp = client.get("/health", headers={"X-API-Key": "nope"})
+        assert resp.status_code == 403
+
+    def test_request_with_correct_key_passes(self) -> None:
+        """Correct X-API-Key allows the request through."""
+        client = self._make_secured_client(api_key="obs-secret")
+        resp = client.get("/health", headers={"X-API-Key": "obs-secret"})
+        assert resp.status_code == 200

@@ -1,0 +1,459 @@
+"""Tests for ai_engine.api.app – generation FastAPI endpoints.
+
+Uses the create_app() factory with injected mocks so no real LLM or
+embedding model is required during testing.
+"""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock
+
+import pytest
+
+try:
+    from fastapi.testclient import TestClient
+
+    _HAS_FASTAPI = True
+except ImportError:
+    _HAS_FASTAPI = False
+
+from ai_engine.games.schemas import GameEnvelope, QuizGame, QuizQuestion, PasapalabraGame, PasapalabraWord
+from ai_engine.observability.collector import StatsCollector
+
+pytestmark = pytest.mark.skipif(not _HAS_FASTAPI, reason="fastapi not installed")
+
+
+# ------------------------------------------------------------------
+# Helpers / Fixtures
+# ------------------------------------------------------------------
+
+def _make_quiz_envelope() -> GameEnvelope:
+    """Return a minimal valid quiz GameEnvelope for testing."""
+    return GameEnvelope(
+        game_type="quiz",
+        game=QuizGame(
+            title="Test Quiz",
+            topic="Science",
+            questions=[
+                QuizQuestion(
+                    question="What is H2O?",
+                    options=["Water", "Fire", "Air", "Earth"],
+                    correct_index=0,
+                    explanation="H2O is the chemical formula for water.",
+                )
+            ],
+        ),
+    )
+
+
+def _make_pasapalabra_envelope() -> GameEnvelope:
+    """Return a minimal valid pasapalabra GameEnvelope for testing."""
+    return GameEnvelope(
+        game_type="pasapalabra",
+        game=PasapalabraGame(
+            title="Test Rosco",
+            topic="Science",
+            words=[
+                PasapalabraWord(letter="A", hint="First letter", answer="Atom", starts_with=True)
+            ],
+        ),
+    )
+
+
+def _make_client(
+    envelope: GameEnvelope | None = None,
+    gen_side_effect: Exception | None = None,
+) -> tuple[TestClient, MagicMock, MagicMock, StatsCollector]:
+    """Build a TestClient with mocked generator and RAG pipeline.
+
+    Args:
+        envelope: The GameEnvelope the mock generator will return.
+        gen_side_effect: If set, the generator raises this exception instead.
+
+    Returns:
+        A tuple of (client, mock_generator, mock_pipeline, collector).
+    """
+    from ai_engine.api.app import create_app
+
+    mock_gen = MagicMock()
+    if gen_side_effect is not None:
+        mock_gen.generate.side_effect = gen_side_effect
+    else:
+        mock_gen.generate.return_value = envelope or _make_quiz_envelope()
+
+    mock_pipeline = MagicMock()
+    collector = StatsCollector()
+
+    app = create_app(
+        generator=mock_gen,
+        rag_pipeline=mock_pipeline,
+        collector=collector,
+    )
+    return TestClient(app), mock_gen, mock_pipeline, collector
+
+
+# ------------------------------------------------------------------
+# GET /health
+# ------------------------------------------------------------------
+
+class TestHealth:
+    """Tests for GET /health."""
+
+    def test_returns_ok_status(self) -> None:
+        """Health endpoint returns status ok."""
+        client, *_ = _make_client()
+        resp = client.get("/health")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+    def test_reports_event_count(self) -> None:
+        """Health endpoint reports zero events on a fresh collector."""
+        client, _, _, collector = _make_client()
+        assert collector is not None
+        resp = client.get("/health")
+        assert resp.json()["total_events"] == 0
+
+
+# ------------------------------------------------------------------
+# POST /generate
+# ------------------------------------------------------------------
+
+class TestGenerate:
+    """Tests for POST /generate."""
+
+    def test_generate_quiz_success(self) -> None:
+        """Successful quiz generation returns 200 with game data."""
+        client, mock_gen, *_ = _make_client()
+        resp = client.post(
+            "/generate",
+            json={"query": "water cycle", "topic": "Science"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["game_type"] == "quiz"
+        assert "title" in data["game"]
+        assert "questions" in data["game"]
+
+    def test_generate_calls_generator_with_correct_args(self) -> None:
+        """Generator is called with all fields from the request."""
+        client, mock_gen, *_ = _make_client()
+        client.post(
+            "/generate",
+            json={
+                "query": "photosynthesis",
+                "topic": "Biology",
+                "game_type": "true_false",
+                "language": "en",
+                "num_questions": 3,
+                "max_tokens": 512,
+            },
+        )
+        call_kwargs = mock_gen.generate.call_args.kwargs
+        assert call_kwargs["query"] == "photosynthesis"
+        assert call_kwargs["topic"] == "Biology"
+        assert call_kwargs["game_type"] == "true_false"
+        assert call_kwargs["language"] == "en"
+        assert call_kwargs["num_questions"] == 3
+        assert call_kwargs["max_tokens"] == 512
+
+    def test_generate_pasapalabra(self) -> None:
+        """Pasapalabra game type is handled correctly."""
+        client, *_ = _make_client(envelope=_make_pasapalabra_envelope())
+        resp = client.post(
+            "/generate",
+            json={"query": "chemistry", "topic": "Science", "game_type": "pasapalabra"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["game_type"] == "pasapalabra"
+
+    def test_generate_missing_required_fields_returns_422(self) -> None:
+        """Missing required fields returns HTTP 422 Unprocessable Entity."""
+        client, *_ = _make_client()
+        # Missing 'topic'
+        resp = client.post("/generate", json={"query": "water"})
+        assert resp.status_code == 422
+
+    def test_generate_invalid_num_questions_returns_422(self) -> None:
+        """num_questions out of range (>50) returns HTTP 422."""
+        client, *_ = _make_client()
+        resp = client.post(
+            "/generate",
+            json={"query": "water", "topic": "Science", "num_questions": 100},
+        )
+        assert resp.status_code == 422
+
+    def test_generate_llm_value_error_returns_422(self) -> None:
+        """ValueError from the generator (bad LLM output) maps to HTTP 422."""
+        client, *_ = _make_client(gen_side_effect=ValueError("Failed to extract JSON"))
+        resp = client.post("/generate", json={"query": "water", "topic": "Science"})
+        assert resp.status_code == 422
+        assert "Failed to extract JSON" in resp.json()["detail"]
+
+    def test_generate_uses_default_language_es(self) -> None:
+        """Default language is Spanish when not specified."""
+        client, mock_gen, *_ = _make_client()
+        client.post("/generate", json={"query": "w", "topic": "Science"})
+        assert mock_gen.generate.call_args.kwargs["language"] == "es"
+
+
+# ------------------------------------------------------------------
+# POST /ingest
+# ------------------------------------------------------------------
+
+class TestIngest:
+    """Tests for POST /ingest."""
+
+    def test_ingest_single_document(self) -> None:
+        """Single document is ingested and count is returned."""
+        client, _, mock_pipeline, _ = _make_client()
+        resp = client.post(
+            "/ingest",
+            json={"documents": [{"content": "Water is H2O.", "doc_id": "doc-1"}]},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["ingested"] == 1
+        mock_pipeline.ingest.assert_called_once()
+
+    def test_ingest_multiple_documents(self) -> None:
+        """Multiple documents are ingested in a single call."""
+        client, _, mock_pipeline, _ = _make_client()
+        resp = client.post(
+            "/ingest",
+            json={
+                "documents": [
+                    {"content": "Water is H2O.", "doc_id": "doc-1"},
+                    {"content": "Plants use sunlight.", "doc_id": "doc-2"},
+                    {"content": "Stars are nuclear reactors.", "doc_id": "doc-3"},
+                ]
+            },
+        )
+        assert resp.json()["ingested"] == 3
+
+    def test_ingest_empty_list(self) -> None:
+        """Empty document list returns zero ingested and pipeline is not called."""
+        client, _, mock_pipeline, _ = _make_client()
+        resp = client.post("/ingest", json={"documents": []})
+        assert resp.status_code == 200
+        assert resp.json()["ingested"] == 0
+
+    def test_ingest_document_without_doc_id(self) -> None:
+        """Documents without doc_id are accepted (doc_id is optional)."""
+        client, _, mock_pipeline, _ = _make_client()
+        resp = client.post(
+            "/ingest",
+            json={"documents": [{"content": "No ID document."}]},
+        )
+        assert resp.status_code == 200
+
+    def test_ingest_document_with_metadata(self) -> None:
+        """Documents with metadata are ingested without error."""
+        client, _, mock_pipeline, _ = _make_client()
+        resp = client.post(
+            "/ingest",
+            json={
+                "documents": [
+                    {
+                        "content": "Chapter content.",
+                        "doc_id": "chap-1",
+                        "metadata": {"source": "book.pdf", "page": 5},
+                    }
+                ]
+            },
+        )
+        assert resp.status_code == 200
+
+
+# ------------------------------------------------------------------
+# GET /stats and GET /stats/history
+# ------------------------------------------------------------------
+
+class TestStats:
+    """Tests for GET /stats and GET /stats/history."""
+
+    def test_stats_empty_on_fresh_collector(self) -> None:
+        """Stats returns zeros when no events have been recorded."""
+        client, *_ = _make_client()
+        resp = client.get("/stats")
+        assert resp.status_code == 200
+        assert resp.json()["total_calls"] == 0
+
+    def test_stats_after_recording_event(self) -> None:
+        """Stats reflect recorded events."""
+        client, _, _, collector = _make_client()
+        collector.record_call(
+            prompt="test", response="ok", latency_ms=100.0, max_tokens=512, game_type="quiz"
+        )
+        resp = client.get("/stats")
+        data = resp.json()
+        assert data["total_calls"] == 1
+        assert data["game_type_counts"]["quiz"] == 1
+
+    def test_history_empty_on_fresh_collector(self) -> None:
+        """History returns empty list when no events have been recorded."""
+        client, *_ = _make_client()
+        resp = client.get("/stats/history")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_history_last_n_filter(self) -> None:
+        """last_n query parameter limits the number of history events returned."""
+        client, _, _, collector = _make_client()
+        for i in range(5):
+            collector.record_call(
+                prompt=f"p{i}", response="r", latency_ms=10.0, max_tokens=64
+            )
+        resp = client.get("/stats/history?last_n=2")
+        assert len(resp.json()) == 2
+
+    def test_history_invalid_last_n_returns_422(self) -> None:
+        """last_n=0 is rejected with HTTP 422 (ge=1 constraint)."""
+        client, *_ = _make_client()
+        resp = client.get("/stats/history?last_n=0")
+        assert resp.status_code == 422
+
+
+# ------------------------------------------------------------------
+# API Key authentication
+# ------------------------------------------------------------------
+
+class TestAPIKeyAuth:
+    """Tests for X-API-Key header authentication (generation API)."""
+
+    def _make_secured_client(
+        self,
+        api_key: str = "secret-key",
+    ) -> tuple["TestClient", MagicMock]:
+        """Return a TestClient whose app has API key enforcement enabled."""
+        import os
+
+        from ai_engine.api.app import create_app
+
+        mock_gen = MagicMock()
+        mock_gen.generate.return_value = _make_quiz_envelope()
+        mock_pipeline = MagicMock()
+
+        os.environ["AI_ENGINE_API_KEY"] = api_key
+        try:
+            app = create_app(
+                generator=mock_gen,
+                rag_pipeline=mock_pipeline,
+                collector=StatsCollector(),
+            )
+        finally:
+            del os.environ["AI_ENGINE_API_KEY"]
+
+        return TestClient(app, raise_server_exceptions=False), mock_gen
+
+    def test_no_key_required_when_env_not_set(self) -> None:
+        """When AI_ENGINE_API_KEY is unset, all requests pass through."""
+        client, *_ = _make_client()
+        resp = client.get("/health")
+        assert resp.status_code == 200
+
+    def test_request_without_key_returns_401(self) -> None:
+        """A request without X-API-Key is rejected with 401 when key is configured."""
+        client, _ = self._make_secured_client()
+        resp = client.get("/health")
+        assert resp.status_code == 401
+
+    def test_request_with_wrong_key_returns_403(self) -> None:
+        """A request with an incorrect API key is rejected with 403."""
+        client, _ = self._make_secured_client()
+        resp = client.get("/health", headers={"X-API-Key": "wrong-key"})
+        assert resp.status_code == 403
+
+    def test_request_with_correct_key_passes(self) -> None:
+        """A request with the correct API key is accepted."""
+        client, _ = self._make_secured_client(api_key="valid-key")
+        resp = client.get("/health", headers={"X-API-Key": "valid-key"})
+        assert resp.status_code == 200
+
+    def test_generate_protected_without_key(self) -> None:
+        """POST /generate is blocked when the API key is missing."""
+        client, _ = self._make_secured_client()
+        resp = client.post("/generate", json={"query": "water", "topic": "Science"})
+        assert resp.status_code == 401
+
+    def test_generate_succeeds_with_correct_key(self) -> None:
+        """POST /generate succeeds with the correct API key."""
+        client, _ = self._make_secured_client(api_key="mykey")
+        resp = client.post(
+            "/generate",
+            json={"query": "water", "topic": "Science"},
+            headers={"X-API-Key": "mykey"},
+        )
+        assert resp.status_code == 200
+
+
+# ------------------------------------------------------------------
+# 503 – uninitialised state
+# ------------------------------------------------------------------
+
+
+class TestUninitialised:
+    """Endpoints return 503 when the generator or pipeline are missing."""
+
+    def test_generate_returns_503_when_generator_is_none(self) -> None:
+        """POST /generate returns 503 if app.state.generator is None."""
+        from ai_engine.api.app import create_app
+
+        mock_gen = MagicMock()
+        mock_pipeline = MagicMock()
+        app = create_app(generator=mock_gen, rag_pipeline=mock_pipeline)
+
+        client = TestClient(app)
+        # Trigger lifespan startup with a harmless request.
+        client.get("/health")
+        # Nullify the generator to simulate missing component.
+        app.state.generator = None
+
+        resp = client.post(
+            "/generate", json={"query": "water", "topic": "Science"}
+        )
+        assert resp.status_code == 503
+        assert "not initialised" in resp.json()["detail"].lower()
+
+    def test_ingest_returns_503_when_pipeline_is_none(self) -> None:
+        """POST /ingest returns 503 if app.state.rag_pipeline is None."""
+        from ai_engine.api.app import create_app
+
+        mock_gen = MagicMock()
+        mock_pipeline = MagicMock()
+        app = create_app(generator=mock_gen, rag_pipeline=mock_pipeline)
+
+        client = TestClient(app)
+        client.get("/health")
+        app.state.rag_pipeline = None
+
+        resp = client.post(
+            "/ingest",
+            json={"documents": [{"content": "Water is H2O.", "doc_id": "d1"}]},
+        )
+        assert resp.status_code == 503
+        assert "not initialised" in resp.json()["detail"].lower()
+
+
+# ------------------------------------------------------------------
+# _build_from_env – RuntimeError when no LLM backend configured
+# ------------------------------------------------------------------
+
+
+class TestBuildFromEnv:
+    """_build_from_env raises RuntimeError when no LLM backend is configured."""
+
+    def test_raises_runtime_error_when_both_env_vars_absent(
+        self, monkeypatch
+    ) -> None:
+        """RuntimeError raised when neither AI_ENGINE_LLAMA_URL nor
+        AI_ENGINE_MODEL_PATH are set."""
+        import sys
+
+        monkeypatch.delenv("AI_ENGINE_LLAMA_URL", raising=False)
+        monkeypatch.delenv("AI_ENGINE_MODEL_PATH", raising=False)
+        # Reload config to pick up cleared env.
+        sys.modules.pop("ai_engine.config", None)
+
+        from ai_engine.api.app import _build_from_env
+
+        with pytest.raises(RuntimeError, match="AI_ENGINE_LLAMA_URL"):
+            _build_from_env()
