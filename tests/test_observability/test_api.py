@@ -141,6 +141,7 @@ class TestMetricsEndpoint:
         assert "ai_engine_total_calls" in body
         assert "ai_engine_cache_hit_rate" in body
         assert 'ai_engine_game_type_calls{game_type="quiz"}' in body
+        assert "ai_engine_generation_outcome_by_game_type_total" in body
 
 
 # ------------------------------------------------------------------

@@ -8,6 +8,7 @@ from ai_engine.observability.collector import (
     GenerationEvent,
     StatsCollector,
     _percentile,
+    summary_to_prometheus,
 )
 
 # ------------------------------------------------------------------
@@ -236,6 +237,103 @@ class TestStatsCollector:
         assert s["db_writes_total"] == 1
         assert s["language_counts"]["en"] == 1
         assert s["language_counts"]["es"] == 1
+
+    def test_summary_includes_generation_outcomes_and_backend_counters(self) -> None:
+        """Generation-specific outcome/backend/correlation counters are aggregated."""
+        c = StatsCollector()
+        c.record_call(
+            prompt="ok",
+            response="ok",
+            latency_ms=5.0,
+            max_tokens=64,
+            success=True,
+            game_type="quiz",
+            metadata={
+                "event_type": "generation",
+                "game_type": "quiz",
+                "language": "es",
+                "persistent_backend": "redis",
+                "persistent_fallback_used": False,
+                "correlation_id": "cid-1",
+            },
+        )
+        c.record_call(
+            prompt="fail",
+            response="",
+            latency_ms=7.0,
+            max_tokens=64,
+            success=False,
+            game_type="quiz",
+            metadata={
+                "event_type": "generation",
+                "game_type": "quiz",
+                "language": "es",
+                "persistent_backend": "redis",
+                "persistent_fallback_used": True,
+                "persistent_error": "write_error",
+                "correlation_id": "cid-1",
+            },
+        )
+
+        s = c.summary()
+        assert s["generation_outcome_by_game_type"]["quiz"]["success"] == 1
+        assert s["generation_outcome_by_game_type"]["quiz"]["failure"] == 1
+        assert s["generation_outcome_by_language"]["es"]["success"] == 1
+        assert s["generation_outcome_by_language"]["es"]["failure"] == 1
+        assert s["persistent_backend_counts"]["redis"] == 2
+        assert s["persistent_fallback_total"] == 1
+        assert s["persistent_error_counts"]["write_error"] == 1
+        assert s["correlation_id_counts"]["cid-1"] == 2
+
+    def test_prometheus_includes_extended_generation_and_cache_runtime_metrics(
+        self,
+    ) -> None:
+        """Prometheus formatter includes new labeled counters and saturation gauges."""
+        summary = {
+            "total_calls": 1,
+            "successful_calls": 1,
+            "failed_calls": 0,
+            "success_rate": 1.0,
+            "cache_hit_rate": 0.5,
+            "avg_latency_ms": 10.0,
+            "avg_rag_latency_ms": 3.0,
+            "avg_llm_latency_ms": 5.0,
+            "avg_parse_latency_ms": 1.0,
+            "kbd_hits_total": 1,
+            "db_reads_total": 1,
+            "db_writes_total": 1,
+            "game_type_counts": {"quiz": 1},
+            "language_counts": {"es": 1},
+            "event_type_counts": {"generation": 1},
+            "cache_layer_counts": {"memory": 1},
+            "generation_outcome_by_game_type": {"quiz": {"success": 1}},
+            "generation_outcome_by_language": {"es": {"success": 1}},
+            "persistent_backend_counts": {"tinydb": 1},
+            "persistent_fallback_total": 1,
+            "persistent_error_counts": {"read_error": 1},
+            "correlation_id_counts": {"cid-abc": 1},
+            "cache_runtime": {
+                "memory_entries": 5,
+                "memory_max_entries": 10,
+                "memory_saturation_ratio": 0.5,
+                "persistent_entries": 3,
+            },
+        }
+
+        text = summary_to_prometheus(summary)
+        assert (
+            'ai_engine_generation_outcome_by_game_type_total{game_type="quiz",outcome="success"} 1'
+            in text
+        )
+        assert (
+            'ai_engine_generation_outcome_by_language_total{language="es",outcome="success"} 1'
+            in text
+        )
+        assert 'ai_engine_persistent_backend_calls{backend="tinydb"} 1' in text
+        assert "ai_engine_persistent_fallback_total 1" in text
+        assert 'ai_engine_persistent_error_total{error_type="read_error"} 1' in text
+        assert 'ai_engine_correlation_id_calls{correlation_id="cid-abc"} 1' in text
+        assert "ai_engine_cache_memory_saturation_ratio 0.5" in text
 
     def test_cache_metrics_ignore_non_generation_events(self) -> None:
         """cache_hit_rate only considers generation-classified events."""

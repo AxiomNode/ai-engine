@@ -79,6 +79,11 @@ class _LRUCache:
         with self._lock:
             return len(self._items)
 
+    @property
+    def max_entries(self) -> int:
+        """Return configured maximum number of in-memory entries."""
+        return self._max_entries
+
 
 class GenerationOptimizationService:
     """Optimized generation orchestrator with cache, KBD and fine telemetry.
@@ -172,7 +177,12 @@ class GenerationOptimizationService:
                     )
                 )
 
-    def generate(self, req: GenerateRequest) -> OptimizationResult:
+    def generate(
+        self,
+        req: GenerateRequest,
+        *,
+        correlation_id: str | None = None,
+    ) -> OptimizationResult:
         """Generate content with cache-aware strategy and SDK conversion."""
         started = time.perf_counter()
         metrics: dict[str, Any] = {
@@ -199,6 +209,8 @@ class GenerationOptimizationService:
             "rag_docs_retrieved": 0,
             "orchestration_engine": "native-ai-engine",
         }
+        if correlation_id:
+            metrics["correlation_id"] = correlation_id
 
         key = self._cache_key(req)
 
@@ -314,6 +326,14 @@ class GenerationOptimizationService:
         memory_entries = (
             len(self._memory_cache) if self._memory_cache is not None else 0
         )
+        memory_max_entries = (
+            self._memory_cache.max_entries if self._memory_cache is not None else 0
+        )
+        memory_saturation_ratio = (
+            round(memory_entries / memory_max_entries, 4)
+            if memory_max_entries > 0
+            else 0.0
+        )
         with self._persistent_lock:
             persistent_entries = len(self._persistent_cache_ids)
             if self._redis_cache is not None:
@@ -328,6 +348,8 @@ class GenerationOptimizationService:
                     persistent_entries = 0
         return {
             "memory_entries": memory_entries,
+            "memory_max_entries": memory_max_entries,
+            "memory_saturation_ratio": memory_saturation_ratio,
             "persistent_entries": persistent_entries,
             "memory_enabled": self._memory_cache is not None,
             "persistent_enabled": self._persistent_backend != "none",

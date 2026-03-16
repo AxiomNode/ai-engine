@@ -193,6 +193,12 @@ class StatsCollector:
                 "db_reads_total": 0,
                 "db_writes_total": 0,
                 "language_counts": {},
+                "generation_outcome_by_game_type": {},
+                "generation_outcome_by_language": {},
+                "persistent_backend_counts": {},
+                "persistent_fallback_total": 0,
+                "persistent_error_counts": {},
+                "correlation_id_counts": {},
             }
 
         total = len(events)
@@ -212,6 +218,12 @@ class StatsCollector:
         db_reads_total = 0
         db_writes_total = 0
         language_counts: dict[str, int] = {}
+        generation_outcome_by_game_type: dict[str, dict[str, int]] = {}
+        generation_outcome_by_language: dict[str, dict[str, int]] = {}
+        persistent_backend_counts: dict[str, int] = {}
+        persistent_fallback_total = 0
+        persistent_error_counts: dict[str, int] = {}
+        correlation_id_counts: dict[str, int] = {}
 
         for e in events:
             if e.game_type:
@@ -233,6 +245,42 @@ class StatsCollector:
 
                 layer = str(meta.get("cache_layer", "none"))
                 cache_layer_counts[layer] = cache_layer_counts.get(layer, 0) + 1
+
+                outcome = "success" if e.success else "failure"
+                game_label = str(meta.get("game_type", e.game_type or "unknown"))
+                language_label = str(meta.get("language", "unknown"))
+
+                game_bucket = generation_outcome_by_game_type.setdefault(
+                    game_label,
+                    {"success": 0, "failure": 0},
+                )
+                game_bucket[outcome] += 1
+
+                language_bucket = generation_outcome_by_language.setdefault(
+                    language_label,
+                    {"success": 0, "failure": 0},
+                )
+                language_bucket[outcome] += 1
+
+                backend = str(meta.get("persistent_backend", "none"))
+                persistent_backend_counts[backend] = (
+                    persistent_backend_counts.get(backend, 0) + 1
+                )
+
+                if bool(meta.get("persistent_fallback_used", False)):
+                    persistent_fallback_total += 1
+
+                persistent_error = str(meta.get("persistent_error", "")).strip()
+                if persistent_error:
+                    persistent_error_counts[persistent_error] = (
+                        persistent_error_counts.get(persistent_error, 0) + 1
+                    )
+
+                correlation_id = str(meta.get("correlation_id", "")).strip()
+                if correlation_id:
+                    correlation_id_counts[correlation_id] = (
+                        correlation_id_counts.get(correlation_id, 0) + 1
+                    )
 
             rag_ms = meta.get("rag_latency_ms")
             if isinstance(rag_ms, (int, float)):
@@ -302,6 +350,12 @@ class StatsCollector:
             "db_reads_total": db_reads_total,
             "db_writes_total": db_writes_total,
             "language_counts": language_counts,
+            "generation_outcome_by_game_type": generation_outcome_by_game_type,
+            "generation_outcome_by_language": generation_outcome_by_language,
+            "persistent_backend_counts": persistent_backend_counts,
+            "persistent_fallback_total": persistent_fallback_total,
+            "persistent_error_counts": persistent_error_counts,
+            "correlation_id_counts": correlation_id_counts,
         }
 
     def reset(self) -> None:
@@ -402,5 +456,67 @@ def summary_to_prometheus(summary: dict[str, Any]) -> str:
         lines.append(
             f'ai_engine_cache_layer_calls{{cache_layer="{label}"}} {int(count)}'
         )
+
+    for game_type, outcomes in sorted(
+        (summary.get("generation_outcome_by_game_type") or {}).items()
+    ):
+        for outcome, count in sorted((outcomes or {}).items()):
+            lines.append(
+                "ai_engine_generation_outcome_by_game_type_total"
+                f'{{game_type="{game_type}",outcome="{outcome}"}} {int(count)}'
+            )
+
+    for language, outcomes in sorted(
+        (summary.get("generation_outcome_by_language") or {}).items()
+    ):
+        for outcome, count in sorted((outcomes or {}).items()):
+            lines.append(
+                "ai_engine_generation_outcome_by_language_total"
+                f'{{language="{language}",outcome="{outcome}"}} {int(count)}'
+            )
+
+    for backend, count in sorted(
+        (summary.get("persistent_backend_counts") or {}).items()
+    ):
+        lines.append(
+            f'ai_engine_persistent_backend_calls{{backend="{backend}"}} {int(count)}'
+        )
+
+    lines.append(
+        _metric(
+            "persistent_fallback_total",
+            int(summary.get("persistent_fallback_total", 0)),
+        )
+    )
+
+    for error_type, count in sorted(
+        (summary.get("persistent_error_counts") or {}).items()
+    ):
+        lines.append(
+            "ai_engine_persistent_error_total"
+            f'{{error_type="{error_type}"}} {int(count)}'
+        )
+
+    for correlation_id, count in sorted(
+        (summary.get("correlation_id_counts") or {}).items()
+    ):
+        lines.append(
+            "ai_engine_correlation_id_calls"
+            f'{{correlation_id="{correlation_id}"}} {int(count)}'
+        )
+
+    cache_runtime = summary.get("cache_runtime") if isinstance(summary, dict) else None
+    if isinstance(cache_runtime, dict):
+        memory_entries = int(cache_runtime.get("memory_entries", 0) or 0)
+        memory_capacity = int(cache_runtime.get("memory_max_entries", 0) or 0)
+        persistent_entries = int(cache_runtime.get("persistent_entries", 0) or 0)
+        saturation_ratio = float(
+            cache_runtime.get("memory_saturation_ratio", 0.0) or 0.0
+        )
+
+        lines.append(_metric("cache_memory_entries", memory_entries))
+        lines.append(_metric("cache_memory_capacity", memory_capacity))
+        lines.append(_metric("cache_persistent_entries", persistent_entries))
+        lines.append(_metric("cache_memory_saturation_ratio", saturation_ratio))
 
     return "\n".join(lines) + "\n"

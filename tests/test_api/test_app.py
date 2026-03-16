@@ -125,6 +125,17 @@ class TestHealth:
         resp = client.get("/health")
         assert resp.json()["total_events"] == 0
 
+    def test_includes_dependency_diagnostics(self) -> None:
+        """Health endpoint returns dependency-level diagnostics payload."""
+        client, *_ = _make_client()
+        resp = client.get("/health")
+        data = resp.json()
+        assert "dependencies" in data
+        assert data["dependencies"]["generator"]["status"] == "ready"
+        assert data["dependencies"]["rag_pipeline"]["status"] == "ready"
+        assert "cache" in data["dependencies"]
+        assert "correlation_id" in data
+
 
 # ------------------------------------------------------------------
 # POST /generate
@@ -358,6 +369,37 @@ class TestStats:
         data = resp.json()
         assert "removed_memory" in data
         assert "removed_persistent" in data
+
+    def test_metrics_endpoint_returns_prometheus_with_cache_runtime(self) -> None:
+        """/metrics returns extended Prometheus metrics including cache runtime gauges."""
+        client, *_ = _make_client()
+        client.post("/generate", json={"query": "water", "topic": "Science"})
+
+        resp = client.get("/metrics")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/plain")
+        body = resp.text
+        assert "ai_engine_total_calls" in body
+        assert "ai_engine_generation_outcome_by_game_type_total" in body
+        assert "ai_engine_cache_memory_saturation_ratio" in body
+
+    def test_correlation_id_propagates_to_response_and_history(self) -> None:
+        """Correlation ID is echoed in response header and stored in event metadata."""
+        client, *_ = _make_client()
+        correlation_id = "corr-test-123"
+
+        resp = client.post(
+            "/generate",
+            json={"query": "water", "topic": "Science"},
+            headers={"X-Correlation-ID": correlation_id},
+        )
+        assert resp.status_code == 200
+        assert resp.headers.get("X-Correlation-ID") == correlation_id
+
+        history = client.get("/stats/history?last_n=1")
+        assert history.status_code == 200
+        event = history.json()[0]
+        assert event["metadata"]["correlation_id"] == correlation_id
 
     def test_history_invalid_last_n_returns_422(self) -> None:
         """last_n=0 is rejected with HTTP 422 (ge=1 constraint)."""

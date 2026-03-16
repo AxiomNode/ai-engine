@@ -42,6 +42,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+import uuid
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -49,6 +50,7 @@ logger = logging.getLogger(__name__)
 
 try:
     from fastapi import FastAPI, HTTPException, Query, Request
+    from fastapi.responses import PlainTextResponse
 except ImportError as _imp_err:  # pragma: no cover
     raise ImportError(
         "FastAPI is required for the generation API.  "
@@ -63,7 +65,10 @@ from ai_engine.api.schemas import (  # noqa: E402
     IngestRequest,
 )
 from ai_engine.config import get_settings  # noqa: E402
-from ai_engine.observability.collector import StatsCollector  # noqa: E402
+from ai_engine.observability.collector import (  # noqa: E402
+    StatsCollector,
+    summary_to_prometheus,
+)
 
 
 def _build_from_env() -> tuple[Any, Any]:
@@ -214,6 +219,93 @@ def _enforce_generation_rate_limit(request: Request) -> None:
         raise HTTPException(status_code=429, detail="Rate limit exceeded.")
 
 
+def _get_correlation_id(request: Request) -> str:
+    """Return request correlation ID from state or fallback header/value."""
+    state_value = getattr(request.state, "correlation_id", None)
+    if isinstance(state_value, str) and state_value.strip():
+        return state_value
+    header_value = request.headers.get("X-Correlation-ID")
+    if header_value and header_value.strip():
+        return header_value.strip()
+    return uuid.uuid4().hex
+
+
+def _unwrap_generator(generator: Any) -> Any:
+    """Return wrapped raw generator instance when middleware wrappers are used."""
+    return getattr(generator, "_generator", generator)
+
+
+def _health_dependencies(request: Request) -> dict[str, Any]:
+    """Build dependency diagnostics for health endpoint responses."""
+    generator = _get_generator(request)
+    pipeline = _get_pipeline(request)
+    optimizer = _get_optimizer(request)
+
+    raw_generator = _unwrap_generator(generator) if generator is not None else None
+    llm_client = getattr(raw_generator, "llm_client", None)
+
+    if llm_client is None:
+        llm_status = {"status": "unavailable", "mode": "none", "target": None}
+    elif getattr(llm_client, "api_url", None):
+        llm_status = {
+            "status": "ready",
+            "mode": "api",
+            "target": str(getattr(llm_client, "api_url", "")),
+        }
+    elif getattr(llm_client, "model_path", None):
+        llm_status = {
+            "status": "ready",
+            "mode": "local",
+            "target": str(getattr(llm_client, "model_path", "")),
+        }
+    else:
+        llm_status = {"status": "unknown", "mode": "unknown", "target": None}
+
+    embedder = getattr(pipeline, "embedder", None) if pipeline is not None else None
+    vector_store = (
+        getattr(pipeline, "vector_store", None) if pipeline is not None else None
+    )
+
+    cache_status: dict[str, Any] = {
+        "status": "unavailable",
+        "backend": "none",
+        "memory_enabled": False,
+        "namespace": None,
+    }
+    if optimizer is not None:
+        try:
+            cache_runtime = optimizer.cache_stats()
+            cache_status = {
+                "status": "ready",
+                "backend": str(cache_runtime.get("persistent_backend", "none")),
+                "memory_enabled": bool(cache_runtime.get("memory_enabled", False)),
+                "namespace": cache_runtime.get("cache_namespace"),
+            }
+        except Exception:
+            cache_status = {
+                "status": "degraded",
+                "backend": "unknown",
+                "memory_enabled": False,
+                "namespace": None,
+            }
+
+    return {
+        "generator": {
+            "status": "ready" if generator is not None else "unavailable",
+            "type": type(raw_generator).__name__ if raw_generator is not None else None,
+        },
+        "rag_pipeline": {
+            "status": "ready" if pipeline is not None else "unavailable",
+            "embedder": type(embedder).__name__ if embedder is not None else None,
+            "vector_store": (
+                type(vector_store).__name__ if vector_store is not None else None
+            ),
+        },
+        "llm": llm_status,
+        "cache": cache_status,
+    }
+
+
 def create_app(
     generator: Any = None,
     rag_pipeline: Any = None,
@@ -313,6 +405,15 @@ def create_app(
     # Attach API key middleware when AI_ENGINE_API_KEY is set in the environment.
     add_api_key_middleware(app)
 
+    @app.middleware("http")
+    async def correlation_id_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
+        """Attach a correlation ID to every request and response."""
+        correlation_id = request.headers.get("X-Correlation-ID") or uuid.uuid4().hex
+        request.state.correlation_id = correlation_id
+        response = await call_next(request)
+        response.headers["X-Correlation-ID"] = correlation_id
+        return response
+
     # ------------------------------------------------------------------
     # Endpoints
     # ------------------------------------------------------------------
@@ -327,6 +428,8 @@ def create_app(
         return {
             "status": "ok",
             "total_events": len(_get_collector(request)),
+            "correlation_id": _get_correlation_id(request),
+            "dependencies": _health_dependencies(request),
         }
 
     @app.post("/generate", tags=["generation"])
@@ -364,8 +467,11 @@ def create_app(
         if req.force_refresh:
             req = req.model_copy(update={"use_cache": False})
 
+        correlation_id = _get_correlation_id(request)
+        logger.info("generate request correlation_id=%s", correlation_id)
+
         try:
-            result = optimizer.generate(req)
+            result = optimizer.generate(req, correlation_id=correlation_id)
             _get_collector(request).record_call(
                 prompt=req.query,
                 response=str(result.payload),
@@ -392,6 +498,7 @@ def create_app(
                     "cache_hit": False,
                     "cache_layer": "none",
                     "language": req.language,
+                    "correlation_id": correlation_id,
                 },
             )
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -412,9 +519,12 @@ def create_app(
         if req.force_refresh:
             req = req.model_copy(update={"use_cache": False})
 
+        correlation_id = _get_correlation_id(request)
+        logger.info("generate_sdk request correlation_id=%s", correlation_id)
+
         started = time.perf_counter()
         try:
-            result = optimizer.generate(req)
+            result = optimizer.generate(req, correlation_id=correlation_id)
             sdk_payload = result.sdk_payload
             _get_collector(request).record_call(
                 prompt=req.query,
@@ -452,6 +562,7 @@ def create_app(
                     "cache_hit": False,
                     "cache_layer": "none",
                     "language": req.language,
+                    "correlation_id": correlation_id,
                 },
             )
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -496,6 +607,8 @@ def create_app(
             optimizer.on_ingest(docs)
 
         elapsed_ms = (time.perf_counter() - started) * 1000
+        correlation_id = _get_correlation_id(request)
+        logger.info("ingest request correlation_id=%s", correlation_id)
         _get_collector(request).record_call(
             prompt="ingest",
             response=f"ingested={len(docs)}",
@@ -512,6 +625,7 @@ def create_app(
                 "language": "n/a",
                 "db_writes": len(docs),
                 "kbd_hits": len(docs),
+                "correlation_id": correlation_id,
             },
         )
         return {"ingested": len(docs)}
@@ -578,6 +692,15 @@ def create_app(
             A list of event dictionaries ordered oldest-first.
         """
         return _get_collector(request).history(last_n=last_n)
+
+    @app.get("/metrics", tags=["monitoring"], response_class=PlainTextResponse)
+    def get_metrics(request: Request) -> str:
+        """Return Prometheus scrape-compatible metrics with cache runtime gauges."""
+        summary = _get_collector(request).summary()
+        optimizer = _get_optimizer(request)
+        if optimizer is not None:
+            summary["cache_runtime"] = optimizer.cache_stats()
+        return summary_to_prometheus(summary)
 
     return app
 

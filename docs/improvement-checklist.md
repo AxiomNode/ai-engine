@@ -61,20 +61,20 @@ This document tracks the next improvement cycle for the ai-engine project.
 
 ## Phase 3 - Observability and Operations
 
-- [ ] N3-01 Expand Prometheus metrics coverage
+- [x] N3-01 Expand Prometheus metrics coverage
   - Scope:
     - Add generation outcome counters by game_type/language.
     - Add backend/fallback counters and cache saturation gauges.
   - Acceptance criteria:
     - New metrics are exposed and documented in metrics usage docs.
 
-- [ ] N3-02 Add health diagnostics for dependencies
+- [x] N3-02 Add health diagnostics for dependencies
   - Scope:
     - Report status of LLM endpoint, embedding model readiness, and cache backend.
   - Acceptance criteria:
     - Health endpoint includes dependency-specific diagnostics.
 
-- [ ] N3-03 Add structured logging correlation IDs
+- [x] N3-03 Add structured logging correlation IDs
   - Scope:
     - Add request correlation ID across API, optimizer, and observability events.
   - Acceptance criteria:
@@ -110,3 +110,6 @@ This document tracks the next improvement cycle for the ai-engine project.
 - 2026-03-16: N2-01 completed. Added reproducible generation-path benchmark script and committed baseline results.
 - 2026-03-16: N2-02 completed. Hardened TinyDB persistent-cache synchronization under concurrency with lock-protected operations and passing concurrency tests.
 - 2026-03-16: N2-03 completed. Added configurable fixed-window request rate limiting for generation endpoints with 429 behavior coverage.
+- 2026-03-16: N3-01 completed. Expanded Prometheus output with generation outcome counters, persistent backend/fallback counters, and cache saturation gauges.
+- 2026-03-16: N3-02 completed. Extended `/health` with dependency diagnostics for generator, RAG pipeline, LLM mode/target, and cache backend status.
+- 2026-03-16: N3-03 completed. Added request correlation ID propagation in API headers, optimizer metadata, logs, and observability event/metric outputs.
