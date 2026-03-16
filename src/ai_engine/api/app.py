@@ -26,6 +26,8 @@ injected directly):
     ``redis``.
 - ``AI_ENGINE_GENERATION_CACHE_REDIS_PREFIX`` – key prefix used for Redis
     cache entries.
+- ``AI_ENGINE_GENERATION_CACHE_NAMESPACE`` – namespace/version used for
+    cache keying and selective invalidation.
 - ``AI_ENGINE_API_KEY``         – When set, every request must include an
   ``X-API-Key`` header with this value.  Absent or incorrect keys return
   HTTP 401 / 403 respectively.  Unset means no authentication required.
@@ -211,6 +213,7 @@ def create_app(
                 app.state.generator,
                 app.state.rag_pipeline,
                 cache_backend=settings.generation_cache_backend,
+                cache_namespace=settings.generation_cache_namespace,
                 persistent_cache_path=settings.generation_cache_path,
                 redis_url=settings.generation_cache_redis_url,
                 redis_prefix=settings.generation_cache_redis_prefix,
@@ -471,12 +474,25 @@ def create_app(
         return optimizer.cache_stats()
 
     @app.post("/cache/reset", tags=["monitoring"])
-    def reset_cache(request: Request) -> dict[str, int]:
+    def reset_cache(
+        request: Request,
+        namespace: str | None = Query(
+            default=None,
+            description="Optional cache namespace/version to invalidate.",
+        ),
+        all_namespaces: bool = Query(
+            default=False,
+            description="When true, invalidate all namespaces in persistent cache.",
+        ),
+    ) -> dict[str, int]:
         """Clear in-memory and persistent generation cache entries."""
         optimizer = _get_optimizer(request)
         if optimizer is None:
             raise HTTPException(status_code=503, detail="Generator not initialised.")
-        return optimizer.reset_cache()
+        return optimizer.reset_cache(
+            namespace=namespace,
+            all_namespaces=all_namespaces,
+        )
 
     @app.get("/stats/history", tags=["monitoring"])
     def get_history(

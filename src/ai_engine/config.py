@@ -42,6 +42,9 @@ Environment variables
 ``AI_ENGINE_GENERATION_CACHE_REDIS_PREFIX``
     Redis key prefix for generation cache data structures.
 
+``AI_ENGINE_GENERATION_CACHE_NAMESPACE``
+    Cache namespace/version for key-versioning and selective invalidation.
+
 Examples:
     Basic usage::
 
@@ -79,6 +82,7 @@ class AIEngineSettings(BaseSettings):
         generation_cache_backend: Persistent cache backend (tinydb/redis).
         generation_cache_redis_url: Redis URL used by redis cache backend.
         generation_cache_redis_prefix: Key prefix for redis cache backend.
+        generation_cache_namespace: Cache namespace/version tag.
     """
 
     model_config = SettingsConfigDict(
@@ -130,6 +134,11 @@ class AIEngineSettings(BaseSettings):
         default="ai-engine:generation-cache",
         alias="AI_ENGINE_GENERATION_CACHE_REDIS_PREFIX",
         validation_alias="AI_ENGINE_GENERATION_CACHE_REDIS_PREFIX",
+    )
+    generation_cache_namespace: str = Field(
+        default="v1",
+        alias="AI_ENGINE_GENERATION_CACHE_NAMESPACE",
+        validation_alias="AI_ENGINE_GENERATION_CACHE_NAMESPACE",
     )
 
 

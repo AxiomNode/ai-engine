@@ -11,7 +11,7 @@ This document tracks the next improvement cycle for the ai-engine project.
 
 ## Phase 1 - Critical Reliability (Do First)
 
-- [ ] N1-01 Add integration tests for Redis cache backend path
+- [x] N1-01 Add integration tests for Redis cache backend path
   - Scope:
     - Validate read/write/reset behavior when Redis backend is active.
     - Validate fallback behavior when Redis is unavailable.
@@ -19,7 +19,7 @@ This document tracks the next improvement cycle for the ai-engine project.
     - Dedicated integration tests pass in CI.
     - No regression in TinyDB/in-memory behavior.
 
-- [ ] N1-02 Add cache-key versioning and invalidation strategy
+- [x] N1-02 Add cache-key versioning and invalidation strategy
   - Scope:
     - Add cache key version namespace for schema/prompt changes.
     - Add selective invalidation by prefix/version.
@@ -27,7 +27,7 @@ This document tracks the next improvement cycle for the ai-engine project.
     - Cache misses are intentional after version bump.
     - Invalidation can target a specific version namespace.
 
-- [ ] N1-03 Add resilience guards for persistent cache backend failures
+- [x] N1-03 Add resilience guards for persistent cache backend failures
   - Scope:
     - Ensure backend errors do not fail generation requests.
     - Emit explicit fallback metadata for observability.
@@ -104,3 +104,6 @@ This document tracks the next improvement cycle for the ai-engine project.
 ## Progress Log
 
 - 2026-03-16: Proposed checklist created for the next cycle.
+- 2026-03-16: N1-01 completed. Added Redis-path tests for read/write/reset behavior with fallback coverage.
+- 2026-03-16: N1-02 completed. Added cache namespace versioning and selective invalidation by namespace.
+- 2026-03-16: N1-03 completed. Added persistent backend resilience guards and fallback metadata/counters.

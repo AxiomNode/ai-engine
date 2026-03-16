@@ -72,6 +72,12 @@ class TestAIEngineSettingsDefaults:
         settings = cfg.AIEngineSettings()
         assert settings.generation_cache_backend == "tinydb"
 
+    def test_generation_cache_namespace_default(self, monkeypatch):
+        monkeypatch.delenv("AI_ENGINE_GENERATION_CACHE_NAMESPACE", raising=False)
+        cfg = _reload_config(monkeypatch)
+        settings = cfg.AIEngineSettings()
+        assert settings.generation_cache_namespace == "v1"
+
 
 # ---------------------------------------------------------------------------
 # Env-var overrides
@@ -134,6 +140,12 @@ class TestAIEngineSettingsFromEnv:
         assert settings.generation_cache_backend == "redis"
         assert settings.generation_cache_redis_url == "redis://localhost:6379/0"
         assert settings.generation_cache_redis_prefix == "ai-engine:test-cache"
+
+    def test_generation_cache_namespace_from_env(self, monkeypatch):
+        monkeypatch.setenv("AI_ENGINE_GENERATION_CACHE_NAMESPACE", "v2")
+        cfg = _reload_config(monkeypatch)
+        settings = cfg.AIEngineSettings()
+        assert settings.generation_cache_namespace == "v2"
 
 
 # ---------------------------------------------------------------------------

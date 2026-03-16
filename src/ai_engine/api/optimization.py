@@ -97,6 +97,7 @@ class GenerationOptimizationService:
         cache_max_entries: int = 2048,
         cache_ttl_seconds: int = 900,
         cache_backend: str = "tinydb",
+        cache_namespace: str = "v1",
         persistent_cache_path: str | None = None,
         redis_url: str | None = None,
         redis_prefix: str = "ai-engine:generation-cache",
@@ -112,10 +113,17 @@ class GenerationOptimizationService:
             else None
         )
         self._cache_ttl_seconds = cache_ttl_seconds
+        self._cache_namespace = cache_namespace
         self._redis_prefix = redis_prefix
         self._redis_cache = None
         self._db_cache = None
         self._persistent_backend = "none"
+        self._persistent_backend_errors = {
+            "read": 0,
+            "write": 0,
+            "delete": 0,
+            "stats": 0,
+        }
 
         if cache_backend == "redis" and _RedisClient is not None and redis_url:
             try:
@@ -167,12 +175,16 @@ class GenerationOptimizationService:
         started = time.perf_counter()
         metrics: dict[str, Any] = {
             "event_type": "generation",
+            "cache_namespace": self._cache_namespace,
             "cache_hit": False,
             "cache_layer": "none",
             "cache_reads": 0,
             "cache_writes": 0,
             "db_reads": 0,
             "db_writes": 0,
+            "persistent_backend": self._persistent_backend,
+            "persistent_fallback_used": False,
+            "persistent_error": "",
             "rag_latency_ms": 0.0,
             "llm_latency_ms": 0.0,
             "parse_latency_ms": 0.0,
@@ -206,13 +218,13 @@ class GenerationOptimizationService:
                 )
 
             metrics["cache_reads"] = 2
-            db_cached = self._read_persistent_cache(key)
+            db_cached = self._read_persistent_cache(key, metrics=metrics)
             metrics["db_reads"] += 1
             if db_cached is not None:
                 if self._memory_cache is not None:
                     self._memory_cache.set(key, db_cached)
                 metrics["cache_hit"] = True
-                metrics["cache_layer"] = "tinydb"
+                metrics["cache_layer"] = self._persistent_backend
                 metrics["total_latency_ms"] = round(
                     (time.perf_counter() - started) * 1000, 2
                 )
@@ -278,8 +290,12 @@ class GenerationOptimizationService:
             if self._memory_cache is not None:
                 self._memory_cache.set(key, cached_value)
             metrics["cache_writes"] = 1
-            self._write_persistent_cache(key, cached_value)
-            if self._db_cache is not None:
+            wrote_persistent = self._write_persistent_cache(
+                key,
+                cached_value,
+                metrics=metrics,
+            )
+            if wrote_persistent:
                 metrics["db_writes"] = 1
 
         metrics["total_latency_ms"] = round((time.perf_counter() - started) * 1000, 2)
@@ -294,40 +310,87 @@ class GenerationOptimizationService:
         )
         persistent_entries = len(self._persistent_cache_ids)
         if self._redis_cache is not None:
-            persistent_entries = int(self._redis_cache.scard(self._redis_index_key()))
+            try:
+                persistent_entries = int(
+                    self._redis_cache.scard(
+                        self._redis_index_key(self._cache_namespace)
+                    )
+                )
+            except Exception:
+                self._persistent_backend_errors["stats"] += 1
+                persistent_entries = 0
         return {
             "memory_entries": memory_entries,
             "persistent_entries": persistent_entries,
             "memory_enabled": self._memory_cache is not None,
             "persistent_enabled": self._persistent_backend != "none",
             "persistent_backend": self._persistent_backend,
+            "cache_namespace": self._cache_namespace,
             "cache_ttl_seconds": self._cache_ttl_seconds,
+            "persistent_backend_errors": dict(self._persistent_backend_errors),
         }
 
-    def reset_cache(self) -> dict[str, int]:
-        """Clear in-memory and persistent generation cache entries."""
+    def reset_cache(
+        self,
+        namespace: str | None = None,
+        all_namespaces: bool = False,
+    ) -> dict[str, int]:
+        """Clear generation cache entries.
+
+        Args:
+            namespace: Namespace version to invalidate. Defaults to current namespace.
+            all_namespaces: When True, removes all namespaces from persistent backend.
+        """
         removed_memory = 0
         removed_persistent = 0
+        target_namespace = namespace or self._cache_namespace
 
         if self._memory_cache is not None:
             removed_memory = len(self._memory_cache)
             self._memory_cache.clear()
 
         if self._redis_cache is not None:
-            cache_keys = list(self._redis_cache.smembers(self._redis_index_key()))
-            if cache_keys:
-                removed_persistent = int(self._redis_cache.delete(*cache_keys))
-            self._redis_cache.delete(self._redis_index_key())
+            try:
+                if all_namespaces:
+                    index_pattern = self._redis_index_key("*")
+                    index_keys = list(self._redis_cache.scan_iter(match=index_pattern))
+                else:
+                    index_keys = [self._redis_index_key(target_namespace)]
+
+                for index_key in index_keys:
+                    cache_keys = list(self._redis_cache.smembers(index_key))
+                    if cache_keys:
+                        removed_persistent += int(self._redis_cache.delete(*cache_keys))
+                    self._redis_cache.delete(index_key)
+            except Exception:
+                self._persistent_backend_errors["delete"] += 1
 
         if self._db_cache is not None:
-            for entry_id in list(self._persistent_cache_ids):
+            # Refresh index to include entries written by other service instances.
+            self._bootstrap_persistent_cache_index()
+            if all_namespaces:
+                entry_ids = list(self._persistent_cache_ids)
+            else:
+                entry_ids = [
+                    entry_id
+                    for entry_id in self._persistent_cache_ids
+                    if entry_id.startswith(self._cache_entry_prefix(target_namespace))
+                ]
+
+            for entry_id in entry_ids:
                 try:
                     self._db_cache.delete(entry_id)
                     removed_persistent += 1
                 except KeyError:
                     # The entry might already be absent due to manual cleanup.
                     pass
-            self._persistent_cache_ids.clear()
+                except Exception:
+                    self._persistent_backend_errors["delete"] += 1
+
+            if all_namespaces:
+                self._persistent_cache_ids.clear()
+            else:
+                self._persistent_cache_ids -= set(entry_ids)
 
         return {
             "removed_memory": removed_memory,
@@ -338,6 +401,7 @@ class GenerationOptimizationService:
         """Build a deterministic cache key from semantically relevant fields."""
         raw = json.dumps(
             {
+                "namespace": self._cache_namespace,
                 "query": req.query.strip().lower(),
                 "topic": req.topic.strip().lower(),
                 "game_type": req.game_type,
@@ -350,14 +414,27 @@ class GenerationOptimizationService:
         )
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
-    def _read_persistent_cache(self, key: str) -> dict[str, Any] | None:
+    def _read_persistent_cache(
+        self,
+        key: str,
+        *,
+        metrics: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
         if self._redis_cache is not None:
-            raw = self._redis_cache.get(self._redis_cache_key(key))
-            if raw is None:
-                return None
             try:
+                raw = self._redis_cache.get(
+                    self._redis_cache_key(self._cache_namespace, key)
+                )
+                if raw is None:
+                    return None
                 parsed = json.loads(raw)
             except json.JSONDecodeError:
+                return None
+            except Exception:
+                self._persistent_backend_errors["read"] += 1
+                if metrics is not None:
+                    metrics["persistent_fallback_used"] = True
+                    metrics["persistent_error"] = "read_error"
                 return None
             if not isinstance(parsed, dict):
                 return None
@@ -367,7 +444,14 @@ class GenerationOptimizationService:
 
         if self._db_cache is None:
             return None
-        entry = self._db_cache.get(f"cache-{key}")
+        try:
+            entry = self._db_cache.get(self._cache_entry_id(self._cache_namespace, key))
+        except Exception:
+            self._persistent_backend_errors["read"] += 1
+            if metrics is not None:
+                metrics["persistent_fallback_used"] = True
+                metrics["persistent_error"] = "read_error"
+            return None
         if entry is None:
             return None
 
@@ -385,20 +469,36 @@ class GenerationOptimizationService:
             return None
         return parsed
 
-    def _write_persistent_cache(self, key: str, value: dict[str, Any]) -> None:
+    def _write_persistent_cache(
+        self,
+        key: str,
+        value: dict[str, Any],
+        *,
+        metrics: dict[str, Any] | None = None,
+    ) -> bool:
         if self._redis_cache is not None:
-            redis_key = self._redis_cache_key(key)
-            self._redis_cache.setex(
-                redis_key,
-                self._cache_ttl_seconds,
-                json.dumps(value, ensure_ascii=True),
-            )
-            self._redis_cache.sadd(self._redis_index_key(), redis_key)
-            return
+            try:
+                redis_key = self._redis_cache_key(self._cache_namespace, key)
+                self._redis_cache.setex(
+                    redis_key,
+                    self._cache_ttl_seconds,
+                    json.dumps(value, ensure_ascii=True),
+                )
+                self._redis_cache.sadd(
+                    self._redis_index_key(self._cache_namespace),
+                    redis_key,
+                )
+                return True
+            except Exception:
+                self._persistent_backend_errors["write"] += 1
+                if metrics is not None:
+                    metrics["persistent_fallback_used"] = True
+                    metrics["persistent_error"] = "write_error"
+                return False
 
         if self._db_cache is None:
-            return
-        entry_id = f"cache-{key}"
+            return False
+        entry_id = self._cache_entry_id(self._cache_namespace, key)
         entry = KnowledgeEntry(
             entry_id=entry_id,
             title="generated-game-cache",
@@ -408,10 +508,18 @@ class GenerationOptimizationService:
                 "generate",
                 str(value.get("payload", {}).get("game_type", "unknown")),
             ],
-            metadata={"kind": "generation_cache"},
+            metadata={"kind": "generation_cache", "namespace": self._cache_namespace},
         )
-        self._db_cache.add(entry)
-        self._persistent_cache_ids.add(entry_id)
+        try:
+            self._db_cache.add(entry)
+            self._persistent_cache_ids.add(entry_id)
+            return True
+        except Exception:
+            self._persistent_backend_errors["write"] += 1
+            if metrics is not None:
+                metrics["persistent_fallback_used"] = True
+                metrics["persistent_error"] = "write_error"
+            return False
 
     def _bootstrap_persistent_cache_index(self) -> None:
         """Build the persistent cache entry index once at startup."""
@@ -425,8 +533,14 @@ class GenerationOptimizationService:
             or entry.metadata.get("kind") == "generation_cache"
         }
 
-    def _redis_cache_key(self, key: str) -> str:
-        return f"{self._redis_prefix}:entry:{key}"
+    def _cache_entry_id(self, namespace: str, key: str) -> str:
+        return f"cache-{namespace}-{key}"
 
-    def _redis_index_key(self) -> str:
-        return f"{self._redis_prefix}:index"
+    def _cache_entry_prefix(self, namespace: str) -> str:
+        return f"cache-{namespace}-"
+
+    def _redis_cache_key(self, namespace: str, key: str) -> str:
+        return f"{self._redis_prefix}:entry:{namespace}:{key}"
+
+    def _redis_index_key(self, namespace: str) -> str:
+        return f"{self._redis_prefix}:index:{namespace}"
