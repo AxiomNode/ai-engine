@@ -18,6 +18,8 @@ injected directly):
   when ``AI_ENGINE_LLAMA_URL`` is not set).
 - ``AI_ENGINE_EMBEDDING_MODEL`` – sentence-transformers model name
   (default: ``all-MiniLM-L6-v2``).
+- ``AI_ENGINE_GENERATION_CACHE_PATH`` – persistent cache file path for
+    optimized generation responses.
 - ``AI_ENGINE_API_KEY``         – When set, every request must include an
   ``X-API-Key`` header with this value.  Absent or incorrect keys return
   HTTP 401 / 403 respectively.  Unset means no authentication required.
@@ -176,6 +178,7 @@ def create_app(
         A :class:`~fastapi.FastAPI` instance ready to be served.
     """
     _collector = collector if collector is not None else StatsCollector()
+    settings = get_settings()
 
     # Store mutable references so lifespan can replace them if needed.
     _state: dict[str, Any] = {
@@ -201,7 +204,7 @@ def create_app(
             app.state.optimizer = GenerationOptimizationService(
                 app.state.generator,
                 app.state.rag_pipeline,
-                persistent_cache_path="data/generation_cache.json",
+                persistent_cache_path=settings.generation_cache_path,
             )
 
         logger.info("ai-engine generation API started.")

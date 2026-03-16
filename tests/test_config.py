@@ -60,6 +60,12 @@ class TestAIEngineSettingsDefaults:
         settings = cfg.AIEngineSettings()
         assert settings.models_dir is not None
 
+    def test_generation_cache_path_default(self, monkeypatch):
+        monkeypatch.delenv("AI_ENGINE_GENERATION_CACHE_PATH", raising=False)
+        cfg = _reload_config(monkeypatch)
+        settings = cfg.AIEngineSettings()
+        assert settings.generation_cache_path == "data/generation_cache.json"
+
 
 # ---------------------------------------------------------------------------
 # Env-var overrides
@@ -100,6 +106,14 @@ class TestAIEngineSettingsFromEnv:
         cfg = _reload_config(monkeypatch)
         settings = cfg.AIEngineSettings()
         assert settings.models_dir == "/custom/models"
+
+    def test_generation_cache_path_from_env(self, monkeypatch):
+        monkeypatch.setenv(
+            "AI_ENGINE_GENERATION_CACHE_PATH", "/tmp/ai-engine/cache.json"
+        )
+        cfg = _reload_config(monkeypatch)
+        settings = cfg.AIEngineSettings()
+        assert settings.generation_cache_path == "/tmp/ai-engine/cache.json"
 
 
 # ---------------------------------------------------------------------------

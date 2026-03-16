@@ -36,7 +36,7 @@ This document tracks the improvement plan for the ai-engine project.
   - Acceptance criteria:
     - `cache_hit_rate` reflects generation events only.
 
-- [ ] P1-02 Make persistent cache path configurable
+- [x] P1-02 Make persistent cache path configurable
   - Scope:
     - Move cache file path to settings/env.
     - Keep safe defaults for local runs.
@@ -70,3 +70,4 @@ This document tracks the improvement plan for the ai-engine project.
 - 2026-03-16: P0-01 completed. Fixed compatibility fallback in optimization service and restored protected API-key test path.
 - 2026-03-16: P0-02 completed. Resolved mypy errors in SDK/optimization modules and restored lint/type checks to green.
 - 2026-03-16: P1-01 completed. Added event classification for observability and restricted cache hit-rate math to generation events only.
+- 2026-03-16: P1-02 completed. Generation persistent cache path now comes from settings/env and is covered by config/API validation tests.

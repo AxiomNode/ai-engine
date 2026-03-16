@@ -28,6 +28,10 @@ Environment variables
     Directory where GGUF model files are stored.  Defaults to the
     ``models/`` folder at the project root.
 
+``AI_ENGINE_GENERATION_CACHE_PATH``
+    File path used by the generation optimizer for persistent cache storage.
+    Defaults to ``"data/generation_cache.json"``.
+
 Examples:
     Basic usage::
 
@@ -61,6 +65,7 @@ class AIEngineSettings(BaseSettings):
         embedding_model: Sentence-transformers model name for RAG.
         api_key: Shared secret for ``X-API-Key`` header auth.
         models_dir: Directory where GGUF model files are stored.
+        generation_cache_path: Path to persistent generation cache file.
     """
 
     model_config = SettingsConfigDict(
@@ -92,6 +97,11 @@ class AIEngineSettings(BaseSettings):
         default=_DEFAULT_MODELS_DIR,
         alias="AI_ENGINE_MODELS_DIR",
         validation_alias="AI_ENGINE_MODELS_DIR",
+    )
+    generation_cache_path: str = Field(
+        default="data/generation_cache.json",
+        alias="AI_ENGINE_GENERATION_CACHE_PATH",
+        validation_alias="AI_ENGINE_GENERATION_CACHE_PATH",
     )
 
 
