@@ -52,6 +52,10 @@ api = [
     "pydantic-settings>=2.0",
 ]
 
+redis = [
+    "redis>=5.0",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

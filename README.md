@@ -16,6 +16,8 @@ Full documentation is available in the [`docs/`](docs/) folder:
 | [RAG Usage](docs/rag-usage.md) | Ingestion, retrieval, custom embedders and vector stores |
 | [KBD Usage](docs/kbd-usage.md) | Knowledge Base CRUD, tag/keyword search |
 | [SDK Usage](docs/sdk-usage.md) | Typed client-side models for generate endpoint responses |
+| [Cache Strategy ADR](docs/adr-0001-cache-strategy.md) | Architecture decision for in-memory, TinyDB, and Redis cache layers |
+| [Incident Runbook](docs/incident-runbook.md) | Operational response and rollback procedures for runtime incidents |
 
 ## Description
 

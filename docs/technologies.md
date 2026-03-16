@@ -47,6 +47,12 @@ needed to run `GameGenerator` end-to-end locally.
 | **uvicorn[standard]** | ≥ 0.29 | ASGI server used to run the FastAPI application. |
 | **httpx** | ≥ 0.27 | Async HTTP client used by FastAPI's test client in tests. |
 
+### Redis extras (`pip install -e ".[redis]"`)
+
+| Library | Version | Purpose |
+|---|---|---|
+| **redis** | ≥ 5.0 | Optional persistent cache backend client used by generation optimization service. |
+
 ---
 
 ## Development & Tooling
@@ -68,7 +74,7 @@ needed to run `GameGenerator` end-to-end locally.
 
 | Service | Configuration | What it does |
 |---|---|---|
-| **GitHub Actions** | `.github/workflows/ci.yml` | Runs on every push to `main`/`develop` and on every PR. Matrix: Python 3.10, 3.11, 3.12. Steps: install, ruff, black, isort, mypy, pytest + coverage ≥ 80%. |
+| **GitHub Actions** | `.github/workflows/ci.yml` | Runs on every push to `main`/`develop` and on every PR. Main matrix: Python 3.10, 3.11, 3.12. Optional-extras profile matrix: `core_api`, `rag_kbd`, `redis` to catch dependency-profile regressions. |
 
 ---
 

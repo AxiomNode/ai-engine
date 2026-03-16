@@ -82,20 +82,20 @@ This document tracks the next improvement cycle for the ai-engine project.
 
 ## Phase 4 - Product Hardening and Developer Experience
 
-- [ ] N4-01 Add architecture decision record (ADR) for cache strategy
+- [x] N4-01 Add architecture decision record (ADR) for cache strategy
   - Scope:
     - Document why/when to use in-memory, TinyDB, and Redis.
     - Define operational trade-offs and limits.
   - Acceptance criteria:
     - ADR approved and linked from docs index.
 
-- [ ] N4-02 Add CI matrix profile for optional extras
+- [x] N4-02 Add CI matrix profile for optional extras
   - Scope:
     - Validate behavior with and without optional dependencies (rag/kbd/redis).
   - Acceptance criteria:
     - CI matrix runs green and catches optional-dependency regressions.
 
-- [ ] N4-03 Publish runbook for incidents and rollback
+- [x] N4-03 Publish runbook for incidents and rollback
   - Scope:
     - Define playbooks for cache corruption, backend outage, and metrics gaps.
   - Acceptance criteria:
@@ -113,3 +113,6 @@ This document tracks the next improvement cycle for the ai-engine project.
 - 2026-03-16: N3-01 completed. Expanded Prometheus output with generation outcome counters, persistent backend/fallback counters, and cache saturation gauges.
 - 2026-03-16: N3-02 completed. Extended `/health` with dependency diagnostics for generator, RAG pipeline, LLM mode/target, and cache backend status.
 - 2026-03-16: N3-03 completed. Added request correlation ID propagation in API headers, optimizer metadata, logs, and observability event/metric outputs.
+- 2026-03-16: N4-01 completed. Added ADR `adr-0001-cache-strategy.md` defining backend choices, invalidation strategy, and trade-offs.
+- 2026-03-16: N4-02 completed. Added optional dependency CI matrix profiles (`core_api`, `rag_kbd`, `redis`) and introduced `redis` optional extra.
+- 2026-03-16: N4-03 completed. Published `incident-runbook.md` with cache corruption, backend outage, metrics-gap response, and rollback procedures.

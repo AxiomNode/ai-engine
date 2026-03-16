@@ -13,5 +13,7 @@ This folder contains the technical documentation for **ai-engine**.
 | [kbd-usage.md](kbd-usage.md) | Knowledge Base CRUD, tag/keyword search, and integration with RAG |
 | [sdk-usage.md](sdk-usage.md) | SDK models for typed parsing of generate endpoint responses |
 | [metrics-usage.md](metrics-usage.md) | Advanced generation metrics (cache, RAG, LLM, KBD, DB) |
+| [adr-0001-cache-strategy.md](adr-0001-cache-strategy.md) | ADR describing in-memory/TinyDB/Redis cache strategy and trade-offs |
+| [incident-runbook.md](incident-runbook.md) | Incident response and rollback playbooks for cache/backend/metrics issues |
 | [improvement-history.md](improvement-history.md) | Chronological history of completed improvements |
 | [improvement-checklist.md](improvement-checklist.md) | Proposed next-cycle checklist by phase and priority |
