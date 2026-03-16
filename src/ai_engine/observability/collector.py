@@ -340,3 +340,67 @@ def _percentile(sorted_data: list[float], pct: float) -> float:
     if c >= len(sorted_data):
         return sorted_data[-1]
     return sorted_data[f] + (k - f) * (sorted_data[c] - sorted_data[f])
+
+
+def summary_to_prometheus(summary: dict[str, Any]) -> str:
+    """Render a summary dictionary in Prometheus text exposition format."""
+
+    def _metric(name: str, value: float | int) -> str:
+        return f"ai_engine_{name} {value}"
+
+    lines = [
+        "# HELP ai_engine_total_calls Total recorded events.",
+        "# TYPE ai_engine_total_calls counter",
+        _metric("total_calls", int(summary.get("total_calls", 0))),
+        "# HELP ai_engine_successful_calls Successful events.",
+        "# TYPE ai_engine_successful_calls counter",
+        _metric("successful_calls", int(summary.get("successful_calls", 0))),
+        "# HELP ai_engine_failed_calls Failed events.",
+        "# TYPE ai_engine_failed_calls counter",
+        _metric("failed_calls", int(summary.get("failed_calls", 0))),
+        "# HELP ai_engine_success_rate Success ratio across events.",
+        "# TYPE ai_engine_success_rate gauge",
+        _metric("success_rate", float(summary.get("success_rate", 0.0))),
+        "# HELP ai_engine_cache_hit_rate Cache hit ratio for generation events.",
+        "# TYPE ai_engine_cache_hit_rate gauge",
+        _metric("cache_hit_rate", float(summary.get("cache_hit_rate", 0.0))),
+        "# HELP ai_engine_avg_latency_ms Average latency in milliseconds.",
+        "# TYPE ai_engine_avg_latency_ms gauge",
+        _metric("avg_latency_ms", float(summary.get("avg_latency_ms", 0.0))),
+        "# HELP ai_engine_avg_rag_latency_ms Average RAG latency in milliseconds.",
+        "# TYPE ai_engine_avg_rag_latency_ms gauge",
+        _metric("avg_rag_latency_ms", float(summary.get("avg_rag_latency_ms", 0.0))),
+        "# HELP ai_engine_avg_llm_latency_ms Average LLM latency in milliseconds.",
+        "# TYPE ai_engine_avg_llm_latency_ms gauge",
+        _metric("avg_llm_latency_ms", float(summary.get("avg_llm_latency_ms", 0.0))),
+        "# HELP ai_engine_avg_parse_latency_ms Average parse latency in milliseconds.",
+        "# TYPE ai_engine_avg_parse_latency_ms gauge",
+        _metric(
+            "avg_parse_latency_ms", float(summary.get("avg_parse_latency_ms", 0.0))
+        ),
+        "# HELP ai_engine_kbd_hits_total Total KBD hits.",
+        "# TYPE ai_engine_kbd_hits_total counter",
+        _metric("kbd_hits_total", int(summary.get("kbd_hits_total", 0))),
+        "# HELP ai_engine_db_reads_total Total DB reads.",
+        "# TYPE ai_engine_db_reads_total counter",
+        _metric("db_reads_total", int(summary.get("db_reads_total", 0))),
+        "# HELP ai_engine_db_writes_total Total DB writes.",
+        "# TYPE ai_engine_db_writes_total counter",
+        _metric("db_writes_total", int(summary.get("db_writes_total", 0))),
+    ]
+
+    for label, count in sorted((summary.get("game_type_counts") or {}).items()):
+        lines.append(f'ai_engine_game_type_calls{{game_type="{label}"}} {int(count)}')
+
+    for label, count in sorted((summary.get("language_counts") or {}).items()):
+        lines.append(f'ai_engine_language_calls{{language="{label}"}} {int(count)}')
+
+    for label, count in sorted((summary.get("event_type_counts") or {}).items()):
+        lines.append(f'ai_engine_event_type_calls{{event_type="{label}"}} {int(count)}')
+
+    for label, count in sorted((summary.get("cache_layer_counts") or {}).items()):
+        lines.append(
+            f'ai_engine_cache_layer_calls{{cache_layer="{label}"}} {int(count)}'
+        )
+
+    return "\n".join(lines) + "\n"

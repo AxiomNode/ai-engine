@@ -9,6 +9,7 @@ microservice workloads.
 - `GET /stats/history?last_n=100`
 - `GET /cache/stats`
 - `POST /cache/reset`
+- `GET /metrics`
 
 The generation service records telemetry for:
 
@@ -69,3 +70,10 @@ Set `force_refresh=true` to bypass cache and force a fresh model generation.
 - `GET /cache/stats` returns cache runtime status and entry counts.
 - `POST /cache/reset` clears in-memory and persistent generation cache and
 	returns removed-entry counters.
+
+## Prometheus export endpoint
+
+`GET /metrics` returns scrape-compatible text exposition with key metrics,
+including total calls, success rate, cache hit rate, latency averages,
+KBD/DB counters, and labeled counts (game type, event type, language,
+cache layer).

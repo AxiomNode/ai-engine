@@ -115,6 +115,34 @@ class TestResetEndpoint:
         assert len(collector) == 0
 
 
+class TestMetricsEndpoint:
+    """Tests for GET /metrics."""
+
+    def test_metrics_returns_prometheus_text(self) -> None:
+        """Metrics endpoint returns text/plain payload with metric names."""
+        client, collector = _make_client()
+        collector.record_call(
+            prompt="p",
+            response="r",
+            latency_ms=10.0,
+            max_tokens=64,
+            metadata={
+                "event_type": "generation",
+                "cache_hit": True,
+                "cache_layer": "memory",
+            },
+            game_type="quiz",
+        )
+
+        resp = client.get("/metrics")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/plain")
+        body = resp.text
+        assert "ai_engine_total_calls" in body
+        assert "ai_engine_cache_hit_rate" in body
+        assert 'ai_engine_game_type_calls{game_type="quiz"}' in body
+
+
 # ------------------------------------------------------------------
 # API Key authentication (observability API)
 # ------------------------------------------------------------------

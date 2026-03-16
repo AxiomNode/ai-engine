@@ -8,6 +8,7 @@ endpoints:
 - ``GET /stats`` – Aggregate statistics from the collector.
 - ``GET /stats/history`` – Recent event log.
 - ``POST /stats/reset`` – Clear all recorded events.
+- ``GET /metrics`` – Prometheus text exposition format.
 
 The app can be run standalone via::
 
@@ -23,13 +24,14 @@ from typing import Any
 
 try:
     from fastapi import FastAPI, Query, Request
+    from fastapi.responses import PlainTextResponse
 except ImportError as _imp_err:  # pragma: no cover
     raise ImportError(
         "FastAPI is required for the observability API.  "
         "Install it with:  pip install ai-engine[api]"
     ) from _imp_err
 
-from ai_engine.observability.collector import StatsCollector
+from ai_engine.observability.collector import StatsCollector, summary_to_prometheus
 
 try:
     from ai_engine.api.middleware import add_api_key_middleware
@@ -138,6 +140,12 @@ def create_app(collector: StatsCollector | None = None) -> FastAPI:
         """
         _get_collector(request).reset()
         return {"message": "Stats cleared."}
+
+    @app.get("/metrics", tags=["monitoring"], response_class=PlainTextResponse)
+    def metrics(request: Request) -> str:
+        """Return Prometheus scrape-compatible metrics text."""
+        summary = _get_collector(request).summary()
+        return summary_to_prometheus(summary)
 
     return app
 

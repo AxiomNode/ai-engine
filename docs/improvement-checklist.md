@@ -58,7 +58,7 @@ This document tracks the improvement plan for the ai-engine project.
   - Acceptance criteria:
     - Configurable backend with fallback to in-memory/local mode.
 
-- [ ] P2-02 Export Prometheus-friendly metrics
+- [x] P2-02 Export Prometheus-friendly metrics
   - Scope:
     - Add metrics endpoint or integration for scrape-based monitoring.
   - Acceptance criteria:
@@ -73,3 +73,4 @@ This document tracks the improvement plan for the ai-engine project.
 - 2026-03-16: P1-02 completed. Generation persistent cache path now comes from settings/env and is covered by config/API validation tests.
 - 2026-03-16: P1-03 completed. Persistent cache stats/reset now use an indexed cache-entry set to avoid full TinyDB scans on each request.
 - 2026-03-16: P2-01 completed. Added optional Redis persistent cache backend with safe fallback to TinyDB and environment-based configuration.
+- 2026-03-16: P2-02 completed. Added `/metrics` Prometheus endpoint to observability API plus tests and metrics documentation updates.
