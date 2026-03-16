@@ -15,6 +15,7 @@ Full documentation is available in the [`docs/`](docs/) folder:
 | [Deployment](docs/deployment.md) | API server, Docker, llama.cpp server |
 | [RAG Usage](docs/rag-usage.md) | Ingestion, retrieval, custom embedders and vector stores |
 | [KBD Usage](docs/kbd-usage.md) | Knowledge Base CRUD, tag/keyword search |
+| [SDK Usage](docs/sdk-usage.md) | Typed client-side models for generate endpoint responses |
 
 ## Description
 
@@ -162,4 +163,46 @@ from ai_engine.kbd import KnowledgeBase, KnowledgeEntry
 kb = KnowledgeBase()
 kb.add(KnowledgeEntry("1", "Python", "Python is a high-level language", tags=["python"]))
 results = kb.search_by_tag("python")
+```
+
+## CLI Demo Suite
+
+Run simple, deterministic demos for each module and for cross-module integration:
+
+```bash
+python scripts/demo_suite.py list
+python scripts/demo_suite.py run kbd
+python scripts/demo_suite.py run integration
+python scripts/demo_suite.py run all
+```
+
+The suite prints stylized output with concrete pass/fail results and a final summary table.
+
+## SDK Models For Generated Games
+
+The project ships a small SDK under `ai_engine.sdk` to parse `/generate` responses
+into typed objects.
+
+```python
+from ai_engine.sdk import LanguageCode, parse_generate_response
+
+payload = {
+    "game_type": "quiz",
+    "game": {
+        "game_type": "quiz",
+        "title": "Science Quiz",
+        "topic": "Science",
+        "questions": [
+            {
+                "question": "What is H2O?",
+                "options": ["Water", "Fire", "Air", "Earth"],
+                "correct_index": 0,
+                "explanation": "H2O is water.",
+            }
+        ],
+    },
+}
+
+game = parse_generate_response(payload, language=LanguageCode.EN)
+print(game.metadata.language_id)  # lang-en
 ```

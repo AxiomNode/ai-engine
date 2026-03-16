@@ -60,7 +60,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 88
-exclude = ["build", "dist", ".venv", "__pycache__"]
+exclude = ["build", "dist", ".venv", "__pycache__", "*.ipynb"]
 
 [tool.black]
 line-length = 88
@@ -87,4 +87,3 @@ line_length = 88
 python_version = "3.10"
 ignore_missing_imports = true
 warn_unused_configs = true
-

@@ -5,16 +5,21 @@ import json
 import pytest
 
 from ai_engine.games.generator import GameGenerator
-from ai_engine.games.schemas import GameEnvelope, QuizGame, PasapalabraGame, TrueFalseGame
+from ai_engine.games.schemas import (
+    GameEnvelope,
+    PasapalabraGame,
+    QuizGame,
+    TrueFalseGame,
+)
 from ai_engine.rag.document import Document
 from ai_engine.rag.embedder import Embedder
 from ai_engine.rag.pipeline import RAGPipeline
 from ai_engine.rag.vector_store import InMemoryVectorStore
 
-
 # ------------------------------------------------------------------
 # Test doubles
 # ------------------------------------------------------------------
+
 
 class _FixedEmbedder(Embedder):
     """Embedder that returns a fixed vector for deterministic tests."""
@@ -52,8 +57,18 @@ class _MockLLMPasapalabra:
             "title": "Mock Rosco",
             "topic": "Testing",
             "words": [
-                {"letter": "A", "hint": "First letter", "answer": "Alpha", "starts_with": True},
-                {"letter": "B", "hint": "Second letter", "answer": "Beta", "starts_with": True},
+                {
+                    "letter": "A",
+                    "hint": "First letter",
+                    "answer": "Alpha",
+                    "starts_with": True,
+                },
+                {
+                    "letter": "B",
+                    "hint": "Second letter",
+                    "answer": "Beta",
+                    "starts_with": True,
+                },
             ],
         }
         return json.dumps(data)
@@ -68,7 +83,11 @@ class _MockLLMTrueFalse:
             "title": "Mock T/F",
             "topic": "Testing",
             "statements": [
-                {"statement": "The sky is blue", "is_true": True, "explanation": "Rayleigh scattering."},
+                {
+                    "statement": "The sky is blue",
+                    "is_true": True,
+                    "explanation": "Rayleigh scattering.",
+                },
             ],
         }
         return json.dumps(data)
@@ -81,25 +100,55 @@ class _MockLLMBadOutput:
         return "I cannot help you with that. Sorry!"
 
 
+class _MockLLMRetryThenValid:
+    """Mock LLM that fails once, then returns valid JSON on retry."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, int]] = []
+
+    def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
+        self.calls.append((prompt, max_tokens))
+        if len(self.calls) == 1:
+            return '{"game_type":"quiz","title":"Broken"'
+        data = {
+            "game_type": "quiz",
+            "title": "Recovered Quiz",
+            "topic": "Testing",
+            "questions": [
+                {
+                    "question": "What is 2+2?",
+                    "options": ["3", "4", "5", "6"],
+                    "correct_index": 1,
+                    "explanation": "Basic arithmetic.",
+                }
+            ],
+        }
+        return json.dumps(data)
+
+
 # ------------------------------------------------------------------
 # Fixtures
 # ------------------------------------------------------------------
+
 
 @pytest.fixture()
 def rag_pipeline():
     emb = _FixedEmbedder()
     store = InMemoryVectorStore()
     pipeline = RAGPipeline(embedder=emb, vector_store=store)
-    pipeline.ingest([
-        Document(content="Python is a high-level language.", doc_id="d1"),
-        Document(content="The Earth orbits the Sun.", doc_id="d2"),
-    ])
+    pipeline.ingest(
+        [
+            Document(content="Python is a high-level language.", doc_id="d1"),
+            Document(content="The Earth orbits the Sun.", doc_id="d2"),
+        ]
+    )
     return pipeline
 
 
 # ------------------------------------------------------------------
 # Tests
 # ------------------------------------------------------------------
+
 
 class TestGameGeneratorInit:
 
@@ -136,7 +185,9 @@ class TestGameGeneratorPasapalabra:
 
     def test_generate_pasapalabra(self, rag_pipeline):
         gen = GameGenerator(rag_pipeline=rag_pipeline, llm_client=_MockLLMPasapalabra())
-        result = gen.generate(query="letters", topic="Alphabet", game_type="pasapalabra")
+        result = gen.generate(
+            query="letters", topic="Alphabet", game_type="pasapalabra"
+        )
 
         assert isinstance(result, GameEnvelope)
         assert result.game_type == "pasapalabra"
@@ -161,4 +212,25 @@ class TestGameGeneratorErrorHandling:
     def test_bad_llm_output_raises_value_error(self, rag_pipeline):
         gen = GameGenerator(rag_pipeline=rag_pipeline, llm_client=_MockLLMBadOutput())
         with pytest.raises(ValueError, match="Failed to extract JSON"):
+            gen.generate(query="anything", topic="X")
+
+    def test_retries_once_and_recovers_when_first_output_is_invalid(self, rag_pipeline):
+        llm = _MockLLMRetryThenValid()
+        gen = GameGenerator(rag_pipeline=rag_pipeline, llm_client=llm)
+
+        envelope = gen.generate(query="math", topic="Arithmetic", game_type="quiz")
+
+        assert envelope.game_type == "quiz"
+        assert envelope.game.title == "Recovered Quiz"
+        assert len(llm.calls) == 2
+        first_prompt, first_tokens = llm.calls[0]
+        second_prompt, second_tokens = llm.calls[1]
+        assert first_tokens == 1024
+        assert second_tokens > first_tokens
+        assert second_prompt.startswith(first_prompt)
+
+    def test_raises_after_retry_if_both_outputs_are_invalid(self, rag_pipeline):
+        gen = GameGenerator(rag_pipeline=rag_pipeline, llm_client=_MockLLMBadOutput())
+
+        with pytest.raises(ValueError, match="after retry"):
             gen.generate(query="anything", topic="X")

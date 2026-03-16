@@ -47,7 +47,11 @@ class Chunker:
 
         chunks: list[Document] = []
         for i, chunk_text in enumerate(raw_chunks):
-            meta = {**document.metadata, "chunk_index": i, "chunk_total": len(raw_chunks)}
+            meta = {
+                **document.metadata,
+                "chunk_index": i,
+                "chunk_total": len(raw_chunks),
+            }
             chunk_id = f"{document.doc_id}#{i}" if document.doc_id else None
             chunks.append(Document(content=chunk_text, metadata=meta, doc_id=chunk_id))
 

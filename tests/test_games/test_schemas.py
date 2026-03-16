@@ -13,10 +13,10 @@ from ai_engine.games.schemas import (
     TrueFalseStatement,
 )
 
-
 # ------------------------------------------------------------------
 # QuizQuestion
 # ------------------------------------------------------------------
+
 
 class TestQuizQuestion:
 
@@ -60,6 +60,7 @@ class TestQuizQuestion:
 # QuizGame
 # ------------------------------------------------------------------
 
+
 class TestQuizGame:
 
     def test_valid_creation(self):
@@ -72,17 +73,30 @@ class TestQuizGame:
             QuizGame(title="", topic="Math")
 
     def test_to_dict_includes_game_type(self):
-        game = QuizGame(title="T", topic="X", questions=[
-            QuizQuestion(question="Q?", options=["a", "b"], correct_index=0),
-        ])
+        game = QuizGame(
+            title="T",
+            topic="X",
+            questions=[
+                QuizQuestion(question="Q?", options=["a", "b"], correct_index=0),
+            ],
+        )
         d = game.to_dict()
         assert d["game_type"] == "quiz"
         assert len(d["questions"]) == 1
 
     def test_from_dict_round_trip(self):
-        game = QuizGame(title="T", topic="X", questions=[
-            QuizQuestion(question="Q?", options=["a", "b", "c", "d"], correct_index=1, explanation="explanation"),
-        ])
+        game = QuizGame(
+            title="T",
+            topic="X",
+            questions=[
+                QuizQuestion(
+                    question="Q?",
+                    options=["a", "b", "c", "d"],
+                    correct_index=1,
+                    explanation="explanation",
+                ),
+            ],
+        )
         d = game.to_dict()
         game2 = QuizGame.from_dict(d)
         assert game2.title == game.title
@@ -93,6 +107,7 @@ class TestQuizGame:
 # ------------------------------------------------------------------
 # PasapalabraWord
 # ------------------------------------------------------------------
+
 
 class TestPasapalabraWord:
 
@@ -129,6 +144,7 @@ class TestPasapalabraWord:
 # PasapalabraGame
 # ------------------------------------------------------------------
 
+
 class TestPasapalabraGame:
 
     def test_valid_creation(self):
@@ -136,9 +152,15 @@ class TestPasapalabraGame:
         assert game.words == []
 
     def test_to_dict_game_type(self):
-        game = PasapalabraGame(title="R", topic="G", words=[
-            PasapalabraWord(letter="A", hint="Capital of France \u2013 not!", answer="Amsterdam"),
-        ])
+        game = PasapalabraGame(
+            title="R",
+            topic="G",
+            words=[
+                PasapalabraWord(
+                    letter="A", hint="Capital of France \u2013 not!", answer="Amsterdam"
+                ),
+            ],
+        )
         d = game.to_dict()
         assert d["game_type"] == "pasapalabra"
         assert len(d["words"]) == 1
@@ -147,6 +169,7 @@ class TestPasapalabraGame:
 # ------------------------------------------------------------------
 # TrueFalseStatement
 # ------------------------------------------------------------------
+
 
 class TestTrueFalseStatement:
 
@@ -169,6 +192,7 @@ class TestTrueFalseStatement:
 # TrueFalseGame
 # ------------------------------------------------------------------
 
+
 class TestTrueFalseGame:
 
     def test_valid_creation(self):
@@ -176,15 +200,20 @@ class TestTrueFalseGame:
         assert game.statements == []
 
     def test_to_dict_game_type(self):
-        d = TrueFalseGame(title="T", topic="S", statements=[
-            TrueFalseStatement(statement="The sun is a star", is_true=True),
-        ]).to_dict()
+        d = TrueFalseGame(
+            title="T",
+            topic="S",
+            statements=[
+                TrueFalseStatement(statement="The sun is a star", is_true=True),
+            ],
+        ).to_dict()
         assert d["game_type"] == "true_false"
 
 
 # ------------------------------------------------------------------
 # GameEnvelope
 # ------------------------------------------------------------------
+
 
 class TestGameEnvelope:
 

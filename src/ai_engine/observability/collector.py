@@ -13,7 +13,7 @@ from __future__ import annotations
 import statistics
 import threading
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
@@ -42,6 +42,7 @@ class GenerationEvent:
     success: bool
     game_type: str | None = None
     error: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize the event to a plain dictionary."""
@@ -96,6 +97,7 @@ class StatsCollector:
         success: bool = True,
         game_type: str | None = None,
         error: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> GenerationEvent:
         """Build a :class:`GenerationEvent` from raw values and record it.
 
@@ -125,6 +127,7 @@ class StatsCollector:
             success=success,
             game_type=game_type,
             error=error,
+            metadata=dict(metadata or {}),
         )
         self.record(event)
         return event
@@ -177,6 +180,18 @@ class StatsCollector:
                 "total_response_chars": 0,
                 "json_mode_calls": 0,
                 "game_type_counts": {},
+                "cache_hits": 0,
+                "cache_misses": 0,
+                "cache_hit_rate": 0.0,
+                "cache_layer_counts": {},
+                "avg_rag_latency_ms": 0.0,
+                "avg_llm_latency_ms": 0.0,
+                "avg_parse_latency_ms": 0.0,
+                "avg_total_latency_ms": 0.0,
+                "kbd_hits_total": 0,
+                "db_reads_total": 0,
+                "db_writes_total": 0,
+                "language_counts": {},
             }
 
         total = len(events)
@@ -184,9 +199,53 @@ class StatsCollector:
         latencies = sorted(e.latency_ms for e in events)
 
         game_counts: dict[str, int] = {}
+        cache_hits = 0
+        cache_misses = 0
+        cache_layer_counts: dict[str, int] = {}
+        rag_latencies: list[float] = []
+        llm_latencies: list[float] = []
+        parse_latencies: list[float] = []
+        total_latencies: list[float] = []
+        kbd_hits_total = 0
+        db_reads_total = 0
+        db_writes_total = 0
+        language_counts: dict[str, int] = {}
+
         for e in events:
             if e.game_type:
                 game_counts[e.game_type] = game_counts.get(e.game_type, 0) + 1
+
+            meta = e.metadata or {}
+            if bool(meta.get("cache_hit", False)):
+                cache_hits += 1
+            else:
+                cache_misses += 1
+
+            layer = str(meta.get("cache_layer", "none"))
+            cache_layer_counts[layer] = cache_layer_counts.get(layer, 0) + 1
+
+            rag_ms = meta.get("rag_latency_ms")
+            if isinstance(rag_ms, (int, float)):
+                rag_latencies.append(float(rag_ms))
+
+            llm_ms = meta.get("llm_latency_ms")
+            if isinstance(llm_ms, (int, float)):
+                llm_latencies.append(float(llm_ms))
+
+            parse_ms = meta.get("parse_latency_ms")
+            if isinstance(parse_ms, (int, float)):
+                parse_latencies.append(float(parse_ms))
+
+            total_ms = meta.get("total_latency_ms")
+            if isinstance(total_ms, (int, float)):
+                total_latencies.append(float(total_ms))
+
+            kbd_hits_total += int(meta.get("kbd_hits", 0) or 0)
+            db_reads_total += int(meta.get("db_reads", 0) or 0)
+            db_writes_total += int(meta.get("db_writes", 0) or 0)
+
+            language = str(meta.get("language", "unknown"))
+            language_counts[language] = language_counts.get(language, 0) + 1
 
         return {
             "total_calls": total,
@@ -208,6 +267,26 @@ class StatsCollector:
             "total_response_chars": sum(e.response_chars for e in events),
             "json_mode_calls": sum(1 for e in events if e.json_mode),
             "game_type_counts": game_counts,
+            "cache_hits": cache_hits,
+            "cache_misses": cache_misses,
+            "cache_hit_rate": round(cache_hits / total, 4),
+            "cache_layer_counts": cache_layer_counts,
+            "avg_rag_latency_ms": (
+                round(statistics.mean(rag_latencies), 2) if rag_latencies else 0.0
+            ),
+            "avg_llm_latency_ms": (
+                round(statistics.mean(llm_latencies), 2) if llm_latencies else 0.0
+            ),
+            "avg_parse_latency_ms": (
+                round(statistics.mean(parse_latencies), 2) if parse_latencies else 0.0
+            ),
+            "avg_total_latency_ms": (
+                round(statistics.mean(total_latencies), 2) if total_latencies else 0.0
+            ),
+            "kbd_hits_total": kbd_hits_total,
+            "db_reads_total": db_reads_total,
+            "db_writes_total": db_writes_total,
+            "language_counts": language_counts,
         }
 
     def reset(self) -> None:

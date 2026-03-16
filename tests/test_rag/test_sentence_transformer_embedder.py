@@ -9,10 +9,10 @@ import pytest
 
 from ai_engine.rag.document import Document
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_fake_st_module() -> ModuleType:
     """Return a fake sentence_transformers module with a stubbed SentenceTransformer."""
@@ -35,12 +35,14 @@ def _make_fake_st_module() -> ModuleType:
 # Unit tests using a mocked sentence_transformers dependency
 # ---------------------------------------------------------------------------
 
+
 class TestSentenceTransformersEmbedder:
 
     @pytest.fixture(autouse=True)
     def patch_sentence_transformers(self):
         """Inject a fake sentence_transformers module for every test."""
         import importlib
+
         import ai_engine.rag.embedders.sentence_transformers as mod
 
         fake = _make_fake_st_module()
@@ -56,7 +58,9 @@ class TestSentenceTransformersEmbedder:
         assert len(vec) > 0
         assert all(isinstance(v, float) for v in vec)
 
-    def test_embed_documents_batch_returns_correct_count(self, patch_sentence_transformers):
+    def test_embed_documents_batch_returns_correct_count(
+        self, patch_sentence_transformers
+    ):
         emb = patch_sentence_transformers.SentenceTransformersEmbedder()
         docs = [Document(content="first"), Document(content="second")]
         vecs = emb.embed_documents(docs)
@@ -68,12 +72,15 @@ class TestSentenceTransformersEmbedder:
         assert emb.model_name == "all-MiniLM-L6-v2"
 
     def test_custom_model_name(self, patch_sentence_transformers):
-        emb = patch_sentence_transformers.SentenceTransformersEmbedder(model_name="my-custom-model")
+        emb = patch_sentence_transformers.SentenceTransformersEmbedder(
+            model_name="my-custom-model"
+        )
         assert emb.model_name == "my-custom-model"
 
     def test_import_error_raised_when_package_missing(self):
         """ImportError is raised with a helpful message when sentence-transformers is absent."""
         import importlib
+
         import ai_engine.rag.embedders.sentence_transformers as mod
 
         with patch.dict(sys.modules, {"sentence_transformers": None}):  # type: ignore[dict-item]
@@ -89,9 +96,13 @@ class TestSentenceTransformersEmbedder:
 # Integration tests (skipped when sentence_transformers is not installed)
 # ---------------------------------------------------------------------------
 
+
 def test_sentence_transformers_embedder_available():
     pytest.importorskip("sentence_transformers")
-    from ai_engine.rag.embedders.sentence_transformers import SentenceTransformersEmbedder
+    from ai_engine.rag.embedders.sentence_transformers import (
+        SentenceTransformersEmbedder,
+    )
+
     emb = SentenceTransformersEmbedder()
     vec = emb.embed_text("hello world")
     assert isinstance(vec, list)
@@ -100,7 +111,10 @@ def test_sentence_transformers_embedder_available():
 
 def test_embed_documents_batch():
     pytest.importorskip("sentence_transformers")
-    from ai_engine.rag.embedders.sentence_transformers import SentenceTransformersEmbedder
+    from ai_engine.rag.embedders.sentence_transformers import (
+        SentenceTransformersEmbedder,
+    )
+
     emb = SentenceTransformersEmbedder()
     docs = [Document(content="a b c"), Document(content="d e f")]
     vecs = emb.embed_documents(docs)

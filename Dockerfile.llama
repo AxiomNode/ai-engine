@@ -31,7 +31,7 @@ RUN apt-get update \
 # CPU-only build (no CUDA) — set CMAKE_ARGS to enable GPU layers if needed.
 # The [server] extra pulls in FastAPI + uvicorn for the HTTP API.
 RUN pip install --no-cache-dir --prefix=/install \
-    "llama-cpp-python[server]>=0.2.0"
+    "llama-cpp-python[server]>=0.2.0,<0.3.0"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -41,6 +41,10 @@ FROM python:3.11-slim AS runtime
 
 LABEL org.opencontainers.image.title="ai-engine – llama.cpp server"
 LABEL org.opencontainers.image.description="OpenAI-compatible llama.cpp HTTP inference server for AxiomNode"
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --create-home --no-log-init appuser
 WORKDIR /app
@@ -64,9 +68,9 @@ ENV AI_ENGINE_MODELS_DIR=/app/models \
 
 EXPOSE 8080
 
-# Health check — llama-cpp-python server exposes GET /health
+# Health check — probe an OpenAI-compatible endpoint exposed by llama-cpp server
 HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=5 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/v1/models')"
 
 # llama-cpp-python[server] exposes python -m llama_cpp.server
 # All configuration is read from environment variables (MODEL, HOST, PORT, etc.)

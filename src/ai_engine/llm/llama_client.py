@@ -75,9 +75,7 @@ class LlamaClient:
         json_mode: bool = False,
     ) -> None:
         if api_url is None and model_path is None:
-            raise ValueError(
-                "At least one of api_url or model_path must be provided"
-            )
+            raise ValueError("At least one of api_url or model_path must be provided")
 
         self.api_url = api_url
         self.model_path = model_path
@@ -129,17 +127,23 @@ class LlamaClient:
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _generate_via_api(
-        self, prompt: str, max_tokens: int, json_mode: bool
-    ) -> str:
+    def _generate_via_api(self, prompt: str, max_tokens: int, json_mode: bool) -> str:
         """Send a completion request to the llama.cpp HTTP server."""
+        api_url = (self.api_url or "").rstrip("/")
+        is_openai_completions = api_url.endswith("/v1/completions")
+
         payload: dict[str, Any] = {
             "prompt": prompt,
-            "n_predict": max_tokens,
             "temperature": self.temperature,
             "top_p": self.top_p,
             "repeat_penalty": self.repeat_penalty,
         }
+        if is_openai_completions:
+            # OpenAI-compatible completions use max_tokens.
+            payload["max_tokens"] = max_tokens
+        else:
+            # Legacy llama.cpp /completion endpoint uses n_predict.
+            payload["n_predict"] = max_tokens
         if self.seed >= 0:
             payload["seed"] = self.seed
         if json_mode:
@@ -152,11 +156,28 @@ class LlamaClient:
         )
         response.raise_for_status()
         data = response.json()
-        return data.get("content", data.get("text", ""))
 
-    def _generate_local(
-        self, prompt: str, max_tokens: int, json_mode: bool
-    ) -> str:
+        # llama.cpp may return either legacy {"content"|"text"} payloads or
+        # OpenAI-compatible payloads with choices[0].text.
+        if isinstance(data, dict):
+            if "content" in data:
+                return str(data.get("content", ""))
+            if "text" in data:
+                return str(data.get("text", ""))
+
+            choices = data.get("choices")
+            if isinstance(choices, list) and choices:
+                first = choices[0]
+                if isinstance(first, dict):
+                    if "text" in first:
+                        return str(first.get("text", ""))
+                    message = first.get("message")
+                    if isinstance(message, dict) and "content" in message:
+                        return str(message.get("content", ""))
+
+        return ""
+
+    def _generate_local(self, prompt: str, max_tokens: int, json_mode: bool) -> str:
         """Generate using a locally loaded GGUF model via llama-cpp-python."""
         model = self._get_or_load_model()
 
@@ -196,6 +217,9 @@ class LlamaClient:
                     "llama-cpp-python is required for local model inference. "
                     "Install it with: pip install llama-cpp-python"
                 ) from exc
+
+            if self.model_path is None:
+                raise ValueError("model_path is required for local model inference")
 
             logger.info("Loading GGUF model from %s …", self.model_path)
             self._local_model = Llama(

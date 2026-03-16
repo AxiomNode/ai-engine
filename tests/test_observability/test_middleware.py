@@ -5,7 +5,6 @@ from __future__ import annotations
 from ai_engine.observability.collector import StatsCollector
 from ai_engine.observability.middleware import TrackedGameGenerator, TrackedLlamaClient
 
-
 # ------------------------------------------------------------------
 # Fakes
 # ------------------------------------------------------------------
@@ -22,7 +21,9 @@ class FakeLLM:
         self.fail = fail
         self.calls: list[tuple[str, int | None]] = []
 
-    def generate(self, prompt: str, max_tokens: int | None = None, **kwargs: object) -> str:
+    def generate(
+        self, prompt: str, max_tokens: int | None = None, **kwargs: object
+    ) -> str:
         """Return a canned response or raise."""
         self.calls.append((prompt, max_tokens))
         if self.fail:

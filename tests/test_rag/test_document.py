@@ -1,6 +1,7 @@
 """Tests for ai_engine.rag.document."""
 
 import pytest
+
 from ai_engine.rag.document import Document
 
 

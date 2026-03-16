@@ -26,6 +26,7 @@ if _HAS_TINYDB:
 # Helpers
 # ------------------------------------------------------------------
 
+
 def _kb() -> TinyDBKnowledgeBase:
     """Return a fresh in-memory TinyDBKnowledgeBase."""
     return TinyDBKnowledgeBase(path=None)
@@ -49,6 +50,7 @@ def _entry(
 # Initialisation
 # ------------------------------------------------------------------
 
+
 class TestTinyDBKnowledgeBaseInit:
 
     def test_empty_on_creation(self) -> None:
@@ -67,6 +69,7 @@ class TestTinyDBKnowledgeBaseInit:
 # ------------------------------------------------------------------
 # CRUD
 # ------------------------------------------------------------------
+
 
 class TestTinyDBKnowledgeBaseCRUD:
 
@@ -148,6 +151,7 @@ class TestTinyDBKnowledgeBaseCRUD:
 # Querying
 # ------------------------------------------------------------------
 
+
 class TestTinyDBKnowledgeBaseSearch:
 
     def test_search_by_tag_case_insensitive(self) -> None:
@@ -193,6 +197,7 @@ class TestTinyDBKnowledgeBaseSearch:
 # ------------------------------------------------------------------
 # Persistence
 # ------------------------------------------------------------------
+
 
 class TestTinyDBKnowledgeBasePersistence:
 

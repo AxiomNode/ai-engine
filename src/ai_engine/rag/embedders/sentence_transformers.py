@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from ai_engine.rag.embedder import Embedder
 from ai_engine.rag.document import Document
+from ai_engine.rag.embedder import Embedder
 
 
 class SentenceTransformersEmbedder(Embedder):
@@ -23,7 +23,9 @@ class SentenceTransformersEmbedder(Embedder):
 
     def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
         try:
-            from sentence_transformers import SentenceTransformer  # type: ignore[import-untyped]
+            from sentence_transformers import (
+                SentenceTransformer,  # type: ignore[import-untyped]
+            )
         except ImportError as exc:
             raise ImportError(
                 "sentence-transformers is required for SentenceTransformersEmbedder. "

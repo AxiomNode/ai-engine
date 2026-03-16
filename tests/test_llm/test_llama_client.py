@@ -89,6 +89,31 @@ class TestLlamaClientGenerateAPI:
         client.generate("Say hi", max_tokens=128)
         assert captured.get("n_predict") == 128
 
+    def test_generate_uses_openai_max_tokens_for_v1_completions(self, monkeypatch):
+        captured = {}
+
+        class FakeResponse:
+            status_code = 200
+
+            def json(self):
+                return {"choices": [{"text": "ok"}]}
+
+            def raise_for_status(self):
+                pass
+
+        def fake_post(url, json=None, timeout=None):
+            captured.update(json or {})
+            return FakeResponse()
+
+        import ai_engine.llm.llama_client as mod
+
+        monkeypatch.setattr(mod.requests, "post", fake_post)
+
+        client = LlamaClient(api_url="http://localhost:8080/v1/completions")
+        client.generate("Say hi", max_tokens=128)
+        assert captured.get("max_tokens") == 128
+        assert "n_predict" not in captured
+
     def test_json_mode_sends_grammar(self, monkeypatch):
         """When json_mode=True, the grammar should be sent to the API."""
         captured = {}
@@ -136,7 +161,9 @@ class TestLlamaClientGenerateAPI:
 
         monkeypatch.setattr(mod.requests, "post", fake_post)
 
-        client = LlamaClient(api_url="http://localhost:8080/completion", json_mode=False)
+        client = LlamaClient(
+            api_url="http://localhost:8080/completion", json_mode=False
+        )
         client.generate("Give me JSON", json_mode=True)
         assert "grammar" in captured
 

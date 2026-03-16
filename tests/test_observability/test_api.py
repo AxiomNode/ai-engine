@@ -58,8 +58,12 @@ class TestStatsEndpoint:
     def test_stats_after_recording(self) -> None:
         """Returns proper aggregates after recording events."""
         client, collector = _make_client()
-        collector.record_call(prompt="p", response="r", latency_ms=10.0, max_tokens=64, game_type="quiz")
-        collector.record_call(prompt="p", response="r", latency_ms=20.0, max_tokens=64, game_type="quiz")
+        collector.record_call(
+            prompt="p", response="r", latency_ms=10.0, max_tokens=64, game_type="quiz"
+        )
+        collector.record_call(
+            prompt="p", response="r", latency_ms=20.0, max_tokens=64, game_type="quiz"
+        )
         resp = client.get("/stats")
         data = resp.json()
         assert data["total_calls"] == 2
@@ -90,7 +94,9 @@ class TestHistoryEndpoint:
         """last_n query parameter limits results."""
         client, collector = _make_client()
         for i in range(5):
-            collector.record_call(prompt="p", response="r", latency_ms=float(i), max_tokens=64)
+            collector.record_call(
+                prompt="p", response="r", latency_ms=float(i), max_tokens=64
+            )
         resp = client.get("/stats/history", params={"last_n": 2})
         data = resp.json()
         assert len(data) == 2
@@ -112,6 +118,7 @@ class TestResetEndpoint:
 # ------------------------------------------------------------------
 # API Key authentication (observability API)
 # ------------------------------------------------------------------
+
 
 class TestObsAPIKeyAuth:
     """Tests for X-API-Key authentication on the observability API."""

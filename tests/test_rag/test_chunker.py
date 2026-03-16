@@ -1,6 +1,7 @@
 """Tests for ai_engine.rag.chunker."""
 
 import pytest
+
 from ai_engine.rag.chunker import Chunker
 from ai_engine.rag.document import Document
 

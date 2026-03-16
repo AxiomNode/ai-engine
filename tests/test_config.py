@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import sys
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -83,7 +82,9 @@ class TestAIEngineSettingsFromEnv:
         assert settings.model_path == "/models/model.gguf"
 
     def test_embedding_model_from_env(self, monkeypatch):
-        monkeypatch.setenv("AI_ENGINE_EMBEDDING_MODEL", "paraphrase-multilingual-MiniLM-L12-v2")
+        monkeypatch.setenv(
+            "AI_ENGINE_EMBEDDING_MODEL", "paraphrase-multilingual-MiniLM-L12-v2"
+        )
         cfg = _reload_config(monkeypatch)
         settings = cfg.AIEngineSettings()
         assert settings.embedding_model == "paraphrase-multilingual-MiniLM-L12-v2"

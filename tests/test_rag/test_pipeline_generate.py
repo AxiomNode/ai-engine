@@ -1,10 +1,9 @@
 """Tests for RAGPipeline.generate() – JSON extraction from LLM output."""
 
-
 from ai_engine.rag.document import Document
+from ai_engine.rag.embedder import Embedder
 from ai_engine.rag.pipeline import RAGPipeline
 from ai_engine.rag.vector_store import InMemoryVectorStore
-from ai_engine.rag.embedder import Embedder
 
 
 class DummyEmbedder(Embedder):
@@ -18,7 +17,10 @@ class MockLLM:
     """Mock LLM that returns chain-of-thought followed by JSON."""
 
     def generate(self, prompt: str, max_tokens: int = 256, **kwargs: object) -> str:
-        return "Thinking step 1...\nThinking step 2...\n\n{" + '"title": "TestGame", "questions": []}'
+        return (
+            "Thinking step 1...\nThinking step 2...\n\n{"
+            + '"title": "TestGame", "questions": []}'
+        )
 
 
 def test_pipeline_generate_json_extraction():
@@ -26,7 +28,11 @@ def test_pipeline_generate_json_extraction():
     store = InMemoryVectorStore()
     pipeline = RAGPipeline(embedder=emb, vector_store=store, llm_client=MockLLM())
 
-    doc = Document(content="Some useful context about rivers", metadata={"source": "textbook"}, doc_id="r1")
+    doc = Document(
+        content="Some useful context about rivers",
+        metadata={"source": "textbook"},
+        doc_id="r1",
+    )
     pipeline.ingest([doc])
 
     result = pipeline.generate(query="rivers?", goal="Create a short quiz")

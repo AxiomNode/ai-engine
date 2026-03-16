@@ -1,6 +1,7 @@
 """Tests for ai_engine.kbd.entry."""
 
 import pytest
+
 from ai_engine.kbd.entry import KnowledgeEntry
 
 

@@ -15,7 +15,7 @@ Usage::
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Mapping, cast
 
 try:
     import chromadb
@@ -76,6 +76,8 @@ class ChromaVectorStore(VectorStore):
     # VectorStore interface
     # ------------------------------------------------------------------
 
+    _MetadataValue = str | int | float | bool | list[str | int | float | bool] | None
+
     def add(self, documents: list[Document], embeddings: list[list[float]]) -> None:
         """Store documents together with their embeddings.
 
@@ -96,11 +98,11 @@ class ChromaVectorStore(VectorStore):
             return
 
         ids = [doc.doc_id or str(uuid.uuid4()) for doc in documents]
-        metadatas: list[dict[str, Any]] = []
+        metadatas: list[Mapping[str, ChromaVectorStore._MetadataValue]] = []
         for doc, doc_id in zip(documents, ids):
             # ChromaDB metadata values must be str, int, float, or bool.
             # Store content and doc_id inside metadata so they survive the round-trip.
-            meta: dict[str, Any] = {
+            meta: dict[str, ChromaVectorStore._MetadataValue] = {
                 "_content": doc.content,
                 "_doc_id": doc_id,
             }
@@ -115,7 +117,7 @@ class ChromaVectorStore(VectorStore):
         self._collection.add(
             ids=ids,
             embeddings=embeddings,  # type: ignore[arg-type]
-            metadatas=metadatas,
+            metadatas=cast(list[dict[str, object]], metadatas),  # type: ignore[arg-type]
             documents=[doc.content for doc in documents],
         )
 
@@ -155,14 +157,23 @@ class ChromaVectorStore(VectorStore):
 
             # Reconstruct the Document.  Content was stored both in the
             # `documents` field and in `_content` metadata; prefer the latter.
-            doc_content: str = meta.get("_content", content)  # type: ignore[union-attr]
-            recovered_doc_id: str | None = meta.get("_doc_id")  # type: ignore[union-attr]
+            safe_meta = meta if isinstance(meta, dict) else {}
+            doc_content = str(safe_meta.get("_content", content))
+            doc_id_value = safe_meta.get("_doc_id")
+            recovered_doc_id = str(doc_id_value) if doc_id_value is not None else None
             doc_metadata = {
-                k: v
-                for k, v in (meta or {}).items()  # type: ignore[union-attr]
-                if k not in ("_content", "_doc_id")
+                k: v for k, v in safe_meta.items() if k not in ("_content", "_doc_id")
             }
-            docs_out.append((Document(content=doc_content, metadata=doc_metadata, doc_id=recovered_doc_id), score))
+            docs_out.append(
+                (
+                    Document(
+                        content=doc_content,
+                        metadata=doc_metadata,
+                        doc_id=recovered_doc_id,
+                    ),
+                    score,
+                )
+            )
 
         return docs_out
 

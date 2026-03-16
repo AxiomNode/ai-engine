@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import threading
 
-from ai_engine.observability.collector import GenerationEvent, StatsCollector, _percentile
-
+from ai_engine.observability.collector import (
+    GenerationEvent,
+    StatsCollector,
+    _percentile,
+)
 
 # ------------------------------------------------------------------
 # GenerationEvent
@@ -154,10 +157,16 @@ class TestStatsCollector:
     def test_success_rate(self) -> None:
         """Success rate is computed correctly."""
         c = StatsCollector()
-        c.record_call(prompt="p", response="r", latency_ms=1.0, max_tokens=64, success=True)
         c.record_call(
-            prompt="p", response="r", latency_ms=1.0, max_tokens=64,
-            success=False, error="boom",
+            prompt="p", response="r", latency_ms=1.0, max_tokens=64, success=True
+        )
+        c.record_call(
+            prompt="p",
+            response="r",
+            latency_ms=1.0,
+            max_tokens=64,
+            success=False,
+            error="boom",
         )
         s = c.summary()
         assert s["success_rate"] == 0.5
@@ -172,6 +181,61 @@ class TestStatsCollector:
         assert s["p50_latency_ms"] >= 49.0
         assert s["p95_latency_ms"] >= 94.0
         assert s["max_latency_ms"] == 99.0
+
+    def test_summary_includes_cache_and_phase_metrics(self) -> None:
+        """Advanced metadata fields are aggregated in summary output."""
+        c = StatsCollector()
+        c.record_call(
+            prompt="p1",
+            response="r1",
+            latency_ms=10.0,
+            max_tokens=64,
+            metadata={
+                "cache_hit": True,
+                "cache_layer": "memory",
+                "rag_latency_ms": 3.0,
+                "llm_latency_ms": 5.0,
+                "parse_latency_ms": 1.0,
+                "total_latency_ms": 10.0,
+                "kbd_hits": 2,
+                "db_reads": 1,
+                "db_writes": 0,
+                "language": "en",
+            },
+        )
+        c.record_call(
+            prompt="p2",
+            response="r2",
+            latency_ms=20.0,
+            max_tokens=64,
+            metadata={
+                "cache_hit": False,
+                "cache_layer": "none",
+                "rag_latency_ms": 6.0,
+                "llm_latency_ms": 10.0,
+                "parse_latency_ms": 2.0,
+                "total_latency_ms": 20.0,
+                "kbd_hits": 1,
+                "db_reads": 2,
+                "db_writes": 1,
+                "language": "es",
+            },
+        )
+
+        s = c.summary()
+        assert s["cache_hits"] == 1
+        assert s["cache_misses"] == 1
+        assert s["cache_hit_rate"] == 0.5
+        assert s["cache_layer_counts"]["memory"] == 1
+        assert s["avg_rag_latency_ms"] == 4.5
+        assert s["avg_llm_latency_ms"] == 7.5
+        assert s["avg_parse_latency_ms"] == 1.5
+        assert s["avg_total_latency_ms"] == 15.0
+        assert s["kbd_hits_total"] == 3
+        assert s["db_reads_total"] == 3
+        assert s["db_writes_total"] == 1
+        assert s["language_counts"]["en"] == 1
+        assert s["language_counts"]["es"] == 1
 
     def test_thread_safety(self) -> None:
         """Concurrent recording does not lose events."""

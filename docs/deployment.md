@@ -135,6 +135,14 @@ response = llm.generate("Explain photosynthesis.", max_tokens=256)
 The repository ships a production-ready multi-stage `Dockerfile` and a
 `docker-compose.yml` that orchestrates the full stack.
 
+For CPU-only VPS deployments, the Docker setup is optimized to avoid GPU
+runtime dependencies:
+
+- `ai-api` uses a dedicated image target with `api + rag` dependencies and
+  CPU-only PyTorch wheels.
+- `ai-stats` uses a dedicated lightweight image target with only `api`
+  dependencies (no RAG stack).
+
 ### Prerequisites
 
 1. Download at least one model before building (models are **not** baked into
@@ -172,12 +180,32 @@ Visit `http://localhost:8000/docs` for the interactive Swagger UI.
 docker compose up --build
 ```
 
-This starts two services:
+If you want the stack to consume more host resources, raise the limits in
+`.env` before starting Compose. Example:
+
+```bash
+LLAMA_CPUS=8.0
+LLAMA_MEMORY_LIMIT=16g
+LLAMA_MEMORY_RESERVATION=12g
+LLAMA_SHM_SIZE=3g
+API_CPUS=6.0
+API_MEMORY_LIMIT=10g
+API_MEMORY_RESERVATION=6g
+API_SHM_SIZE=2g
+API_WORKERS=4
+```
+
+On Windows, these values are still capped by Docker Desktop's global limits.
+If Compose does not use the requested memory/CPU, increase the Docker Desktop
+or WSL 2 allocation first, then restart Docker Desktop.
+
+This starts three services:
 
 | Service | Port | Description |
 |---|---|---|
 | `llama-server` | 8080 | llama.cpp HTTP inference server |
 | `ai-stats` | 8000 | ai-engine observability / statistics FastAPI |
+| `ai-api` | 8001 | ai-engine generation FastAPI |
 
 > **Tip:** Override the model file or port without editing `docker-compose.yml`
 > by setting variables in `.env` (see `.env.example` for all options).
@@ -208,8 +236,40 @@ docker compose up --build --force-recreate ai-stats
 | `LLAMA_MODEL_FILE` | `Qwen2.5-3B-Instruct-Q4_K_M.gguf` | GGUF filename loaded by the `llama-server` compose service. |
 | `LLAMA_CTX_SIZE` | `4096` | Context window size (tokens) for the llama.cpp server. |
 | `LLAMA_PORT` | `8080` | Host port exposed by the `llama-server` service. |
+| `LLAMA_CPUS` | `6.0` | CPU quota assigned to `llama-server` by Docker Compose. |
+| `LLAMA_MEMORY_LIMIT` | `12g` | Hard memory limit for `llama-server`. |
+| `LLAMA_MEMORY_RESERVATION` | `8g` | Soft memory reservation for `llama-server`. |
+| `LLAMA_SHM_SIZE` | `2g` | Shared memory available to `llama-server`. |
 | `STATS_PORT` | `8000` | Host port exposed by the `ai-stats` service. |
+| `STATS_CPUS` | `1.0` | CPU quota assigned to `ai-stats`. |
+| `STATS_MEMORY_LIMIT` | `1g` | Hard memory limit for `ai-stats`. |
+| `STATS_MEMORY_RESERVATION` | `512m` | Soft memory reservation for `ai-stats`. |
+| `API_PORT` | `8001` | Host port exposed by the `ai-api` service. |
+| `API_CPUS` | `4.0` | CPU quota assigned to `ai-api`. |
+| `API_MEMORY_LIMIT` | `8g` | Hard memory limit for `ai-api`. |
+| `API_MEMORY_RESERVATION` | `4g` | Soft memory reservation for `ai-api`. |
+| `API_SHM_SIZE` | `1g` | Shared memory available to `ai-api`. |
+| `API_WORKERS` | `2` | Number of Uvicorn workers used by `ai-api`. |
+| `STATS_WORKERS` | `1` | Number of Uvicorn workers used by `ai-stats`. |
 | `AI_ENGINE_API_KEY` | *(unset)* | Shared secret for the future generation API (`X-API-Key` header). |
+
+### Windows note: Docker Desktop resource ceiling
+
+If you use Docker Desktop on Windows, Compose cannot exceed the global limits
+assigned to the Linux backend.
+
+1. Open Docker Desktop.
+2. Go to Settings.
+3. If you use the Hyper-V backend, open Resources and raise CPUs, Memory, and Swap.
+4. If you use WSL 2, raise the limits for the `docker-desktop` WSL environment or remove restrictive values from your `.wslconfig`.
+5. Restart Docker Desktop.
+
+After that, run:
+
+```bash
+docker compose down
+docker compose up -d --build
+```
 
 ---
 

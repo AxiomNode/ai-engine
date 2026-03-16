@@ -14,6 +14,8 @@ Usage::
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 try:
     from tinydb import TinyDB, where
     from tinydb.storages import MemoryStorage
@@ -24,6 +26,17 @@ except ImportError as _err:  # pragma: no cover
     ) from _err
 
 from ai_engine.kbd.entry import KnowledgeEntry
+
+
+def _as_entry_dict(row: object) -> dict[str, Any] | None:
+    """Return a TinyDB row as a plain dict when it has the expected shape."""
+    if not isinstance(row, dict):
+        return None
+    data = cast(dict[str, Any], row)
+    required = ("entry_id", "title", "content")
+    if not all(key in data for key in required):
+        return None
+    return data
 
 
 class TinyDBKnowledgeBase:
@@ -77,9 +90,10 @@ class TinyDBKnowledgeBase:
             entry_id: The identifier to look up.
         """
         row = self._table.get(where("entry_id") == entry_id)
-        if row is None:
+        data = _as_entry_dict(row)
+        if data is None:
             return None
-        return KnowledgeEntry.from_dict(row)
+        return KnowledgeEntry.from_dict(data)
 
     def update(self, entry: KnowledgeEntry) -> None:
         """Update an existing entry.
@@ -114,7 +128,12 @@ class TinyDBKnowledgeBase:
 
     def list_all(self) -> list[KnowledgeEntry]:
         """Return all entries in the knowledge base."""
-        return [KnowledgeEntry.from_dict(row) for row in self._table.all()]
+        entries: list[KnowledgeEntry] = []
+        for row in self._table.all():
+            data = _as_entry_dict(row)
+            if data is not None:
+                entries.append(KnowledgeEntry.from_dict(data))
+        return entries
 
     def search_by_tag(self, tag: str) -> list[KnowledgeEntry]:
         """Return all entries that include *tag* in their tags list.
@@ -128,7 +147,12 @@ class TinyDBKnowledgeBase:
         rows = self._table.search(
             where("tags").test(lambda tags: tag_lower in (t.lower() for t in tags))
         )
-        return [KnowledgeEntry.from_dict(row) for row in rows]
+        entries: list[KnowledgeEntry] = []
+        for row in rows:
+            data = _as_entry_dict(row)
+            if data is not None:
+                entries.append(KnowledgeEntry.from_dict(data))
+        return entries
 
     def search_by_keyword(self, keyword: str) -> list[KnowledgeEntry]:
         """Return entries whose title or content contains *keyword*.
@@ -140,10 +164,15 @@ class TinyDBKnowledgeBase:
         """
         kw = keyword.lower()
         rows = self._table.search(
-            where("title").test(lambda t: kw in t.lower())
-            | where("content").test(lambda c: kw in c.lower())
+            where("title").test(lambda t: isinstance(t, str) and kw in t.lower())
+            | where("content").test(lambda c: isinstance(c, str) and kw in c.lower())
         )
-        return [KnowledgeEntry.from_dict(row) for row in rows]
+        entries: list[KnowledgeEntry] = []
+        for row in rows:
+            data = _as_entry_dict(row)
+            if data is not None:
+                entries.append(KnowledgeEntry.from_dict(data))
+        return entries
 
     # ------------------------------------------------------------------
     # Dunder helpers

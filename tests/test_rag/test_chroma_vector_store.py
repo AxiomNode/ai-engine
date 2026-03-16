@@ -29,6 +29,7 @@ if _HAS_CHROMA:
 # Helpers
 # ------------------------------------------------------------------
 
+
 def _store() -> ChromaVectorStore:
     """Return a fresh ephemeral ChromaVectorStore with a unique collection name."""
     return ChromaVectorStore(collection_name=f"test-{uuid.uuid4().hex}", path=None)
@@ -52,6 +53,7 @@ def _docs_and_embeddings() -> tuple[list[Document], list[list[float]]]:
 # Initialisation
 # ------------------------------------------------------------------
 
+
 class TestChromaVectorStoreInit:
 
     def test_default_collection_name(self) -> None:
@@ -68,6 +70,7 @@ class TestChromaVectorStoreInit:
 # ------------------------------------------------------------------
 # add / search
 # ------------------------------------------------------------------
+
 
 class TestChromaVectorStoreAddSearch:
 
@@ -120,7 +123,9 @@ class TestChromaVectorStoreAddSearch:
     def test_document_metadata_preserved(self) -> None:
         """Metadata attached to documents survives a round-trip through Chroma."""
         store = _store()
-        doc = Document(content="Test doc", doc_id="m1", metadata={"source": "book.pdf", "page": 3})
+        doc = Document(
+            content="Test doc", doc_id="m1", metadata={"source": "book.pdf", "page": 3}
+        )
         store.add([doc], [[0.5, 0.5, 0.0]])
         results = store.search([0.5, 0.5, 0.0], top_k=1)
         assert results[0][0].metadata.get("source") == "book.pdf"
@@ -146,6 +151,7 @@ class TestChromaVectorStoreAddSearch:
 # ------------------------------------------------------------------
 # clear
 # ------------------------------------------------------------------
+
 
 class TestChromaVectorStoreClear:
 

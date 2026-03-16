@@ -97,9 +97,7 @@ def model_path(model_name: str | None = None) -> Path:
     name = model_name or DEFAULT_MODEL
     info = MODELS.get(name)
     if info is None:
-        raise ValueError(
-            f"Unknown model {name!r}. Available: {list(MODELS)}"
-        )
+        raise ValueError(f"Unknown model {name!r}. Available: {list(MODELS)}")
     path = get_models_dir() / info["filename"]
     if not path.exists():
         raise FileNotFoundError(
@@ -126,9 +124,7 @@ def download_model(
     name = model_name or DEFAULT_MODEL
     info = MODELS.get(name)
     if info is None:
-        raise ValueError(
-            f"Unknown model {name!r}. Available: {list(MODELS)}"
-        )
+        raise ValueError(f"Unknown model {name!r}. Available: {list(MODELS)}")
 
     dest = get_models_dir() / info["filename"]
 
@@ -174,9 +170,7 @@ def download_model(
         actual = h.hexdigest()
         if actual != expected:
             tmp.unlink()
-            raise RuntimeError(
-                f"SHA-256 mismatch! Expected {expected}, got {actual}"
-            )
+            raise RuntimeError(f"SHA-256 mismatch! Expected {expected}, got {actual}")
 
     shutil.move(str(tmp), str(dest))
     logger.info("Model saved to %s", dest)
@@ -202,6 +196,7 @@ def list_models() -> list[dict[str, Any]]:
 # ------------------------------------------------------------------
 # CLI entry-point
 # ------------------------------------------------------------------
+
 
 def _cli() -> None:
     """Minimal CLI: ``python -m ai_engine.llm.model_manager <command> [model]``"""

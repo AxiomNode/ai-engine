@@ -138,7 +138,9 @@ class TrackedGameGenerator:
                 failure event.
         """
         game_type = kwargs.get("game_type", "quiz")
-        tokens: int = int(kwargs.get("max_tokens") or self._generator.default_max_tokens)
+        tokens: int = int(
+            kwargs.get("max_tokens") or self._generator.default_max_tokens
+        )
         query = args[0] if args else kwargs.get("query", "")
 
         start = time.perf_counter()
@@ -184,7 +186,9 @@ class TrackedGameGenerator:
                 failure event.
         """
         game_type = kwargs.get("game_type", "quiz")
-        tokens: int = int(kwargs.get("max_tokens") or self._generator.default_max_tokens)
+        tokens: int = int(
+            kwargs.get("max_tokens") or self._generator.default_max_tokens
+        )
         query = args[0] if args else kwargs.get("query", "")
 
         start = time.perf_counter()

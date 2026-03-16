@@ -17,7 +17,13 @@ try:
 except ImportError:
     _HAS_FASTAPI = False
 
-from ai_engine.games.schemas import GameEnvelope, QuizGame, QuizQuestion, PasapalabraGame, PasapalabraWord
+from ai_engine.games.schemas import (
+    GameEnvelope,
+    PasapalabraGame,
+    PasapalabraWord,
+    QuizGame,
+    QuizQuestion,
+)
 from ai_engine.observability.collector import StatsCollector
 
 pytestmark = pytest.mark.skipif(not _HAS_FASTAPI, reason="fastapi not installed")
@@ -26,6 +32,7 @@ pytestmark = pytest.mark.skipif(not _HAS_FASTAPI, reason="fastapi not installed"
 # ------------------------------------------------------------------
 # Helpers / Fixtures
 # ------------------------------------------------------------------
+
 
 def _make_quiz_envelope() -> GameEnvelope:
     """Return a minimal valid quiz GameEnvelope for testing."""
@@ -54,7 +61,9 @@ def _make_pasapalabra_envelope() -> GameEnvelope:
             title="Test Rosco",
             topic="Science",
             words=[
-                PasapalabraWord(letter="A", hint="First letter", answer="Atom", starts_with=True)
+                PasapalabraWord(
+                    letter="A", hint="First letter", answer="Atom", starts_with=True
+                )
             ],
         ),
     )
@@ -78,8 +87,10 @@ def _make_client(
     mock_gen = MagicMock()
     if gen_side_effect is not None:
         mock_gen.generate.side_effect = gen_side_effect
+        mock_gen.generate_from_context.side_effect = gen_side_effect
     else:
         mock_gen.generate.return_value = envelope or _make_quiz_envelope()
+        mock_gen.generate_from_context.return_value = envelope or _make_quiz_envelope()
 
     mock_pipeline = MagicMock()
     collector = StatsCollector()
@@ -95,6 +106,7 @@ def _make_client(
 # ------------------------------------------------------------------
 # GET /health
 # ------------------------------------------------------------------
+
 
 class TestHealth:
     """Tests for GET /health."""
@@ -118,6 +130,7 @@ class TestHealth:
 # POST /generate
 # ------------------------------------------------------------------
 
+
 class TestGenerate:
     """Tests for POST /generate."""
 
@@ -135,7 +148,7 @@ class TestGenerate:
         assert "questions" in data["game"]
 
     def test_generate_calls_generator_with_correct_args(self) -> None:
-        """Generator is called with all fields from the request."""
+        """Generator is called with all non-query fields from the request."""
         client, mock_gen, *_ = _make_client()
         client.post(
             "/generate",
@@ -148,8 +161,9 @@ class TestGenerate:
                 "max_tokens": 512,
             },
         )
-        call_kwargs = mock_gen.generate.call_args.kwargs
-        assert call_kwargs["query"] == "photosynthesis"
+        call_kwargs = mock_gen.generate_from_context.call_args.kwargs
+        assert "context" in call_kwargs
+        assert isinstance(call_kwargs["context"], str)
         assert call_kwargs["topic"] == "Biology"
         assert call_kwargs["game_type"] == "true_false"
         assert call_kwargs["language"] == "en"
@@ -193,12 +207,27 @@ class TestGenerate:
         """Default language is Spanish when not specified."""
         client, mock_gen, *_ = _make_client()
         client.post("/generate", json={"query": "w", "topic": "Science"})
-        assert mock_gen.generate.call_args.kwargs["language"] == "es"
+        assert mock_gen.generate_from_context.call_args.kwargs["language"] == "es"
+
+    def test_generate_sdk_returns_typed_payload(self) -> None:
+        """/generate/sdk returns model_type + metadata + data sections."""
+        client, *_ = _make_client()
+        resp = client.post(
+            "/generate/sdk",
+            json={"query": "water cycle", "topic": "Science", "language": "en"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "model_type" in data
+        assert "metadata" in data
+        assert "data" in data
+        assert "metrics" in data
 
 
 # ------------------------------------------------------------------
 # POST /ingest
 # ------------------------------------------------------------------
+
 
 class TestIngest:
     """Tests for POST /ingest."""
@@ -267,6 +296,7 @@ class TestIngest:
 # GET /stats and GET /stats/history
 # ------------------------------------------------------------------
 
+
 class TestStats:
     """Tests for GET /stats and GET /stats/history."""
 
@@ -276,12 +306,17 @@ class TestStats:
         resp = client.get("/stats")
         assert resp.status_code == 200
         assert resp.json()["total_calls"] == 0
+        assert "cache_runtime" in resp.json()
 
     def test_stats_after_recording_event(self) -> None:
         """Stats reflect recorded events."""
         client, _, _, collector = _make_client()
         collector.record_call(
-            prompt="test", response="ok", latency_ms=100.0, max_tokens=512, game_type="quiz"
+            prompt="test",
+            response="ok",
+            latency_ms=100.0,
+            max_tokens=512,
+            game_type="quiz",
         )
         resp = client.get("/stats")
         data = resp.json()
@@ -305,6 +340,25 @@ class TestStats:
         resp = client.get("/stats/history?last_n=2")
         assert len(resp.json()) == 2
 
+    def test_cache_stats_endpoint_returns_runtime_cache_info(self) -> None:
+        """/cache/stats returns runtime cache information."""
+        client, *_ = _make_client()
+        resp = client.get("/cache/stats")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "memory_entries" in data
+        assert "persistent_entries" in data
+        assert "cache_ttl_seconds" in data
+
+    def test_cache_reset_endpoint_clears_cache(self) -> None:
+        """/cache/reset returns counters for removed cache entries."""
+        client, *_ = _make_client()
+        resp = client.post("/cache/reset")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "removed_memory" in data
+        assert "removed_persistent" in data
+
     def test_history_invalid_last_n_returns_422(self) -> None:
         """last_n=0 is rejected with HTTP 422 (ge=1 constraint)."""
         client, *_ = _make_client()
@@ -315,6 +369,7 @@ class TestStats:
 # ------------------------------------------------------------------
 # API Key authentication
 # ------------------------------------------------------------------
+
 
 class TestAPIKeyAuth:
     """Tests for X-API-Key header authentication (generation API)."""
@@ -330,6 +385,7 @@ class TestAPIKeyAuth:
 
         mock_gen = MagicMock()
         mock_gen.generate.return_value = _make_quiz_envelope()
+        mock_gen.generate_from_context.return_value = _make_quiz_envelope()
         mock_pipeline = MagicMock()
 
         os.environ["AI_ENGINE_API_KEY"] = api_key
@@ -407,9 +463,7 @@ class TestUninitialised:
         # Nullify the generator to simulate missing component.
         app.state.generator = None
 
-        resp = client.post(
-            "/generate", json={"query": "water", "topic": "Science"}
-        )
+        resp = client.post("/generate", json={"query": "water", "topic": "Science"})
         assert resp.status_code == 503
         assert "not initialised" in resp.json()["detail"].lower()
 
@@ -441,9 +495,7 @@ class TestUninitialised:
 class TestBuildFromEnv:
     """_build_from_env raises RuntimeError when no LLM backend is configured."""
 
-    def test_raises_runtime_error_when_both_env_vars_absent(
-        self, monkeypatch
-    ) -> None:
+    def test_raises_runtime_error_when_both_env_vars_absent(self, monkeypatch) -> None:
         """RuntimeError raised when neither AI_ENGINE_LLAMA_URL nor
         AI_ENGINE_MODEL_PATH are set."""
         import sys

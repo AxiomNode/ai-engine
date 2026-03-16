@@ -11,8 +11,8 @@ Typical usage::
     app = create_app(collector)
 """
 
-from ai_engine.observability.collector import GenerationEvent, StatsCollector
 from ai_engine.observability.api import create_app
+from ai_engine.observability.collector import GenerationEvent, StatsCollector
 
 __all__ = [
     "GenerationEvent",

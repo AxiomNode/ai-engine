@@ -55,3 +55,14 @@ class GenerateRequest(BaseModel):
     num_questions: int = Field(default=5, ge=1, le=50)
     letters: str = "A,B,C,D,E,F,G,H,I,J,L,M,N,O,P,R,S,T,V,Z"
     max_tokens: int = Field(default=1024, ge=64, le=4096)
+    use_cache: bool = True
+    force_refresh: bool = False
+
+
+class GenerateSDKResponse(BaseModel):
+    """Typed SDK-oriented payload returned by ``POST /generate/sdk``."""
+
+    model_type: str
+    metadata: dict[str, Any]
+    data: dict[str, Any]
+    metrics: dict[str, Any] = Field(default_factory=dict)

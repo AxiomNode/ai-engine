@@ -30,6 +30,7 @@ Run standalone::
 from __future__ import annotations
 
 import logging
+import time
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -43,8 +44,13 @@ except ImportError as _imp_err:  # pragma: no cover
         "Install it with:  pip install ai-engine[api]"
     ) from _imp_err
 
-from ai_engine.api.schemas import GenerateRequest, IngestRequest  # noqa: E402
 from ai_engine.api.middleware import add_api_key_middleware  # noqa: E402
+from ai_engine.api.optimization import GenerationOptimizationService  # noqa: E402
+from ai_engine.api.schemas import (  # noqa: E402
+    GenerateRequest,
+    GenerateSDKResponse,
+    IngestRequest,
+)
 from ai_engine.config import get_settings  # noqa: E402
 from ai_engine.observability.collector import StatsCollector  # noqa: E402
 
@@ -67,7 +73,9 @@ def _build_from_env() -> tuple[Any, Any]:
     from ai_engine.games.generator import GameGenerator
     from ai_engine.llm.llama_client import LlamaClient
     from ai_engine.observability.middleware import TrackedGameGenerator
-    from ai_engine.rag.embedders.sentence_transformers import SentenceTransformersEmbedder
+    from ai_engine.rag.embedders.sentence_transformers import (
+        SentenceTransformersEmbedder,
+    )
     from ai_engine.rag.pipeline import RAGPipeline
     from ai_engine.rag.vector_store import InMemoryVectorStore
 
@@ -139,6 +147,11 @@ def _get_collector(request: Request) -> StatsCollector:
     return request.app.state.collector  # type: ignore[no-any-return]
 
 
+def _get_optimizer(request: Request) -> Any:
+    """Retrieve the generation optimization service from app state."""
+    return request.app.state.optimizer
+
+
 def create_app(
     generator: Any = None,
     rag_pipeline: Any = None,
@@ -168,6 +181,7 @@ def create_app(
     _state: dict[str, Any] = {
         "generator": generator,
         "rag_pipeline": rag_pipeline,
+        "optimizer": None,
     }
 
     @asynccontextmanager
@@ -178,6 +192,17 @@ def create_app(
             _state["generator"], _state["rag_pipeline"] = _build_from_env()
             app.state.generator = _state["generator"]
             app.state.rag_pipeline = _state["rag_pipeline"]
+
+        if (
+            app.state.optimizer is None
+            and app.state.generator is not None
+            and app.state.rag_pipeline is not None
+        ):
+            app.state.optimizer = GenerationOptimizationService(
+                app.state.generator,
+                app.state.rag_pipeline,
+                persistent_cache_path="data/generation_cache.json",
+            )
 
         logger.info("ai-engine generation API started.")
         yield
@@ -199,6 +224,16 @@ def create_app(
     app.state.generator = generator
     app.state.rag_pipeline = rag_pipeline
     app.state.collector = _collector
+    app.state.optimizer = (
+        GenerationOptimizationService(
+            generator,
+            rag_pipeline,
+            cache_max_entries=0,
+            persistent_cache_path=None,
+        )
+        if generator is not None and rag_pipeline is not None
+        else None
+    )
 
     # Attach API key middleware when AI_ENGINE_API_KEY is set in the environment.
     add_api_key_middleware(app)
@@ -243,18 +278,100 @@ def create_app(
         gen = _get_generator(request)
         if gen is None:
             raise HTTPException(status_code=503, detail="Generator not initialised.")
+
+        optimizer = _get_optimizer(request)
+        if optimizer is None:
+            raise HTTPException(status_code=503, detail="Generator not initialised.")
+
+        if req.force_refresh:
+            req = req.model_copy(update={"use_cache": False})
+
         try:
-            envelope = gen.generate(
-                query=req.query,
-                topic=req.topic,
-                game_type=req.game_type,
-                language=req.language,
-                num_questions=req.num_questions,
-                letters=req.letters,
+            result = optimizer.generate(req)
+            _get_collector(request).record_call(
+                prompt=req.query,
+                response=str(result.payload),
+                latency_ms=float(result.metrics.get("total_latency_ms", 0.0)),
                 max_tokens=req.max_tokens,
+                json_mode=True,
+                success=True,
+                game_type=req.game_type,
+                metadata=result.metrics,
             )
-            return {"game_type": envelope.game_type, "game": envelope.game.to_dict()}
+            return result.payload
         except ValueError as exc:
+            _get_collector(request).record_call(
+                prompt=req.query,
+                response="",
+                latency_ms=0.0,
+                max_tokens=req.max_tokens,
+                json_mode=True,
+                success=False,
+                game_type=req.game_type,
+                error=str(exc),
+                metadata={
+                    "cache_hit": False,
+                    "cache_layer": "none",
+                    "language": req.language,
+                },
+            )
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/generate/sdk", tags=["generation"], response_model=GenerateSDKResponse)
+    def generate_sdk(req: GenerateRequest, request: Request) -> GenerateSDKResponse:
+        """Generate and return SDK-shaped game objects for microservice consumers."""
+        gen = _get_generator(request)
+        if gen is None:
+            raise HTTPException(status_code=503, detail="Generator not initialised.")
+
+        optimizer = _get_optimizer(request)
+        if optimizer is None:
+            raise HTTPException(status_code=503, detail="Generator not initialised.")
+
+        if req.force_refresh:
+            req = req.model_copy(update={"use_cache": False})
+
+        started = time.perf_counter()
+        try:
+            result = optimizer.generate(req)
+            sdk_payload = result.sdk_payload
+            _get_collector(request).record_call(
+                prompt=req.query,
+                response=str(sdk_payload),
+                latency_ms=float(result.metrics.get("total_latency_ms", 0.0)),
+                max_tokens=req.max_tokens,
+                json_mode=True,
+                success=True,
+                game_type=req.game_type,
+                metadata=result.metrics,
+            )
+            return GenerateSDKResponse(
+                model_type=str(sdk_payload.get("model_type", req.game_type)),
+                metadata=dict(sdk_payload.get("metadata", {})),
+                data={
+                    key: value
+                    for key, value in sdk_payload.items()
+                    if key not in {"model_type", "metadata"}
+                },
+                metrics=result.metrics,
+            )
+        except ValueError as exc:
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            _get_collector(request).record_call(
+                prompt=req.query,
+                response="",
+                latency_ms=elapsed_ms,
+                max_tokens=req.max_tokens,
+                json_mode=True,
+                success=False,
+                game_type=req.game_type,
+                error=str(exc),
+                metadata={
+                    "cache_hit": False,
+                    "cache_layer": "none",
+                    "language": req.language,
+                },
+            )
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/ingest", tags=["rag"])
@@ -280,6 +397,8 @@ def create_app(
         pipeline = _get_pipeline(request)
         if pipeline is None:
             raise HTTPException(status_code=503, detail="RAG pipeline not initialised.")
+
+        started = time.perf_counter()
         docs = [
             Document(
                 content=d.content,
@@ -289,6 +408,29 @@ def create_app(
             for d in req.documents
         ]
         pipeline.ingest(docs)
+
+        optimizer = _get_optimizer(request)
+        if optimizer is not None:
+            optimizer.on_ingest(docs)
+
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        _get_collector(request).record_call(
+            prompt="ingest",
+            response=f"ingested={len(docs)}",
+            latency_ms=elapsed_ms,
+            max_tokens=0,
+            json_mode=False,
+            success=True,
+            game_type="ingest",
+            metadata={
+                "rag_latency_ms": round(elapsed_ms, 2),
+                "cache_hit": False,
+                "cache_layer": "none",
+                "language": "n/a",
+                "db_writes": len(docs),
+                "kbd_hits": len(docs),
+            },
+        )
         return {"ingested": len(docs)}
 
     @app.get("/stats", tags=["monitoring"])
@@ -299,7 +441,27 @@ def create_app(
             A summary dictionary produced by
             :meth:`~ai_engine.observability.collector.StatsCollector.summary`.
         """
-        return _get_collector(request).summary()
+        summary = _get_collector(request).summary()
+        optimizer = _get_optimizer(request)
+        if optimizer is not None:
+            summary["cache_runtime"] = optimizer.cache_stats()
+        return summary
+
+    @app.get("/cache/stats", tags=["monitoring"])
+    def get_cache_stats(request: Request) -> dict[str, Any]:
+        """Return runtime cache metrics for generation optimization layers."""
+        optimizer = _get_optimizer(request)
+        if optimizer is None:
+            raise HTTPException(status_code=503, detail="Generator not initialised.")
+        return optimizer.cache_stats()
+
+    @app.post("/cache/reset", tags=["monitoring"])
+    def reset_cache(request: Request) -> dict[str, int]:
+        """Clear in-memory and persistent generation cache entries."""
+        optimizer = _get_optimizer(request)
+        if optimizer is None:
+            raise HTTPException(status_code=503, detail="Generator not initialised.")
+        return optimizer.reset_cache()
 
     @app.get("/stats/history", tags=["monitoring"])
     def get_history(

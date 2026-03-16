@@ -29,9 +29,9 @@ class TestModelRegistry:
 
     def test_all_urls_are_https(self):
         for name, info in MODELS.items():
-            assert info["url"].startswith("https://"), (
-                f"Model {name!r} URL should use HTTPS"
-            )
+            assert info["url"].startswith(
+                "https://"
+            ), f"Model {name!r} URL should use HTTPS"
 
 
 class TestGetModelsDir:
@@ -78,6 +78,7 @@ class TestListModels:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_mock_response(content: bytes, status_code: int = 200) -> MagicMock:
     """Build a mock requests.Response that streams *content* in one chunk."""
@@ -201,6 +202,7 @@ class TestCli:
         monkeypatch.setattr(sys, "argv", ["model_manager", "list"])
 
         from ai_engine.llm.model_manager import _cli
+
         _cli()
 
         out = capsys.readouterr().out
@@ -214,6 +216,7 @@ class TestCli:
         monkeypatch.setattr(sys, "argv", ["model_manager", "path", DEFAULT_MODEL])
 
         from ai_engine.llm.model_manager import _cli
+
         _cli()
 
         out = capsys.readouterr().out.strip()
@@ -227,6 +230,7 @@ class TestCli:
         mock_resp = _make_mock_response(content)
 
         from ai_engine.llm.model_manager import _cli
+
         with patch("requests.get", return_value=mock_resp):
             _cli()
 
@@ -237,6 +241,7 @@ class TestCli:
         monkeypatch.setattr(sys, "argv", ["model_manager", "explode"])
 
         from ai_engine.llm.model_manager import _cli
+
         with pytest.raises(SystemExit) as exc_info:
             _cli()
 
@@ -246,8 +251,8 @@ class TestCli:
         monkeypatch.setattr(sys, "argv", ["model_manager", "--help"])
 
         from ai_engine.llm.model_manager import _cli
+
         _cli()  # should not raise
 
         out = capsys.readouterr().out
         assert "Usage" in out
-

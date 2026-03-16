@@ -1,12 +1,17 @@
 """Tests for ai_engine.kbd.knowledge_base."""
 
 import pytest
+
 from ai_engine.kbd.entry import KnowledgeEntry
 from ai_engine.kbd.knowledge_base import KnowledgeBase
 
 
-def _entry(entry_id: str, title: str = "T", content: str = "C", tags: list | None = None):
-    return KnowledgeEntry(entry_id=entry_id, title=title, content=content, tags=tags or [])
+def _entry(
+    entry_id: str, title: str = "T", content: str = "C", tags: list | None = None
+):
+    return KnowledgeEntry(
+        entry_id=entry_id, title=title, content=content, tags=tags or []
+    )
 
 
 def test_add_and_get():

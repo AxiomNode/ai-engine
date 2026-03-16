@@ -1,6 +1,7 @@
 """Tests for ai_engine.rag.vector_store (InMemoryVectorStore)."""
 
 import pytest
+
 from ai_engine.rag.document import Document
 from ai_engine.rag.vector_store import InMemoryVectorStore
 

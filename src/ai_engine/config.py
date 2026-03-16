@@ -46,9 +46,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Default models directory: <project_root>/models/
-_DEFAULT_MODELS_DIR = str(
-    Path(__file__).resolve().parent.parent.parent / "models"
-)
+_DEFAULT_MODELS_DIR = str(Path(__file__).resolve().parent.parent.parent / "models")
 
 
 class AIEngineSettings(BaseSettings):
@@ -66,8 +64,8 @@ class AIEngineSettings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_prefix="",      # Variables use their full names (e.g. AI_ENGINE_LLAMA_URL)
-        extra="ignore",     # Silently ignore unrecognised env vars
+        env_prefix="",  # Variables use their full names (e.g. AI_ENGINE_LLAMA_URL)
+        extra="ignore",  # Silently ignore unrecognised env vars
     )
 
     llama_url: str | None = Field(

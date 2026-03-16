@@ -84,7 +84,11 @@ class KnowledgeBase:
             tag: The tag to filter by.
         """
         tag_lower = tag.lower()
-        return [e for e in self._entries.values() if tag_lower in (t.lower() for t in e.tags)]
+        return [
+            e
+            for e in self._entries.values()
+            if tag_lower in (t.lower() for t in e.tags)
+        ]
 
     def search_by_keyword(self, keyword: str) -> list[KnowledgeEntry]:
         """Return entries whose title or content contains *keyword*.

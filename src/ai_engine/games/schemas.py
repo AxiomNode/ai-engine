@@ -15,7 +15,6 @@ from typing import Any, Literal, Union
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-
 # ------------------------------------------------------------------
 # Quiz
 # ------------------------------------------------------------------
@@ -145,9 +144,7 @@ class PasapalabraWord(BaseModel):
     def letter_valid(cls, v: str) -> str:
         """Validate that letter is a single alphabetic character and upper-case it."""
         if len(v) != 1 or not v.isalpha():
-            raise ValueError(
-                f"letter must be a single alphabetic character, got {v!r}"
-            )
+            raise ValueError(f"letter must be a single alphabetic character, got {v!r}")
         return v.upper()
 
     @field_validator("hint")

@@ -11,3 +11,5 @@ This folder contains the technical documentation for **ai-engine**.
 | [deployment.md](deployment.md) | How to run the API server, use Docker, and connect a llama.cpp server |
 | [rag-usage.md](rag-usage.md) | RAG pipeline: ingestion, retrieval, custom embedders and vector stores |
 | [kbd-usage.md](kbd-usage.md) | Knowledge Base CRUD, tag/keyword search, and integration with RAG |
+| [sdk-usage.md](sdk-usage.md) | SDK models for typed parsing of generate endpoint responses |
+| [metrics-usage.md](metrics-usage.md) | Advanced generation metrics (cache, RAG, LLM, KBD, DB) |
