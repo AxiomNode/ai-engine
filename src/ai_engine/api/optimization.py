@@ -139,6 +139,7 @@ class GenerationOptimizationService:
         """Generate content with cache-aware strategy and SDK conversion."""
         started = time.perf_counter()
         metrics: dict[str, Any] = {
+            "event_type": "generation",
             "cache_hit": False,
             "cache_layer": "none",
             "cache_reads": 0,

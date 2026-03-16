@@ -29,7 +29,7 @@ This document tracks the improvement plan for the ai-engine project.
 
 ## P1 - High value
 
-- [ ] P1-01 Improve cache observability correctness
+- [x] P1-01 Improve cache observability correctness
   - Scope:
     - Avoid counting non-generation events as cache misses.
     - Add event classification for cleaner summary math.
@@ -69,3 +69,4 @@ This document tracks the improvement plan for the ai-engine project.
 - 2026-03-16: Checklist created. Next item in progress: P0-01.
 - 2026-03-16: P0-01 completed. Fixed compatibility fallback in optimization service and restored protected API-key test path.
 - 2026-03-16: P0-02 completed. Resolved mypy errors in SDK/optimization modules and restored lint/type checks to green.
+- 2026-03-16: P1-01 completed. Added event classification for observability and restricted cache hit-rate math to generation events only.

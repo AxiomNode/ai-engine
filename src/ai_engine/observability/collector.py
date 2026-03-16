@@ -180,6 +180,7 @@ class StatsCollector:
                 "total_response_chars": 0,
                 "json_mode_calls": 0,
                 "game_type_counts": {},
+                "event_type_counts": {},
                 "cache_hits": 0,
                 "cache_misses": 0,
                 "cache_hit_rate": 0.0,
@@ -199,6 +200,7 @@ class StatsCollector:
         latencies = sorted(e.latency_ms for e in events)
 
         game_counts: dict[str, int] = {}
+        event_type_counts: dict[str, int] = {}
         cache_hits = 0
         cache_misses = 0
         cache_layer_counts: dict[str, int] = {}
@@ -216,13 +218,21 @@ class StatsCollector:
                 game_counts[e.game_type] = game_counts.get(e.game_type, 0) + 1
 
             meta = e.metadata or {}
-            if bool(meta.get("cache_hit", False)):
-                cache_hits += 1
-            else:
-                cache_misses += 1
+            event_type = str(
+                meta.get(
+                    "event_type", "generation" if e.game_type != "ingest" else "ingest"
+                )
+            )
+            event_type_counts[event_type] = event_type_counts.get(event_type, 0) + 1
 
-            layer = str(meta.get("cache_layer", "none"))
-            cache_layer_counts[layer] = cache_layer_counts.get(layer, 0) + 1
+            if event_type == "generation":
+                if bool(meta.get("cache_hit", False)):
+                    cache_hits += 1
+                else:
+                    cache_misses += 1
+
+                layer = str(meta.get("cache_layer", "none"))
+                cache_layer_counts[layer] = cache_layer_counts.get(layer, 0) + 1
 
             rag_ms = meta.get("rag_latency_ms")
             if isinstance(rag_ms, (int, float)):
@@ -267,9 +277,14 @@ class StatsCollector:
             "total_response_chars": sum(e.response_chars for e in events),
             "json_mode_calls": sum(1 for e in events if e.json_mode),
             "game_type_counts": game_counts,
+            "event_type_counts": event_type_counts,
             "cache_hits": cache_hits,
             "cache_misses": cache_misses,
-            "cache_hit_rate": round(cache_hits / total, 4),
+            "cache_hit_rate": (
+                round(cache_hits / (cache_hits + cache_misses), 4)
+                if (cache_hits + cache_misses) > 0
+                else 0.0
+            ),
             "cache_layer_counts": cache_layer_counts,
             "avg_rag_latency_ms": (
                 round(statistics.mean(rag_latencies), 2) if rag_latencies else 0.0

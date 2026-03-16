@@ -310,6 +310,7 @@ def create_app(
                 game_type=req.game_type,
                 error=str(exc),
                 metadata={
+                    "event_type": "generation",
                     "cache_hit": False,
                     "cache_layer": "none",
                     "language": req.language,
@@ -367,6 +368,7 @@ def create_app(
                 game_type=req.game_type,
                 error=str(exc),
                 metadata={
+                    "event_type": "generation",
                     "cache_hit": False,
                     "cache_layer": "none",
                     "language": req.language,
@@ -423,6 +425,7 @@ def create_app(
             success=True,
             game_type="ingest",
             metadata={
+                "event_type": "ingest",
                 "rag_latency_ms": round(elapsed_ms, 2),
                 "cache_hit": False,
                 "cache_layer": "none",

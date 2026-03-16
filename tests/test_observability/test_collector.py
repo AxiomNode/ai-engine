@@ -237,6 +237,52 @@ class TestStatsCollector:
         assert s["language_counts"]["en"] == 1
         assert s["language_counts"]["es"] == 1
 
+    def test_cache_metrics_ignore_non_generation_events(self) -> None:
+        """cache_hit_rate only considers generation-classified events."""
+        c = StatsCollector()
+        c.record_call(
+            prompt="gen-hit",
+            response="ok",
+            latency_ms=10.0,
+            max_tokens=64,
+            metadata={
+                "event_type": "generation",
+                "cache_hit": True,
+                "cache_layer": "memory",
+            },
+        )
+        c.record_call(
+            prompt="gen-miss",
+            response="ok",
+            latency_ms=10.0,
+            max_tokens=64,
+            metadata={
+                "event_type": "generation",
+                "cache_hit": False,
+                "cache_layer": "none",
+            },
+        )
+        c.record_call(
+            prompt="ingest",
+            response="ingested=2",
+            latency_ms=5.0,
+            max_tokens=0,
+            metadata={
+                "event_type": "ingest",
+                "cache_hit": False,
+                "cache_layer": "none",
+            },
+            game_type="ingest",
+            json_mode=False,
+        )
+
+        s = c.summary()
+        assert s["event_type_counts"]["generation"] == 2
+        assert s["event_type_counts"]["ingest"] == 1
+        assert s["cache_hits"] == 1
+        assert s["cache_misses"] == 1
+        assert s["cache_hit_rate"] == 0.5
+
     def test_thread_safety(self) -> None:
         """Concurrent recording does not lose events."""
         c = StatsCollector()
