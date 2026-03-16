@@ -15,7 +15,7 @@ COPY src/ ./src/
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Stage 2 – builder-api: generation API dependencies (api + rag), CPU-only
+# Stage 2 – builder-api: generation API dependencies (api + rag + kbd), CPU-only
 # ──────────────────────────────────────────────────────────────────────────────
 FROM builder-base AS builder-api
 
@@ -23,7 +23,7 @@ FROM builder-base AS builder-api
 RUN pip install --no-cache-dir --prefix=/install \
     --index-url https://download.pytorch.org/whl/cpu \
     --extra-index-url https://pypi.org/simple \
-    ".[api,rag]"
+    ".[api,rag,kbd]"
 
 
 # ──────────────────────────────────────────────────────────────────────────────

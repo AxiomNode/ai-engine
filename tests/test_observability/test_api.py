@@ -36,6 +36,8 @@ class TestHealthEndpoint:
         data = resp.json()
         assert data["status"] == "ok"
         assert "uptime_seconds" in data
+        assert "distribution_version" in data
+        assert resp.headers.get("X-Distribution-Version")
 
     def test_health_event_count(self) -> None:
         """Health reports event count."""
@@ -142,6 +144,7 @@ class TestMetricsEndpoint:
         assert "ai_engine_cache_hit_rate" in body
         assert 'ai_engine_game_type_calls{game_type="quiz"}' in body
         assert "ai_engine_generation_outcome_by_game_type_total" in body
+        assert "ai_engine_distribution_version_info" in body
 
 
 # ------------------------------------------------------------------

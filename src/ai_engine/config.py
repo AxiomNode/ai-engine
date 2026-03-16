@@ -54,6 +54,12 @@ Environment variables
 ``AI_ENGINE_RATE_LIMIT_WINDOW_SECONDS``
     Fixed time window in seconds used for generation request limiting.
 
+``AI_ENGINE_DISTRIBUTION``
+    Deployment distribution label (e.g. ``dev``, ``stg``, ``pro``).
+
+``AI_ENGINE_RELEASE_VERSION``
+    Deployment release version tag (e.g. ``v1``, ``2026.03.16``).
+
 Examples:
     Basic usage::
 
@@ -95,6 +101,8 @@ class AIEngineSettings(BaseSettings):
         rate_limit_enabled: Whether generation rate limiting is enabled.
         rate_limit_requests: Maximum requests allowed per window.
         rate_limit_window_seconds: Window size in seconds for limiting.
+        distribution: Deployment distribution label.
+        release_version: Deployment release version label.
     """
 
     model_config = SettingsConfigDict(
@@ -169,6 +177,23 @@ class AIEngineSettings(BaseSettings):
         alias="AI_ENGINE_RATE_LIMIT_WINDOW_SECONDS",
         validation_alias="AI_ENGINE_RATE_LIMIT_WINDOW_SECONDS",
     )
+    distribution: str = Field(
+        default="dev",
+        alias="AI_ENGINE_DISTRIBUTION",
+        validation_alias="AI_ENGINE_DISTRIBUTION",
+    )
+    release_version: str = Field(
+        default="v1",
+        alias="AI_ENGINE_RELEASE_VERSION",
+        validation_alias="AI_ENGINE_RELEASE_VERSION",
+    )
+
+    @property
+    def distribution_version_tag(self) -> str:
+        """Return canonical `distribution-version` tag used across channels."""
+        distribution = self.distribution.strip() or "unknown"
+        release_version = self.release_version.strip() or "v0"
+        return f"{distribution}-{release_version}"
 
 
 def get_settings() -> AIEngineSettings:
@@ -188,3 +213,8 @@ def get_settings() -> AIEngineSettings:
         True
     """
     return AIEngineSettings()
+
+
+def get_distribution_version_tag() -> str:
+    """Return deployment tag formatted as `<distribution>-<version>`."""
+    return get_settings().distribution_version_tag

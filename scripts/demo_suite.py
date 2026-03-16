@@ -1,14 +1,20 @@
-"""CLI wrapper to run the AI-Engine demo suite.
+"""Backward-compatible entrypoint for demo suite script.
 
-Usage:
-    python scripts/demo_suite.py list
-    python scripts/demo_suite.py run kbd
-    python scripts/demo_suite.py run all
+Prefer:
+    python scripts/demos/demo_suite.py
 """
 
 from __future__ import annotations
 
-from ai_engine.cli.demo_suite import main
+import runpy
+from pathlib import Path
+
+
+def main() -> int:
+    target = Path(__file__).resolve().parent / "demos" / "demo_suite.py"
+    runpy.run_path(str(target), run_name="__main__")
+    return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

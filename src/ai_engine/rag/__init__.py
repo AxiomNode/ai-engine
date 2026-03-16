@@ -7,6 +7,11 @@ from ai_engine.rag.pipeline import RAGPipeline
 from ai_engine.rag.retriever import Retriever
 from ai_engine.rag.vector_store import VectorStore
 
+try:
+    from ai_engine.rag.vectorstores import ChromaVectorStore
+except ImportError:
+    ChromaVectorStore = None  # type: ignore[assignment,misc]
+
 __all__ = [
     "Document",
     "Chunker",
@@ -14,4 +19,5 @@ __all__ = [
     "VectorStore",
     "Retriever",
     "RAGPipeline",
+    "ChromaVectorStore",
 ]

@@ -117,6 +117,7 @@ class TestHealth:
         resp = client.get("/health")
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
+        assert resp.headers.get("X-Distribution-Version")
 
     def test_reports_event_count(self) -> None:
         """Health endpoint reports zero events on a fresh collector."""
@@ -135,6 +136,7 @@ class TestHealth:
         assert data["dependencies"]["rag_pipeline"]["status"] == "ready"
         assert "cache" in data["dependencies"]
         assert "correlation_id" in data
+        assert "distribution_version" in data
 
 
 # ------------------------------------------------------------------
@@ -382,6 +384,7 @@ class TestStats:
         assert "ai_engine_total_calls" in body
         assert "ai_engine_generation_outcome_by_game_type_total" in body
         assert "ai_engine_cache_memory_saturation_ratio" in body
+        assert "ai_engine_distribution_version_info" in body
 
     def test_correlation_id_propagates_to_response_and_history(self) -> None:
         """Correlation ID is echoed in response header and stored in event metadata."""

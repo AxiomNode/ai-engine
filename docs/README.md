@@ -6,6 +6,8 @@ This folder contains the technical documentation for **ai-engine**.
 |---|---|
 | [project-context.md](project-context.md) | AxiomNode vision, high-level architecture, and ai-engine scope |
 | [architecture.md](architecture.md) | System design: layers, components, data flows, and extension points |
+| [repository-layout.md](repository-layout.md) | Folder distribution and structure conventions for root, scripts, and src |
+| [../distributions/README.md](../distributions/README.md) | Deployment matrix by stage (dev/stg/pro) and environment (windows/vps-cpu/vps-gpu) |
 | [technologies.md](technologies.md) | Libraries, tools, models, and standards used in the project |
 | [getting-started.md](getting-started.md) | Local setup, installation, TDD workflow, and code quality checks |
 | [deployment.md](deployment.md) | How to run the API server, use Docker, and connect a llama.cpp server |

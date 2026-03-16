@@ -199,6 +199,7 @@ class StatsCollector:
                 "persistent_fallback_total": 0,
                 "persistent_error_counts": {},
                 "correlation_id_counts": {},
+                "distribution_version_counts": {},
             }
 
         total = len(events)
@@ -224,6 +225,7 @@ class StatsCollector:
         persistent_fallback_total = 0
         persistent_error_counts: dict[str, int] = {}
         correlation_id_counts: dict[str, int] = {}
+        distribution_version_counts: dict[str, int] = {}
 
         for e in events:
             if e.game_type:
@@ -280,6 +282,12 @@ class StatsCollector:
                 if correlation_id:
                     correlation_id_counts[correlation_id] = (
                         correlation_id_counts.get(correlation_id, 0) + 1
+                    )
+
+                distribution_version = str(meta.get("distribution_version", "")).strip()
+                if distribution_version:
+                    distribution_version_counts[distribution_version] = (
+                        distribution_version_counts.get(distribution_version, 0) + 1
                     )
 
             rag_ms = meta.get("rag_latency_ms")
@@ -356,6 +364,7 @@ class StatsCollector:
             "persistent_fallback_total": persistent_fallback_total,
             "persistent_error_counts": persistent_error_counts,
             "correlation_id_counts": correlation_id_counts,
+            "distribution_version_counts": distribution_version_counts,
         }
 
     def reset(self) -> None:
@@ -503,6 +512,21 @@ def summary_to_prometheus(summary: dict[str, Any]) -> str:
         lines.append(
             "ai_engine_correlation_id_calls"
             f'{{correlation_id="{correlation_id}"}} {int(count)}'
+        )
+
+    for distribution_version, count in sorted(
+        (summary.get("distribution_version_counts") or {}).items()
+    ):
+        lines.append(
+            "ai_engine_distribution_version_calls"
+            f'{{distribution_version="{distribution_version}"}} {int(count)}'
+        )
+
+    summary_distribution_version = str(summary.get("distribution_version", "")).strip()
+    if summary_distribution_version:
+        lines.append(
+            "ai_engine_distribution_version_info"
+            f'{{distribution_version="{summary_distribution_version}"}} 1'
         )
 
     cache_runtime = summary.get("cache_runtime") if isinstance(summary, dict) else None

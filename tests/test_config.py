@@ -78,6 +78,23 @@ class TestAIEngineSettingsDefaults:
         settings = cfg.AIEngineSettings()
         assert settings.generation_cache_namespace == "v1"
 
+    def test_distribution_default(self, monkeypatch):
+        monkeypatch.delenv("AI_ENGINE_DISTRIBUTION", raising=False)
+        cfg = _reload_config(monkeypatch)
+        settings = cfg.AIEngineSettings()
+        assert settings.distribution == "dev"
+
+    def test_release_version_default(self, monkeypatch):
+        monkeypatch.delenv("AI_ENGINE_RELEASE_VERSION", raising=False)
+        cfg = _reload_config(monkeypatch)
+        settings = cfg.AIEngineSettings()
+        assert settings.release_version == "v1"
+
+    def test_distribution_version_tag_default(self, monkeypatch):
+        cfg = _reload_config(monkeypatch)
+        settings = cfg.AIEngineSettings()
+        assert settings.distribution_version_tag == "dev-v1"
+
 
 # ---------------------------------------------------------------------------
 # Env-var overrides
@@ -147,6 +164,15 @@ class TestAIEngineSettingsFromEnv:
         settings = cfg.AIEngineSettings()
         assert settings.generation_cache_namespace == "v2"
 
+    def test_distribution_version_from_env(self, monkeypatch):
+        monkeypatch.setenv("AI_ENGINE_DISTRIBUTION", "stg")
+        monkeypatch.setenv("AI_ENGINE_RELEASE_VERSION", "2026.03")
+        cfg = _reload_config(monkeypatch)
+        settings = cfg.AIEngineSettings()
+        assert settings.distribution == "stg"
+        assert settings.release_version == "2026.03"
+        assert settings.distribution_version_tag == "stg-2026.03"
+
 
 # ---------------------------------------------------------------------------
 # get_settings factory
@@ -173,3 +199,9 @@ class TestGetSettings:
         cfg = _reload_config(monkeypatch)
         settings = cfg.get_settings()
         assert settings.api_key == "test-key"
+
+    def test_get_distribution_version_tag(self, monkeypatch):
+        monkeypatch.setenv("AI_ENGINE_DISTRIBUTION", "pro")
+        monkeypatch.setenv("AI_ENGINE_RELEASE_VERSION", "v9")
+        cfg = _reload_config(monkeypatch)
+        assert cfg.get_distribution_version_tag() == "pro-v9"

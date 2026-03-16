@@ -2,7 +2,8 @@
 # AxiomNode – ai-engine docker-compose
 #
 # Services:
-#   llama-server  – llama.cpp HTTP inference server (built locally, no external image)
+#   llama-server-cpu  – llama.cpp CPU server (profile: cpu)
+#   llama-server-gpu  – llama.cpp CUDA server (profile: gpu)
 #   ai-stats      – ai-engine observability / statistics FastAPI (port 8000)
 #   ai-api        – ai-engine generation FastAPI  POST /generate  (port 8001)
 #
@@ -19,11 +20,10 @@
 services:
 
   # ---------------------------------------------------------------------------
-  # llama.cpp HTTP inference server (built locally from Dockerfile.llama)
-  # Exposes an OpenAI-compatible /completion endpoint on port 8080.
-  # No external image — everything is built from this repository.
+  # llama.cpp CPU profile (default for windows + vps-cpu).
   # ---------------------------------------------------------------------------
-  llama-server:
+  llama-server-cpu:
+    profiles: ["cpu"]
     build:
       context: .
       dockerfile: Dockerfile.llama
@@ -36,23 +36,68 @@ services:
     ports:
       - "${LLAMA_PORT:-8080}:8080"
     volumes:
-      # Mount the local models directory (read-only inside the container).
-      # Download models first: python -m ai_engine.llm.model_manager download
       - ./models:/app/models:ro
     environment:
       MODEL: "/app/models/${LLAMA_MODEL_FILE:-Qwen2.5-3B-Instruct-Q4_K_M.gguf}"
       HOST: "0.0.0.0"
       PORT: "8080"
       N_CTX: "${LLAMA_CTX_SIZE:-4096}"
+      N_THREADS: "${LLAMA_THREADS:-6}"
+      N_BATCH: "${LLAMA_BATCH:-512}"
       N_GPU_LAYERS: "0"
       PYTHONUNBUFFERED: "1"
+    networks:
+      default:
+        aliases:
+          - llama-server
     healthcheck:
-          # llama-cpp-python server exposes OpenAI-style endpoints.
       test: ["CMD", "python", "-c",
             "import urllib.request; urllib.request.urlopen('http://localhost:8080/v1/models')"]
       interval: 30s
       timeout: 10s
-      start_period: 120s  # model loading + cold start can take up to 2 min
+      start_period: 120s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # llama.cpp GPU profile (vps-gpu).
+  # ---------------------------------------------------------------------------
+  llama-server-gpu:
+    profiles: ["gpu"]
+    image: ghcr.io/ggerganov/llama.cpp:server-cuda
+    restart: unless-stopped
+    gpus: all
+    cpus: "${LLAMA_CPUS:-4.0}"
+    mem_limit: "${LLAMA_MEMORY_LIMIT:-16g}"
+    mem_reservation: "${LLAMA_MEMORY_RESERVATION:-10g}"
+    shm_size: "${LLAMA_SHM_SIZE:-2g}"
+    ports:
+      - "${LLAMA_PORT:-8080}:8080"
+    volumes:
+      - ./models:/models:ro
+    command:
+      - -m
+      - /models/${LLAMA_MODEL_FILE:-Qwen2.5-7B-Instruct-Q4_K_M.gguf}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --ctx-size
+      - "${LLAMA_CTX_SIZE:-4096}"
+      - --threads
+      - "${LLAMA_THREADS:-4}"
+      - --batch-size
+      - "${LLAMA_BATCH:-512}"
+      - --n-gpu-layers
+      - "${LLAMA_N_GPU_LAYERS:-99}"
+    networks:
+      default:
+        aliases:
+          - llama-server
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:8080/v1/models >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
       retries: 5
 
   # ---------------------------------------------------------------------------
@@ -72,6 +117,8 @@ services:
       - "${STATS_PORT:-8000}:8000"
     environment:
       AI_ENGINE_MODELS_DIR: /app/models
+      AI_ENGINE_DISTRIBUTION: "${AI_ENGINE_DISTRIBUTION:-dev}"
+      AI_ENGINE_RELEASE_VERSION: "${AI_ENGINE_RELEASE_VERSION:-v1}"
       PYTHONUNBUFFERED: "1"
       PORT: "8000"
       UVICORN_WORKERS: "${STATS_WORKERS:-1}"
@@ -117,11 +164,22 @@ services:
       AI_ENGINE_LLAMA_URL: "http://llama-server:8080/v1/completions"
       AI_ENGINE_EMBEDDING_MODEL: "${AI_ENGINE_EMBEDDING_MODEL:-all-MiniLM-L6-v2}"
       AI_ENGINE_MODELS_DIR: /app/models
+      AI_ENGINE_GENERATION_CACHE_PATH: /app/data/generation_cache.json
+      AI_ENGINE_GENERATION_CACHE_BACKEND: "${AI_ENGINE_GENERATION_CACHE_BACKEND:-tinydb}"
+      AI_ENGINE_GENERATION_CACHE_REDIS_URL: "${AI_ENGINE_GENERATION_CACHE_REDIS_URL:-}"
+      AI_ENGINE_GENERATION_CACHE_REDIS_PREFIX: "${AI_ENGINE_GENERATION_CACHE_REDIS_PREFIX:-ai-engine:generation-cache}"
+      AI_ENGINE_GENERATION_CACHE_NAMESPACE: "${AI_ENGINE_GENERATION_CACHE_NAMESPACE:-v1}"
+      AI_ENGINE_RATE_LIMIT_ENABLED: "${AI_ENGINE_RATE_LIMIT_ENABLED:-false}"
+      AI_ENGINE_RATE_LIMIT_REQUESTS: "${AI_ENGINE_RATE_LIMIT_REQUESTS:-60}"
+      AI_ENGINE_RATE_LIMIT_WINDOW_SECONDS: "${AI_ENGINE_RATE_LIMIT_WINDOW_SECONDS:-60}"
+      AI_ENGINE_DISTRIBUTION: "${AI_ENGINE_DISTRIBUTION:-dev}"
+      AI_ENGINE_RELEASE_VERSION: "${AI_ENGINE_RELEASE_VERSION:-v1}"
       PYTHONUNBUFFERED: "1"
       PORT: "8001"
       UVICORN_WORKERS: "${API_WORKERS:-2}"
     volumes:
       - ./models:/app/models:ro
+      - ./data:/app/data
     command:
       - uvicorn
       - "ai_engine.api.app:app"
@@ -131,9 +189,6 @@ services:
       - "8001"
       - "--workers"
       - "${API_WORKERS:-2}"
-    depends_on:
-      llama-server:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c",
              "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]

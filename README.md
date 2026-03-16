@@ -10,6 +10,8 @@ Full documentation is available in the [`docs/`](docs/) folder:
 |---|---|
 | [Project Context](docs/project-context.md) | AxiomNode vision, high-level architecture, and ai-engine scope |
 | [Architecture](docs/architecture.md) | System design, layers, data flows, and extension points |
+| [Repository Layout](docs/repository-layout.md) | Folder distribution for root, scripts, and src modules |
+| [Distributions Matrix](distributions/README.md) | Stage/environment deployment matrix (dev/stg/pro x windows/vps-cpu/vps-gpu) |
 | [Technologies](docs/technologies.md) | Libraries, tools, models, and standards |
 | [Getting Started](docs/getting-started.md) | Local setup, TDD workflow, code quality |
 | [Deployment](docs/deployment.md) | API server, Docker, llama.cpp server |

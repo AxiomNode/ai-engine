@@ -103,6 +103,7 @@ class GenerationOptimizationService:
         cache_ttl_seconds: int = 900,
         cache_backend: str = "tinydb",
         cache_namespace: str = "v1",
+        distribution_version: str | None = None,
         persistent_cache_path: str | None = None,
         redis_url: str | None = None,
         redis_prefix: str = "ai-engine:generation-cache",
@@ -119,6 +120,7 @@ class GenerationOptimizationService:
         )
         self._cache_ttl_seconds = cache_ttl_seconds
         self._cache_namespace = cache_namespace
+        self._distribution_version = distribution_version
         self._redis_prefix = redis_prefix
         self._persistent_lock = threading.RLock()
         self._redis_cache = None
@@ -209,6 +211,8 @@ class GenerationOptimizationService:
             "rag_docs_retrieved": 0,
             "orchestration_engine": "native-ai-engine",
         }
+        if self._distribution_version:
+            metrics["distribution_version"] = self._distribution_version
         if correlation_id:
             metrics["correlation_id"] = correlation_id
 
@@ -355,6 +359,7 @@ class GenerationOptimizationService:
             "persistent_enabled": self._persistent_backend != "none",
             "persistent_backend": self._persistent_backend,
             "cache_namespace": self._cache_namespace,
+            "distribution_version": self._distribution_version or "",
             "cache_ttl_seconds": self._cache_ttl_seconds,
             "persistent_backend_errors": dict(self._persistent_backend_errors),
         }

@@ -1,4 +1,4 @@
-"""Tests for ai_engine.rag.vectorstore.chroma – ChromaVectorStore.
+"""Tests for ChromaVectorStore import paths and behavior.
 
 ChromaDB is run entirely in-memory (no external server) by passing
 ``path=None`` (ephemeral client).  All tests are therefore fast and
@@ -22,7 +22,8 @@ pytestmark = pytest.mark.skipif(not _HAS_CHROMA, reason="chromadb not installed"
 
 if _HAS_CHROMA:
     from ai_engine.rag.document import Document
-    from ai_engine.rag.vectorstore.chroma import ChromaVectorStore
+    from ai_engine.rag.vectorstore.chroma import ChromaVectorStore as LegacyChroma
+    from ai_engine.rag.vectorstores.chroma import ChromaVectorStore
 
 
 # ------------------------------------------------------------------
@@ -55,6 +56,10 @@ def _docs_and_embeddings() -> tuple[list[Document], list[list[float]]]:
 
 
 class TestChromaVectorStoreInit:
+
+    def test_legacy_import_path_remains_compatible(self) -> None:
+        """Legacy vectorstore import path should resolve to the same class."""
+        assert LegacyChroma is ChromaVectorStore
 
     def test_default_collection_name(self) -> None:
         """Default collection name is used when none is supplied."""

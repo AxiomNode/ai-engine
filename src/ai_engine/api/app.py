@@ -168,6 +168,14 @@ def _get_optimizer(request: Request) -> Any:
     return request.app.state.optimizer
 
 
+def _get_distribution_version(request: Request) -> str:
+    """Return distribution-version tag associated with this app instance."""
+    value = getattr(request.app.state, "distribution_version", None)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return "unknown-v0"
+
+
 class _FixedWindowRateLimiter:
     """Thread-safe fixed-window limiter keyed by client identity."""
 
@@ -331,6 +339,7 @@ def create_app(
     """
     _collector = collector if collector is not None else StatsCollector()
     settings = get_settings()
+    distribution_version = settings.distribution_version_tag
 
     # Store mutable references so lifespan can replace them if needed.
     _state: dict[str, Any] = {
@@ -358,14 +367,21 @@ def create_app(
                 app.state.rag_pipeline,
                 cache_backend=settings.generation_cache_backend,
                 cache_namespace=settings.generation_cache_namespace,
+                distribution_version=distribution_version,
                 persistent_cache_path=settings.generation_cache_path,
                 redis_url=settings.generation_cache_redis_url,
                 redis_prefix=settings.generation_cache_redis_prefix,
             )
 
-        logger.info("ai-engine generation API started.")
+        logger.info(
+            "ai-engine generation API started distribution_version=%s",
+            distribution_version,
+        )
         yield
-        logger.info("ai-engine generation API shutting down.")
+        logger.info(
+            "ai-engine generation API shutting down distribution_version=%s",
+            distribution_version,
+        )
 
     app = FastAPI(
         title="ai-engine generation API",
@@ -383,6 +399,7 @@ def create_app(
     app.state.generator = generator
     app.state.rag_pipeline = rag_pipeline
     app.state.collector = _collector
+    app.state.distribution_version = distribution_version
     app.state.rate_limiter = (
         _FixedWindowRateLimiter(
             max_requests=settings.rate_limit_requests,
@@ -396,6 +413,7 @@ def create_app(
             generator,
             rag_pipeline,
             cache_max_entries=0,
+            distribution_version=distribution_version,
             persistent_cache_path=None,
         )
         if generator is not None and rag_pipeline is not None
@@ -412,6 +430,7 @@ def create_app(
         request.state.correlation_id = correlation_id
         response = await call_next(request)
         response.headers["X-Correlation-ID"] = correlation_id
+        response.headers["X-Distribution-Version"] = _get_distribution_version(request)
         return response
 
     # ------------------------------------------------------------------
@@ -429,6 +448,7 @@ def create_app(
             "status": "ok",
             "total_events": len(_get_collector(request)),
             "correlation_id": _get_correlation_id(request),
+            "distribution_version": _get_distribution_version(request),
             "dependencies": _health_dependencies(request),
         }
 
@@ -468,7 +488,12 @@ def create_app(
             req = req.model_copy(update={"use_cache": False})
 
         correlation_id = _get_correlation_id(request)
-        logger.info("generate request correlation_id=%s", correlation_id)
+        distribution_version = _get_distribution_version(request)
+        logger.info(
+            "generate request correlation_id=%s distribution_version=%s",
+            correlation_id,
+            distribution_version,
+        )
 
         try:
             result = optimizer.generate(req, correlation_id=correlation_id)
@@ -499,6 +524,7 @@ def create_app(
                     "cache_layer": "none",
                     "language": req.language,
                     "correlation_id": correlation_id,
+                    "distribution_version": distribution_version,
                 },
             )
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -520,7 +546,12 @@ def create_app(
             req = req.model_copy(update={"use_cache": False})
 
         correlation_id = _get_correlation_id(request)
-        logger.info("generate_sdk request correlation_id=%s", correlation_id)
+        distribution_version = _get_distribution_version(request)
+        logger.info(
+            "generate_sdk request correlation_id=%s distribution_version=%s",
+            correlation_id,
+            distribution_version,
+        )
 
         started = time.perf_counter()
         try:
@@ -563,6 +594,7 @@ def create_app(
                     "cache_layer": "none",
                     "language": req.language,
                     "correlation_id": correlation_id,
+                    "distribution_version": distribution_version,
                 },
             )
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -608,7 +640,12 @@ def create_app(
 
         elapsed_ms = (time.perf_counter() - started) * 1000
         correlation_id = _get_correlation_id(request)
-        logger.info("ingest request correlation_id=%s", correlation_id)
+        distribution_version = _get_distribution_version(request)
+        logger.info(
+            "ingest request correlation_id=%s distribution_version=%s",
+            correlation_id,
+            distribution_version,
+        )
         _get_collector(request).record_call(
             prompt="ingest",
             response=f"ingested={len(docs)}",
@@ -626,6 +663,7 @@ def create_app(
                 "db_writes": len(docs),
                 "kbd_hits": len(docs),
                 "correlation_id": correlation_id,
+                "distribution_version": distribution_version,
             },
         )
         return {"ingested": len(docs)}
@@ -639,6 +677,7 @@ def create_app(
             :meth:`~ai_engine.observability.collector.StatsCollector.summary`.
         """
         summary = _get_collector(request).summary()
+        summary["distribution_version"] = _get_distribution_version(request)
         optimizer = _get_optimizer(request)
         if optimizer is not None:
             summary["cache_runtime"] = optimizer.cache_stats()
@@ -650,7 +689,9 @@ def create_app(
         optimizer = _get_optimizer(request)
         if optimizer is None:
             raise HTTPException(status_code=503, detail="Generator not initialised.")
-        return optimizer.cache_stats()
+        data = optimizer.cache_stats()
+        data["distribution_version"] = _get_distribution_version(request)
+        return data
 
     @app.post("/cache/reset", tags=["monitoring"])
     def reset_cache(
@@ -697,6 +738,7 @@ def create_app(
     def get_metrics(request: Request) -> str:
         """Return Prometheus scrape-compatible metrics with cache runtime gauges."""
         summary = _get_collector(request).summary()
+        summary["distribution_version"] = _get_distribution_version(request)
         optimizer = _get_optimizer(request)
         if optimizer is not None:
             summary["cache_runtime"] = optimizer.cache_stats()

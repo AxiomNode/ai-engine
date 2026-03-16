@@ -255,6 +255,7 @@ class TestStatsCollector:
                 "persistent_backend": "redis",
                 "persistent_fallback_used": False,
                 "correlation_id": "cid-1",
+                "distribution_version": "stg-v1",
             },
         )
         c.record_call(
@@ -272,6 +273,7 @@ class TestStatsCollector:
                 "persistent_fallback_used": True,
                 "persistent_error": "write_error",
                 "correlation_id": "cid-1",
+                "distribution_version": "stg-v1",
             },
         )
 
@@ -284,6 +286,7 @@ class TestStatsCollector:
         assert s["persistent_fallback_total"] == 1
         assert s["persistent_error_counts"]["write_error"] == 1
         assert s["correlation_id_counts"]["cid-1"] == 2
+        assert s["distribution_version_counts"]["stg-v1"] == 2
 
     def test_prometheus_includes_extended_generation_and_cache_runtime_metrics(
         self,
@@ -312,6 +315,8 @@ class TestStatsCollector:
             "persistent_fallback_total": 1,
             "persistent_error_counts": {"read_error": 1},
             "correlation_id_counts": {"cid-abc": 1},
+            "distribution_version_counts": {"stg-v1": 1},
+            "distribution_version": "stg-v1",
             "cache_runtime": {
                 "memory_entries": 5,
                 "memory_max_entries": 10,
@@ -333,6 +338,14 @@ class TestStatsCollector:
         assert "ai_engine_persistent_fallback_total 1" in text
         assert 'ai_engine_persistent_error_total{error_type="read_error"} 1' in text
         assert 'ai_engine_correlation_id_calls{correlation_id="cid-abc"} 1' in text
+        assert (
+            'ai_engine_distribution_version_calls{distribution_version="stg-v1"} 1'
+            in text
+        )
+        assert (
+            'ai_engine_distribution_version_info{distribution_version="stg-v1"} 1'
+            in text
+        )
         assert "ai_engine_cache_memory_saturation_ratio 0.5" in text
 
     def test_cache_metrics_ignore_non_generation_events(self) -> None:

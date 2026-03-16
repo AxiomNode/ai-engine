@@ -31,6 +31,7 @@ except ImportError as _imp_err:  # pragma: no cover
         "Install it with:  pip install ai-engine[api]"
     ) from _imp_err
 
+from ai_engine.config import get_settings
 from ai_engine.observability.collector import StatsCollector, summary_to_prometheus
 
 try:
@@ -67,6 +68,8 @@ def create_app(collector: StatsCollector | None = None) -> FastAPI:
         A :class:`~fastapi.FastAPI` instance ready to be served.
     """
     stats = collector if collector is not None else _default_collector
+    settings = get_settings()
+    distribution_version = settings.distribution_version_tag
 
     app = FastAPI(
         title="ai-engine observability",
@@ -77,10 +80,20 @@ def create_app(collector: StatsCollector | None = None) -> FastAPI:
     # Store collector on app state — endpoints read from here via the
     # ``Request`` object so each app instance uses its own collector.
     app.state.collector = stats
+    app.state.distribution_version = distribution_version
 
     # Attach API key middleware when AI_ENGINE_API_KEY is set in the environment.
     if add_api_key_middleware is not None:
         add_api_key_middleware(app)
+
+    @app.middleware("http")
+    async def distribution_header_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
+        """Attach distribution-version tag to every response."""
+        response = await call_next(request)
+        response.headers["X-Distribution-Version"] = str(
+            getattr(request.app.state, "distribution_version", "unknown-v0")
+        )
+        return response
 
     # ------------------------------------------------------------------
     # Endpoints
@@ -99,6 +112,7 @@ def create_app(collector: StatsCollector | None = None) -> FastAPI:
             "status": "ok",
             "uptime_seconds": round(time.time() - _start_time, 2),
             "total_events": len(coll),
+            "distribution_version": str(app.state.distribution_version),
         }
 
     @app.get("/stats", tags=["monitoring"])
@@ -109,7 +123,9 @@ def create_app(collector: StatsCollector | None = None) -> FastAPI:
             A summary dictionary produced by
             :meth:`StatsCollector.summary`.
         """
-        return _get_collector(request).summary()
+        summary = _get_collector(request).summary()
+        summary["distribution_version"] = str(app.state.distribution_version)
+        return summary
 
     @app.get("/stats/history", tags=["monitoring"])
     def get_history(
@@ -145,6 +161,7 @@ def create_app(collector: StatsCollector | None = None) -> FastAPI:
     def metrics(request: Request) -> str:
         """Return Prometheus scrape-compatible metrics text."""
         summary = _get_collector(request).summary()
+        summary["distribution_version"] = str(app.state.distribution_version)
         return summary_to_prometheus(summary)
 
     return app

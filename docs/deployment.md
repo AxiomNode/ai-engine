@@ -135,6 +135,46 @@ response = llm.generate("Explain photosynthesis.", max_tokens=256)
 The repository ships a production-ready multi-stage `Dockerfile` and a
 `docker-compose.yml` that orchestrates the full stack.
 
+### Distribution Matrix (root-level)
+
+The repository now defines deployment distributions by stage and environment:
+
+- stages: `dev`, `stg`, `pro`
+- environments: `windows`, `vps-cpu`, `vps-gpu`
+
+Files live in:
+
+- `distributions/<stage>/<environment>.env`
+
+Use the unified installers:
+
+```bash
+# Linux/macOS shells
+./scripts/install/deploy.sh dev vps-cpu
+./scripts/install/deploy.sh stg vps-gpu
+./scripts/install/deploy.sh pro vps-cpu
+```
+
+```powershell
+# Windows PowerShell
+./scripts/install/deploy.ps1 -Stage dev -Environment windows
+./scripts/install/deploy.ps1 -Stage stg -Environment vps-cpu
+./scripts/install/deploy.ps1 -Stage pro -Environment vps-gpu
+```
+
+All distributions now propagate deployment tags through runtime channels:
+
+- response header: `X-Distribution-Version`
+- monitoring payloads (`/health`, `/stats`, `/cache/stats`): `distribution_version`
+- Prometheus metrics label: `distribution_version` via
+  `ai_engine_distribution_version_info` and
+  `ai_engine_distribution_version_calls`
+
+The label value is computed from env vars:
+
+- `AI_ENGINE_DISTRIBUTION`
+- `AI_ENGINE_RELEASE_VERSION`
+
 For CPU-only VPS deployments, the Docker setup is optimized to avoid GPU
 runtime dependencies:
 
@@ -180,6 +220,13 @@ Visit `http://localhost:8000/docs` for the interactive Swagger UI.
 docker compose up --build
 ```
 
+If port `8080` is already used on your machine, start with a different host
+port for llama-server:
+
+```bash
+LLAMA_PORT=18080 docker compose up -d --build
+```
+
 If you want the stack to consume more host resources, raise the limits in
 `.env` before starting Compose. Example:
 
@@ -214,16 +261,123 @@ This starts three services:
 
 ```bash
 # Start in background
-docker compose up -d --build
+docker compose --profile cpu up -d --build
 
 # Follow logs for a specific service
 docker compose logs -f ai-stats
 
 # Stop and remove containers (volumes are preserved)
-docker compose down
+docker compose --profile cpu down
 
 # Rebuild after code changes
-docker compose up --build --force-recreate ai-stats
+docker compose --profile cpu up --build --force-recreate ai-stats
+```
+
+### Linux VPS (CPU-only) optimized profile
+
+The repository uses a centralized single `docker-compose.yml` with
+runtime profiles (`cpu`, `gpu`).
+
+1. Prepare profile env file:
+
+```bash
+cp .env.vps-cpu.example .env.vps-cpu
+```
+
+2. Start stack using the centralized compose + CPU profile:
+
+```bash
+docker compose \
+  --env-file .env.vps-cpu \
+  --profile cpu \
+  -f docker-compose.yml \
+  up -d --build
+```
+
+3. Validate deployment:
+
+```bash
+curl -sS http://localhost:8000/health
+curl -sS http://localhost:8001/health
+curl -sS http://localhost:8001/cache/stats
+```
+
+Notes:
+
+- `ai-api` image now includes `kbd` dependencies, so TinyDB cache works in
+  containers.
+- Persistent cache file is stored under `/app/data/generation_cache.json`
+  through the `./data:/app/data` volume.
+- Start with Qwen 3B quantized model on CPU-only hosts, then scale resources
+  and context size conservatively.
+
+### Linux VPS (GPU) optimized profile
+
+GPU deployments use the same centralized compose file with `gpu` profile.
+
+1. Prepare profile env file:
+
+```bash
+cp .env.vps-gpu.example .env.vps-gpu
+```
+
+2. Start stack using centralized compose + GPU profile:
+
+```bash
+docker compose \
+  --env-file .env.vps-gpu \
+  --profile gpu \
+  -f docker-compose.yml \
+  up -d --build
+```
+
+3. Validate deployment:
+
+```bash
+curl -sS http://localhost:8000/health
+curl -sS http://localhost:8001/health
+```
+
+The GPU profile uses `ghcr.io/ggerganov/llama.cpp:server-cuda` for
+`llama-server` and enables `gpus: all`.
+
+### Installation scripts by environment
+
+You can run one command per target environment:
+
+- Linux VPS (CPU): `scripts/install/install_vps_linux_cpu.sh`
+- Linux VPS (GPU): `scripts/install/install_vps_linux_gpu.sh`
+- Windows (Docker Desktop): `scripts/install/install_windows.ps1`
+
+These wrappers now map to the distribution matrix system.
+
+Examples with stage:
+
+```bash
+./scripts/install/install_vps_linux_cpu.sh dev
+./scripts/install/install_vps_linux_gpu.sh pro
+```
+
+```powershell
+./scripts/install/install_windows.ps1 -Stage stg -Environment windows
+```
+
+Examples:
+
+```bash
+# Linux CPU
+./scripts/install/install_vps_linux_cpu.sh
+
+# Linux GPU
+./scripts/install/install_vps_linux_gpu.sh
+```
+
+```powershell
+# Windows (defaults LLAMA port to 18080)
+./scripts/install/install_windows.ps1
+
+# Windows with CPU profile override file
+./scripts/install/install_windows.ps1 -UseCpuProfile
 ```
 
 ---

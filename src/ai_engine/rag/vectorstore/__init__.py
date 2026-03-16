@@ -1,16 +1,10 @@
-"""Persistence-backed vector store implementations.
+"""Backward-compatible import path for persistent vector stores.
 
-Available stores:
-
-- :class:`~ai_engine.rag.vectorstore.chroma.ChromaVectorStore` – ChromaDB-backed
-  persistent store (requires the ``rag`` extra: ``pip install ai-engine[rag]``).
-
-For a dependency-free in-memory store suitable for development and
-testing, use :class:`ai_engine.rag.vector_store.InMemoryVectorStore`.
+Prefer importing from `ai_engine.rag.vectorstores`.
 """
 
 try:
-    from ai_engine.rag.vectorstore.chroma import ChromaVectorStore
+    from ai_engine.rag.vectorstores.chroma import ChromaVectorStore
 except ImportError:
     ChromaVectorStore = None  # type: ignore[assignment,misc]
 

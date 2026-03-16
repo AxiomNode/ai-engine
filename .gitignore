@@ -43,6 +43,7 @@ models/
 data/*.joblib
 data/*.pkl
 data/*.bin
+data/generation_cache.json
 
 # Chroma vector store data
 chroma_db/
