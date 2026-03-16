@@ -43,7 +43,7 @@ This document tracks the improvement plan for the ai-engine project.
   - Acceptance criteria:
     - App reads path from config and works in tests/runtime.
 
-- [ ] P1-03 Optimize cache stats/reset complexity
+- [x] P1-03 Optimize cache stats/reset complexity
   - Scope:
     - Reduce O(n) scans in cache stats/reset paths.
     - Prepare for larger caches.
@@ -71,3 +71,4 @@ This document tracks the improvement plan for the ai-engine project.
 - 2026-03-16: P0-02 completed. Resolved mypy errors in SDK/optimization modules and restored lint/type checks to green.
 - 2026-03-16: P1-01 completed. Added event classification for observability and restricted cache hit-rate math to generation events only.
 - 2026-03-16: P1-02 completed. Generation persistent cache path now comes from settings/env and is covered by config/API validation tests.
+- 2026-03-16: P1-03 completed. Persistent cache stats/reset now use an indexed cache-entry set to avoid full TinyDB scans on each request.

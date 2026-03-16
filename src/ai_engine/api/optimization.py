@@ -108,6 +108,9 @@ class GenerationOptimizationService:
             if _TinyDBKnowledgeBase is not None and cache_path is not None
             else None
         )
+        self._persistent_cache_ids: set[str] = set()
+        if self._db_cache is not None:
+            self._bootstrap_persistent_cache_index()
 
     def on_ingest(self, documents: list[Any]) -> None:
         """Index ingested documents into KBD/TinyDB for keyword-based boosting."""
@@ -265,13 +268,7 @@ class GenerationOptimizationService:
         memory_entries = (
             len(self._memory_cache) if self._memory_cache is not None else 0
         )
-        persistent_entries = 0
-        if self._db_cache is not None:
-            persistent_entries = sum(
-                1
-                for entry in self._db_cache.list_all()
-                if entry.metadata.get("kind") == "generation_cache"
-            )
+        persistent_entries = len(self._persistent_cache_ids)
         return {
             "memory_entries": memory_entries,
             "persistent_entries": persistent_entries,
@@ -290,10 +287,14 @@ class GenerationOptimizationService:
             self._memory_cache.clear()
 
         if self._db_cache is not None:
-            for entry in self._db_cache.list_all():
-                if entry.metadata.get("kind") == "generation_cache":
-                    self._db_cache.delete(entry.entry_id)
+            for entry_id in list(self._persistent_cache_ids):
+                try:
+                    self._db_cache.delete(entry_id)
                     removed_persistent += 1
+                except KeyError:
+                    # The entry might already be absent due to manual cleanup.
+                    pass
+            self._persistent_cache_ids.clear()
 
         return {
             "removed_memory": removed_memory,
@@ -340,8 +341,9 @@ class GenerationOptimizationService:
     def _write_persistent_cache(self, key: str, value: dict[str, Any]) -> None:
         if self._db_cache is None:
             return
+        entry_id = f"cache-{key}"
         entry = KnowledgeEntry(
-            entry_id=f"cache-{key}",
+            entry_id=entry_id,
             title="generated-game-cache",
             content=json.dumps(value, ensure_ascii=True),
             tags=[
@@ -352,3 +354,16 @@ class GenerationOptimizationService:
             metadata={"kind": "generation_cache"},
         )
         self._db_cache.add(entry)
+        self._persistent_cache_ids.add(entry_id)
+
+    def _bootstrap_persistent_cache_index(self) -> None:
+        """Build the persistent cache entry index once at startup."""
+        if self._db_cache is None:
+            return
+
+        self._persistent_cache_ids = {
+            entry.entry_id
+            for entry in self._db_cache.list_all()
+            if entry.entry_id.startswith("cache-")
+            or entry.metadata.get("kind") == "generation_cache"
+        }
