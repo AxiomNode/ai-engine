@@ -37,21 +37,21 @@ This document tracks the next improvement cycle for the ai-engine project.
 
 ## Phase 2 - Performance and Scalability
 
-- [ ] N2-01 Add micro-benchmarks for generation latency breakdown
+- [x] N2-01 Add micro-benchmarks for generation latency breakdown
   - Scope:
     - Benchmark cache hit, cache miss, and fallback paths.
     - Track RAG, generation, parse, and total latency.
   - Acceptance criteria:
     - Reproducible benchmark script and baseline results committed.
 
-- [ ] N2-02 Optimize persistent index synchronization under concurrency
+- [x] N2-02 Optimize persistent index synchronization under concurrency
   - Scope:
     - Harden index consistency for multi-worker scenarios.
     - Add lock/atomicity tests where needed.
   - Acceptance criteria:
     - Concurrency tests pass with no index drift.
 
-- [ ] N2-03 Add request-level rate limiting for generation endpoints
+- [x] N2-03 Add request-level rate limiting for generation endpoints
   - Scope:
     - Add configurable limits by API key/IP.
     - Preserve compatibility with existing middleware.
@@ -107,3 +107,6 @@ This document tracks the next improvement cycle for the ai-engine project.
 - 2026-03-16: N1-01 completed. Added Redis-path tests for read/write/reset behavior with fallback coverage.
 - 2026-03-16: N1-02 completed. Added cache namespace versioning and selective invalidation by namespace.
 - 2026-03-16: N1-03 completed. Added persistent backend resilience guards and fallback metadata/counters.
+- 2026-03-16: N2-01 completed. Added reproducible generation-path benchmark script and committed baseline results.
+- 2026-03-16: N2-02 completed. Hardened TinyDB persistent-cache synchronization under concurrency with lock-protected operations and passing concurrency tests.
+- 2026-03-16: N2-03 completed. Added configurable fixed-window request rate limiting for generation endpoints with 429 behavior coverage.

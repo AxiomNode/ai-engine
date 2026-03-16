@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from fnmatch import fnmatch
 
@@ -262,3 +263,34 @@ def test_persistent_backend_failures_do_not_break_generation(monkeypatch) -> Non
     assert read_fail_result.payload["game_type"] == "quiz"
     assert read_fail_result.metrics["persistent_fallback_used"] is True
     assert read_fail_result.metrics["persistent_error"] == "read_error"
+
+
+def test_persistent_index_stays_consistent_under_concurrency(tmp_path) -> None:
+    """Concurrent generate/reset operations should not drift persistent index."""
+    cache_file = tmp_path / "generation_cache.json"
+    service = GenerationOptimizationService(
+        generator=_StubGenerator(),
+        rag_pipeline=_StubRAGPipeline(),
+        cache_max_entries=0,
+        cache_namespace="v1",
+        persistent_cache_path=str(cache_file),
+    )
+
+    def worker() -> None:
+        for _ in range(25):
+            service.generate(GenerateRequest(query="water", topic="Science"))
+
+    threads = [threading.Thread(target=worker) for _ in range(6)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    stats_before = service.cache_stats()
+    assert stats_before["persistent_entries"] >= 1
+
+    removed = service.reset_cache(all_namespaces=True)
+    assert removed["removed_persistent"] >= 1
+
+    stats_after = service.cache_stats()
+    assert stats_after["persistent_entries"] == 0

@@ -467,6 +467,70 @@ class TestUninitialised:
         assert resp.status_code == 503
         assert "not initialised" in resp.json()["detail"].lower()
 
+
+# ------------------------------------------------------------------
+# Rate limiting
+# ------------------------------------------------------------------
+
+
+class TestRateLimiting:
+    """Tests for request-level generation rate limiting."""
+
+    def _make_rate_limited_client(self) -> "TestClient":
+        """Return a client with strict generation rate limiting enabled."""
+        import os
+
+        from ai_engine.api.app import create_app
+
+        mock_gen = MagicMock()
+        mock_gen.generate.return_value = _make_quiz_envelope()
+        mock_gen.generate_from_context.return_value = _make_quiz_envelope()
+        mock_pipeline = MagicMock()
+
+        env_overrides = {
+            "AI_ENGINE_RATE_LIMIT_ENABLED": "true",
+            "AI_ENGINE_RATE_LIMIT_REQUESTS": "1",
+            "AI_ENGINE_RATE_LIMIT_WINDOW_SECONDS": "3600",
+        }
+        previous = {key: os.environ.get(key) for key in env_overrides}
+        for key, value in env_overrides.items():
+            os.environ[key] = value
+
+        try:
+            app = create_app(
+                generator=mock_gen,
+                rag_pipeline=mock_pipeline,
+                collector=StatsCollector(),
+            )
+        finally:
+            for key, old_value in previous.items():
+                if old_value is None:
+                    del os.environ[key]
+                else:
+                    os.environ[key] = old_value
+
+        return TestClient(app, raise_server_exceptions=False)
+
+    def test_generate_rate_limit_returns_429_after_threshold(self) -> None:
+        """Second generation call in same window is limited with HTTP 429."""
+        client = self._make_rate_limited_client()
+
+        first = client.post("/generate", json={"query": "water", "topic": "Science"})
+        second = client.post("/generate", json={"query": "water", "topic": "Science"})
+
+        assert first.status_code == 200
+        assert second.status_code == 429
+
+    def test_health_is_not_rate_limited(self) -> None:
+        """Non-generation endpoints should not be affected by generation limiter."""
+        client = self._make_rate_limited_client()
+
+        first = client.get("/health")
+        second = client.get("/health")
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+
     def test_ingest_returns_503_when_pipeline_is_none(self) -> None:
         """POST /ingest returns 503 if app.state.rag_pipeline is None."""
         from ai_engine.api.app import create_app

@@ -1,0 +1,18 @@
+{
+  "cache_miss": {
+    "avg_ms": 0.054,
+    "p95_ms": 0.078,
+    "max_ms": 0.371
+  },
+  "memory_hit": {
+    "avg_ms": 0.006,
+    "p95_ms": 0.007,
+    "max_ms": 0.01
+  },
+  "fallback_write_error": {
+    "avg_ms": 0.035,
+    "p95_ms": 0.044,
+    "max_ms": 0.092
+  },
+  "runs": 30
+}

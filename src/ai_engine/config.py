@@ -45,6 +45,15 @@ Environment variables
 ``AI_ENGINE_GENERATION_CACHE_NAMESPACE``
     Cache namespace/version for key-versioning and selective invalidation.
 
+``AI_ENGINE_RATE_LIMIT_ENABLED``
+    Enable request-level rate limiting on generation endpoints.
+
+``AI_ENGINE_RATE_LIMIT_REQUESTS``
+    Maximum allowed requests per client identity in one rate-limit window.
+
+``AI_ENGINE_RATE_LIMIT_WINDOW_SECONDS``
+    Fixed time window in seconds used for generation request limiting.
+
 Examples:
     Basic usage::
 
@@ -83,6 +92,9 @@ class AIEngineSettings(BaseSettings):
         generation_cache_redis_url: Redis URL used by redis cache backend.
         generation_cache_redis_prefix: Key prefix for redis cache backend.
         generation_cache_namespace: Cache namespace/version tag.
+        rate_limit_enabled: Whether generation rate limiting is enabled.
+        rate_limit_requests: Maximum requests allowed per window.
+        rate_limit_window_seconds: Window size in seconds for limiting.
     """
 
     model_config = SettingsConfigDict(
@@ -139,6 +151,23 @@ class AIEngineSettings(BaseSettings):
         default="v1",
         alias="AI_ENGINE_GENERATION_CACHE_NAMESPACE",
         validation_alias="AI_ENGINE_GENERATION_CACHE_NAMESPACE",
+    )
+    rate_limit_enabled: bool = Field(
+        default=False,
+        alias="AI_ENGINE_RATE_LIMIT_ENABLED",
+        validation_alias="AI_ENGINE_RATE_LIMIT_ENABLED",
+    )
+    rate_limit_requests: int = Field(
+        default=60,
+        ge=1,
+        alias="AI_ENGINE_RATE_LIMIT_REQUESTS",
+        validation_alias="AI_ENGINE_RATE_LIMIT_REQUESTS",
+    )
+    rate_limit_window_seconds: int = Field(
+        default=60,
+        ge=1,
+        alias="AI_ENGINE_RATE_LIMIT_WINDOW_SECONDS",
+        validation_alias="AI_ENGINE_RATE_LIMIT_WINDOW_SECONDS",
     )
 
 

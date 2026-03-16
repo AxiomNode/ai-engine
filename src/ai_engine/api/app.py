@@ -40,6 +40,7 @@ Run standalone::
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from contextlib import asynccontextmanager
 from typing import Any
@@ -162,6 +163,57 @@ def _get_optimizer(request: Request) -> Any:
     return request.app.state.optimizer
 
 
+class _FixedWindowRateLimiter:
+    """Thread-safe fixed-window limiter keyed by client identity."""
+
+    def __init__(self, max_requests: int, window_seconds: int) -> None:
+        self._max_requests = max_requests
+        self._window_seconds = window_seconds
+        self._lock = threading.Lock()
+        self._buckets: dict[str, tuple[float, int]] = {}
+
+    def allow(self, identity: str) -> bool:
+        """Return True when request is allowed, else False."""
+        now = time.time()
+        with self._lock:
+            window_start, count = self._buckets.get(identity, (now, 0))
+            if now - window_start >= self._window_seconds:
+                self._buckets[identity] = (now, 1)
+                return True
+
+            if count >= self._max_requests:
+                return False
+
+            self._buckets[identity] = (window_start, count + 1)
+            return True
+
+
+def _get_rate_limiter(request: Request) -> _FixedWindowRateLimiter | None:
+    """Return generation rate limiter from app state when enabled."""
+    limiter = getattr(request.app.state, "rate_limiter", None)
+    return limiter if isinstance(limiter, _FixedWindowRateLimiter) else None
+
+
+def _resolve_rate_limit_identity(request: Request) -> str:
+    """Build a stable limiter identity using API key first, then client IP."""
+    api_key = request.headers.get("X-API-Key")
+    if api_key:
+        return f"api_key:{api_key}"
+    client_host = request.client.host if request.client is not None else "unknown"
+    return f"ip:{client_host}"
+
+
+def _enforce_generation_rate_limit(request: Request) -> None:
+    """Raise HTTP 429 when generation rate limit is exceeded."""
+    limiter = _get_rate_limiter(request)
+    if limiter is None:
+        return
+
+    identity = _resolve_rate_limit_identity(request)
+    if not limiter.allow(identity):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded.")
+
+
 def create_app(
     generator: Any = None,
     rag_pipeline: Any = None,
@@ -239,6 +291,14 @@ def create_app(
     app.state.generator = generator
     app.state.rag_pipeline = rag_pipeline
     app.state.collector = _collector
+    app.state.rate_limiter = (
+        _FixedWindowRateLimiter(
+            max_requests=settings.rate_limit_requests,
+            window_seconds=settings.rate_limit_window_seconds,
+        )
+        if settings.rate_limit_enabled
+        else None
+    )
     app.state.optimizer = (
         GenerationOptimizationService(
             generator,
@@ -288,8 +348,11 @@ def create_app(
 
         Raises:
             HTTPException 422: If JSON extraction or schema validation fails.
+            HTTPException 429: If generation rate limit is exceeded.
             HTTPException 503: If the generator is not available.
         """
+        _enforce_generation_rate_limit(request)
+
         gen = _get_generator(request)
         if gen is None:
             raise HTTPException(status_code=503, detail="Generator not initialised.")
@@ -336,6 +399,8 @@ def create_app(
     @app.post("/generate/sdk", tags=["generation"], response_model=GenerateSDKResponse)
     def generate_sdk(req: GenerateRequest, request: Request) -> GenerateSDKResponse:
         """Generate and return SDK-shaped game objects for microservice consumers."""
+        _enforce_generation_rate_limit(request)
+
         gen = _get_generator(request)
         if gen is None:
             raise HTTPException(status_code=503, detail="Generator not initialised.")

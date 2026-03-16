@@ -115,6 +115,7 @@ class GenerationOptimizationService:
         self._cache_ttl_seconds = cache_ttl_seconds
         self._cache_namespace = cache_namespace
         self._redis_prefix = redis_prefix
+        self._persistent_lock = threading.RLock()
         self._redis_cache = None
         self._db_cache = None
         self._persistent_backend = "none"
@@ -160,15 +161,16 @@ class GenerationOptimizationService:
             metadata = getattr(doc, "metadata", {}) or {}
             title = str(metadata.get("title", f"doc-{doc_id[:8]}"))
             tags = ["rag_source", "ingested_doc"]
-            self._db_cache.add(
-                KnowledgeEntry(
-                    entry_id=f"rag-{doc_id}",
-                    title=title,
-                    content=content,
-                    tags=tags,
-                    metadata={"kind": "ingested_document", **dict(metadata)},
+            with self._persistent_lock:
+                self._db_cache.add(
+                    KnowledgeEntry(
+                        entry_id=f"rag-{doc_id}",
+                        title=title,
+                        content=content,
+                        tags=tags,
+                        metadata={"kind": "ingested_document", **dict(metadata)},
+                    )
                 )
-            )
 
     def generate(self, req: GenerateRequest) -> OptimizationResult:
         """Generate content with cache-aware strategy and SDK conversion."""
@@ -235,7 +237,11 @@ class GenerationOptimizationService:
                 )
 
         rag_start = time.perf_counter()
-        kbd_hits = self._db_cache.search_by_keyword(req.query) if self._db_cache else []
+        if self._db_cache is not None:
+            with self._persistent_lock:
+                kbd_hits = self._db_cache.search_by_keyword(req.query)
+        else:
+            kbd_hits = []
         metrics["kbd_hits"] = len(kbd_hits)
         if kbd_hits:
             req = req.model_copy(update={"query": f"{req.query} {kbd_hits[0].title}"})
@@ -308,17 +314,18 @@ class GenerationOptimizationService:
         memory_entries = (
             len(self._memory_cache) if self._memory_cache is not None else 0
         )
-        persistent_entries = len(self._persistent_cache_ids)
-        if self._redis_cache is not None:
-            try:
-                persistent_entries = int(
-                    self._redis_cache.scard(
-                        self._redis_index_key(self._cache_namespace)
+        with self._persistent_lock:
+            persistent_entries = len(self._persistent_cache_ids)
+            if self._redis_cache is not None:
+                try:
+                    persistent_entries = int(
+                        self._redis_cache.scard(
+                            self._redis_index_key(self._cache_namespace)
+                        )
                     )
-                )
-            except Exception:
-                self._persistent_backend_errors["stats"] += 1
-                persistent_entries = 0
+                except Exception:
+                    self._persistent_backend_errors["stats"] += 1
+                    persistent_entries = 0
         return {
             "memory_entries": memory_entries,
             "persistent_entries": persistent_entries,
@@ -350,47 +357,55 @@ class GenerationOptimizationService:
             self._memory_cache.clear()
 
         if self._redis_cache is not None:
-            try:
-                if all_namespaces:
-                    index_pattern = self._redis_index_key("*")
-                    index_keys = list(self._redis_cache.scan_iter(match=index_pattern))
-                else:
-                    index_keys = [self._redis_index_key(target_namespace)]
-
-                for index_key in index_keys:
-                    cache_keys = list(self._redis_cache.smembers(index_key))
-                    if cache_keys:
-                        removed_persistent += int(self._redis_cache.delete(*cache_keys))
-                    self._redis_cache.delete(index_key)
-            except Exception:
-                self._persistent_backend_errors["delete"] += 1
-
-        if self._db_cache is not None:
-            # Refresh index to include entries written by other service instances.
-            self._bootstrap_persistent_cache_index()
-            if all_namespaces:
-                entry_ids = list(self._persistent_cache_ids)
-            else:
-                entry_ids = [
-                    entry_id
-                    for entry_id in self._persistent_cache_ids
-                    if entry_id.startswith(self._cache_entry_prefix(target_namespace))
-                ]
-
-            for entry_id in entry_ids:
+            with self._persistent_lock:
                 try:
-                    self._db_cache.delete(entry_id)
-                    removed_persistent += 1
-                except KeyError:
-                    # The entry might already be absent due to manual cleanup.
-                    pass
+                    if all_namespaces:
+                        index_pattern = self._redis_index_key("*")
+                        index_keys = list(
+                            self._redis_cache.scan_iter(match=index_pattern)
+                        )
+                    else:
+                        index_keys = [self._redis_index_key(target_namespace)]
+
+                    for index_key in index_keys:
+                        cache_keys = list(self._redis_cache.smembers(index_key))
+                        if cache_keys:
+                            removed_persistent += int(
+                                self._redis_cache.delete(*cache_keys)
+                            )
+                        self._redis_cache.delete(index_key)
                 except Exception:
                     self._persistent_backend_errors["delete"] += 1
 
-            if all_namespaces:
-                self._persistent_cache_ids.clear()
-            else:
-                self._persistent_cache_ids -= set(entry_ids)
+        if self._db_cache is not None:
+            with self._persistent_lock:
+                # Refresh index to include entries written by other service instances.
+                self._bootstrap_persistent_cache_index()
+                if all_namespaces:
+                    entry_ids = list(self._persistent_cache_ids)
+                else:
+                    entry_ids = [
+                        entry_id
+                        for entry_id in self._persistent_cache_ids
+                        if entry_id.startswith(
+                            self._cache_entry_prefix(target_namespace)
+                        )
+                    ]
+
+                for entry_id in entry_ids:
+                    try:
+                        self._db_cache.delete(entry_id)
+                        removed_persistent += 1
+                    except KeyError:
+                        # The entry might already be absent due to manual cleanup.
+                        pass
+                    except Exception:
+                        self._persistent_backend_errors["delete"] += 1
+
+                if all_namespaces:
+                    self._persistent_cache_ids.clear()
+                else:
+                    self._persistent_cache_ids -= set(entry_ids)
 
         return {
             "removed_memory": removed_memory,
@@ -421,21 +436,22 @@ class GenerationOptimizationService:
         metrics: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         if self._redis_cache is not None:
-            try:
-                raw = self._redis_cache.get(
-                    self._redis_cache_key(self._cache_namespace, key)
-                )
-                if raw is None:
+            with self._persistent_lock:
+                try:
+                    raw = self._redis_cache.get(
+                        self._redis_cache_key(self._cache_namespace, key)
+                    )
+                    if raw is None:
+                        return None
+                    parsed = json.loads(raw)
+                except json.JSONDecodeError:
                     return None
-                parsed = json.loads(raw)
-            except json.JSONDecodeError:
-                return None
-            except Exception:
-                self._persistent_backend_errors["read"] += 1
-                if metrics is not None:
-                    metrics["persistent_fallback_used"] = True
-                    metrics["persistent_error"] = "read_error"
-                return None
+                except Exception:
+                    self._persistent_backend_errors["read"] += 1
+                    if metrics is not None:
+                        metrics["persistent_fallback_used"] = True
+                        metrics["persistent_error"] = "read_error"
+                    return None
             if not isinstance(parsed, dict):
                 return None
             if "payload" not in parsed or "sdk_payload" not in parsed:
@@ -444,14 +460,17 @@ class GenerationOptimizationService:
 
         if self._db_cache is None:
             return None
-        try:
-            entry = self._db_cache.get(self._cache_entry_id(self._cache_namespace, key))
-        except Exception:
-            self._persistent_backend_errors["read"] += 1
-            if metrics is not None:
-                metrics["persistent_fallback_used"] = True
-                metrics["persistent_error"] = "read_error"
-            return None
+        with self._persistent_lock:
+            try:
+                entry = self._db_cache.get(
+                    self._cache_entry_id(self._cache_namespace, key)
+                )
+            except Exception:
+                self._persistent_backend_errors["read"] += 1
+                if metrics is not None:
+                    metrics["persistent_fallback_used"] = True
+                    metrics["persistent_error"] = "read_error"
+                return None
         if entry is None:
             return None
 
@@ -510,28 +529,29 @@ class GenerationOptimizationService:
             ],
             metadata={"kind": "generation_cache", "namespace": self._cache_namespace},
         )
-        try:
-            self._db_cache.add(entry)
-            self._persistent_cache_ids.add(entry_id)
-            return True
-        except Exception:
-            self._persistent_backend_errors["write"] += 1
-            if metrics is not None:
-                metrics["persistent_fallback_used"] = True
-                metrics["persistent_error"] = "write_error"
-            return False
+        with self._persistent_lock:
+            try:
+                self._db_cache.add(entry)
+                self._persistent_cache_ids.add(entry_id)
+                return True
+            except Exception:
+                self._persistent_backend_errors["write"] += 1
+                if metrics is not None:
+                    metrics["persistent_fallback_used"] = True
+                    metrics["persistent_error"] = "write_error"
+                return False
 
     def _bootstrap_persistent_cache_index(self) -> None:
         """Build the persistent cache entry index once at startup."""
         if self._db_cache is None:
             return
-
-        self._persistent_cache_ids = {
-            entry.entry_id
-            for entry in self._db_cache.list_all()
-            if entry.entry_id.startswith("cache-")
-            or entry.metadata.get("kind") == "generation_cache"
-        }
+        with self._persistent_lock:
+            self._persistent_cache_ids = {
+                entry.entry_id
+                for entry in self._db_cache.list_all()
+                if entry.entry_id.startswith("cache-")
+                or entry.metadata.get("kind") == "generation_cache"
+            }
 
     def _cache_entry_id(self, namespace: str, key: str) -> str:
         return f"cache-{namespace}-{key}"
