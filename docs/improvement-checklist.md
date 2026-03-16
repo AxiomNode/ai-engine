@@ -1,76 +1,106 @@
-# Improvement Checklist
+# Improvement Checklist (Proposed)
 
-This document tracks the improvement plan for the ai-engine project.
+This document tracks the next improvement cycle for the ai-engine project.
 
-## How we will execute
+## How to use this checklist
 
-- Work in priority order (P0 -> P2).
-- Implement one item at a time.
-- Validate each item with tests/lint/type checks before marking it done.
-- Keep changes small and reviewable.
+- Execute items in order of necessity (Phase 1 -> Phase 4).
+- Deliver one item at a time with small, reviewable PRs.
+- Mark an item as completed only after tests, lint, and type checks pass.
+- Keep acceptance criteria measurable and verifiable.
 
-## P0 - Critical
+## Phase 1 - Critical Reliability (Do First)
 
-- [x] P0-01 Fix protected generation regression and compatibility wrappers
+- [ ] N1-01 Add integration tests for Redis cache backend path
   - Scope:
-    - Ensure `/generate` works when API key is valid.
-    - Keep compatibility when wrapped generators do not expose `generate_from_context`.
+    - Validate read/write/reset behavior when Redis backend is active.
+    - Validate fallback behavior when Redis is unavailable.
   - Acceptance criteria:
-    - `tests/test_api/test_app.py::TestAPIKeyAuth::test_generate_succeeds_with_correct_key` passes.
-    - No new failures in API tests.
+    - Dedicated integration tests pass in CI.
+    - No regression in TinyDB/in-memory behavior.
 
-- [x] P0-02 Restore static quality gate (ruff + mypy)
+- [ ] N1-02 Add cache-key versioning and invalidation strategy
   - Scope:
-    - Fix current `ruff` violations in source files.
-    - Fix current `mypy` errors in `src/ai_engine/sdk/models.py` and `src/ai_engine/api/optimization.py`.
+    - Add cache key version namespace for schema/prompt changes.
+    - Add selective invalidation by prefix/version.
   - Acceptance criteria:
-    - `ruff check src tests` passes.
-    - `mypy src` passes.
+    - Cache misses are intentional after version bump.
+    - Invalidation can target a specific version namespace.
 
-## P1 - High value
-
-- [x] P1-01 Improve cache observability correctness
+- [ ] N1-03 Add resilience guards for persistent cache backend failures
   - Scope:
-    - Avoid counting non-generation events as cache misses.
-    - Add event classification for cleaner summary math.
+    - Ensure backend errors do not fail generation requests.
+    - Emit explicit fallback metadata for observability.
   - Acceptance criteria:
-    - `cache_hit_rate` reflects generation events only.
+    - Generation succeeds when persistent backend errors occur.
+    - Fallback counters are visible in stats/metrics.
 
-- [x] P1-02 Make persistent cache path configurable
+## Phase 2 - Performance and Scalability
+
+- [ ] N2-01 Add micro-benchmarks for generation latency breakdown
   - Scope:
-    - Move cache file path to settings/env.
-    - Keep safe defaults for local runs.
+    - Benchmark cache hit, cache miss, and fallback paths.
+    - Track RAG, generation, parse, and total latency.
   - Acceptance criteria:
-    - App reads path from config and works in tests/runtime.
+    - Reproducible benchmark script and baseline results committed.
 
-- [x] P1-03 Optimize cache stats/reset complexity
+- [ ] N2-02 Optimize persistent index synchronization under concurrency
   - Scope:
-    - Reduce O(n) scans in cache stats/reset paths.
-    - Prepare for larger caches.
+    - Harden index consistency for multi-worker scenarios.
+    - Add lock/atomicity tests where needed.
   - Acceptance criteria:
-    - Cache runtime endpoints remain responsive under larger datasets.
+    - Concurrency tests pass with no index drift.
 
-## P2 - Strategic
-
-- [x] P2-01 Introduce production cache backend option (Redis)
+- [ ] N2-03 Add request-level rate limiting for generation endpoints
   - Scope:
-    - Optional Redis cache layer for multi-worker/multi-instance deployments.
+    - Add configurable limits by API key/IP.
+    - Preserve compatibility with existing middleware.
   - Acceptance criteria:
-    - Configurable backend with fallback to in-memory/local mode.
+    - Excess traffic receives controlled responses (429).
+    - Normal traffic remains unaffected.
 
-- [x] P2-02 Export Prometheus-friendly metrics
+## Phase 3 - Observability and Operations
+
+- [ ] N3-01 Expand Prometheus metrics coverage
   - Scope:
-    - Add metrics endpoint or integration for scrape-based monitoring.
+    - Add generation outcome counters by game_type/language.
+    - Add backend/fallback counters and cache saturation gauges.
   - Acceptance criteria:
-    - Core generation/cache/RAG metrics exposed in a scrape-compatible format.
+    - New metrics are exposed and documented in metrics usage docs.
 
-## Progress log
+- [ ] N3-02 Add health diagnostics for dependencies
+  - Scope:
+    - Report status of LLM endpoint, embedding model readiness, and cache backend.
+  - Acceptance criteria:
+    - Health endpoint includes dependency-specific diagnostics.
 
-- 2026-03-16: Checklist created. Next item in progress: P0-01.
-- 2026-03-16: P0-01 completed. Fixed compatibility fallback in optimization service and restored protected API-key test path.
-- 2026-03-16: P0-02 completed. Resolved mypy errors in SDK/optimization modules and restored lint/type checks to green.
-- 2026-03-16: P1-01 completed. Added event classification for observability and restricted cache hit-rate math to generation events only.
-- 2026-03-16: P1-02 completed. Generation persistent cache path now comes from settings/env and is covered by config/API validation tests.
-- 2026-03-16: P1-03 completed. Persistent cache stats/reset now use an indexed cache-entry set to avoid full TinyDB scans on each request.
-- 2026-03-16: P2-01 completed. Added optional Redis persistent cache backend with safe fallback to TinyDB and environment-based configuration.
-- 2026-03-16: P2-02 completed. Added `/metrics` Prometheus endpoint to observability API plus tests and metrics documentation updates.
+- [ ] N3-03 Add structured logging correlation IDs
+  - Scope:
+    - Add request correlation ID across API, optimizer, and observability events.
+  - Acceptance criteria:
+    - A single request can be traced end-to-end in logs and metrics.
+
+## Phase 4 - Product Hardening and Developer Experience
+
+- [ ] N4-01 Add architecture decision record (ADR) for cache strategy
+  - Scope:
+    - Document why/when to use in-memory, TinyDB, and Redis.
+    - Define operational trade-offs and limits.
+  - Acceptance criteria:
+    - ADR approved and linked from docs index.
+
+- [ ] N4-02 Add CI matrix profile for optional extras
+  - Scope:
+    - Validate behavior with and without optional dependencies (rag/kbd/redis).
+  - Acceptance criteria:
+    - CI matrix runs green and catches optional-dependency regressions.
+
+- [ ] N4-03 Publish runbook for incidents and rollback
+  - Scope:
+    - Define playbooks for cache corruption, backend outage, and metrics gaps.
+  - Acceptance criteria:
+    - Runbook available in docs with step-by-step recovery procedures.
+
+## Progress Log
+
+- 2026-03-16: Proposed checklist created for the next cycle.
