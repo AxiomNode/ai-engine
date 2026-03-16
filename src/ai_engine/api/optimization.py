@@ -15,12 +15,20 @@ from ai_engine.kbd.entry import KnowledgeEntry
 from ai_engine.sdk.models import parse_generate_response
 
 _TinyDBKnowledgeBase: Any
+_RedisClient: Any
 try:
     from ai_engine.kbd.tinydb_knowledge_base import (
         TinyDBKnowledgeBase as _TinyDBKnowledgeBase,
     )
 except Exception:  # pragma: no cover
     _TinyDBKnowledgeBase = None
+
+try:
+    from redis import Redis as _RedisClientClass
+
+    _RedisClient = _RedisClientClass
+except Exception:  # pragma: no cover
+    _RedisClient = None
 
 
 @dataclass(frozen=True)
@@ -88,7 +96,10 @@ class GenerationOptimizationService:
         *,
         cache_max_entries: int = 2048,
         cache_ttl_seconds: int = 900,
+        cache_backend: str = "tinydb",
         persistent_cache_path: str | None = None,
+        redis_url: str | None = None,
+        redis_prefix: str = "ai-engine:generation-cache",
     ) -> None:
         self._generator = generator
         self._rag_pipeline = rag_pipeline
@@ -101,13 +112,26 @@ class GenerationOptimizationService:
             else None
         )
         self._cache_ttl_seconds = cache_ttl_seconds
+        self._redis_prefix = redis_prefix
+        self._redis_cache = None
+        self._db_cache = None
+        self._persistent_backend = "none"
 
-        cache_path = persistent_cache_path
-        self._db_cache = (
-            _TinyDBKnowledgeBase(path=cache_path)
-            if _TinyDBKnowledgeBase is not None and cache_path is not None
-            else None
-        )
+        if cache_backend == "redis" and _RedisClient is not None and redis_url:
+            try:
+                redis_client = _RedisClient.from_url(redis_url, decode_responses=True)
+                redis_client.ping()
+                self._redis_cache = redis_client
+                self._persistent_backend = "redis"
+            except Exception:
+                self._redis_cache = None
+
+        if self._redis_cache is None:
+            cache_path = persistent_cache_path
+            if _TinyDBKnowledgeBase is not None and cache_path is not None:
+                self._db_cache = _TinyDBKnowledgeBase(path=cache_path)
+                self._persistent_backend = "tinydb"
+
         self._persistent_cache_ids: set[str] = set()
         if self._db_cache is not None:
             self._bootstrap_persistent_cache_index()
@@ -269,11 +293,14 @@ class GenerationOptimizationService:
             len(self._memory_cache) if self._memory_cache is not None else 0
         )
         persistent_entries = len(self._persistent_cache_ids)
+        if self._redis_cache is not None:
+            persistent_entries = int(self._redis_cache.scard(self._redis_index_key()))
         return {
             "memory_entries": memory_entries,
             "persistent_entries": persistent_entries,
             "memory_enabled": self._memory_cache is not None,
-            "persistent_enabled": self._db_cache is not None,
+            "persistent_enabled": self._persistent_backend != "none",
+            "persistent_backend": self._persistent_backend,
             "cache_ttl_seconds": self._cache_ttl_seconds,
         }
 
@@ -285,6 +312,12 @@ class GenerationOptimizationService:
         if self._memory_cache is not None:
             removed_memory = len(self._memory_cache)
             self._memory_cache.clear()
+
+        if self._redis_cache is not None:
+            cache_keys = list(self._redis_cache.smembers(self._redis_index_key()))
+            if cache_keys:
+                removed_persistent = int(self._redis_cache.delete(*cache_keys))
+            self._redis_cache.delete(self._redis_index_key())
 
         if self._db_cache is not None:
             for entry_id in list(self._persistent_cache_ids):
@@ -318,6 +351,20 @@ class GenerationOptimizationService:
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
     def _read_persistent_cache(self, key: str) -> dict[str, Any] | None:
+        if self._redis_cache is not None:
+            raw = self._redis_cache.get(self._redis_cache_key(key))
+            if raw is None:
+                return None
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                return None
+            if not isinstance(parsed, dict):
+                return None
+            if "payload" not in parsed or "sdk_payload" not in parsed:
+                return None
+            return parsed
+
         if self._db_cache is None:
             return None
         entry = self._db_cache.get(f"cache-{key}")
@@ -339,6 +386,16 @@ class GenerationOptimizationService:
         return parsed
 
     def _write_persistent_cache(self, key: str, value: dict[str, Any]) -> None:
+        if self._redis_cache is not None:
+            redis_key = self._redis_cache_key(key)
+            self._redis_cache.setex(
+                redis_key,
+                self._cache_ttl_seconds,
+                json.dumps(value, ensure_ascii=True),
+            )
+            self._redis_cache.sadd(self._redis_index_key(), redis_key)
+            return
+
         if self._db_cache is None:
             return
         entry_id = f"cache-{key}"
@@ -367,3 +424,9 @@ class GenerationOptimizationService:
             if entry.entry_id.startswith("cache-")
             or entry.metadata.get("kind") == "generation_cache"
         }
+
+    def _redis_cache_key(self, key: str) -> str:
+        return f"{self._redis_prefix}:entry:{key}"
+
+    def _redis_index_key(self) -> str:
+        return f"{self._redis_prefix}:index"

@@ -32,6 +32,16 @@ Environment variables
     File path used by the generation optimizer for persistent cache storage.
     Defaults to ``"data/generation_cache.json"``.
 
+``AI_ENGINE_GENERATION_CACHE_BACKEND``
+    Persistent cache backend for generation optimization.  Supported values:
+    ``"tinydb"`` (default) and ``"redis"``.
+
+``AI_ENGINE_GENERATION_CACHE_REDIS_URL``
+    Redis connection URL used when backend is ``"redis"``.
+
+``AI_ENGINE_GENERATION_CACHE_REDIS_PREFIX``
+    Redis key prefix for generation cache data structures.
+
 Examples:
     Basic usage::
 
@@ -66,6 +76,9 @@ class AIEngineSettings(BaseSettings):
         api_key: Shared secret for ``X-API-Key`` header auth.
         models_dir: Directory where GGUF model files are stored.
         generation_cache_path: Path to persistent generation cache file.
+        generation_cache_backend: Persistent cache backend (tinydb/redis).
+        generation_cache_redis_url: Redis URL used by redis cache backend.
+        generation_cache_redis_prefix: Key prefix for redis cache backend.
     """
 
     model_config = SettingsConfigDict(
@@ -102,6 +115,21 @@ class AIEngineSettings(BaseSettings):
         default="data/generation_cache.json",
         alias="AI_ENGINE_GENERATION_CACHE_PATH",
         validation_alias="AI_ENGINE_GENERATION_CACHE_PATH",
+    )
+    generation_cache_backend: str = Field(
+        default="tinydb",
+        alias="AI_ENGINE_GENERATION_CACHE_BACKEND",
+        validation_alias="AI_ENGINE_GENERATION_CACHE_BACKEND",
+    )
+    generation_cache_redis_url: str | None = Field(
+        default=None,
+        alias="AI_ENGINE_GENERATION_CACHE_REDIS_URL",
+        validation_alias="AI_ENGINE_GENERATION_CACHE_REDIS_URL",
+    )
+    generation_cache_redis_prefix: str = Field(
+        default="ai-engine:generation-cache",
+        alias="AI_ENGINE_GENERATION_CACHE_REDIS_PREFIX",
+        validation_alias="AI_ENGINE_GENERATION_CACHE_REDIS_PREFIX",
     )
 
 

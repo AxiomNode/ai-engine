@@ -52,7 +52,7 @@ This document tracks the improvement plan for the ai-engine project.
 
 ## P2 - Strategic
 
-- [ ] P2-01 Introduce production cache backend option (Redis)
+- [x] P2-01 Introduce production cache backend option (Redis)
   - Scope:
     - Optional Redis cache layer for multi-worker/multi-instance deployments.
   - Acceptance criteria:
@@ -72,3 +72,4 @@ This document tracks the improvement plan for the ai-engine project.
 - 2026-03-16: P1-01 completed. Added event classification for observability and restricted cache hit-rate math to generation events only.
 - 2026-03-16: P1-02 completed. Generation persistent cache path now comes from settings/env and is covered by config/API validation tests.
 - 2026-03-16: P1-03 completed. Persistent cache stats/reset now use an indexed cache-entry set to avoid full TinyDB scans on each request.
+- 2026-03-16: P2-01 completed. Added optional Redis persistent cache backend with safe fallback to TinyDB and environment-based configuration.

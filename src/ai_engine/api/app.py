@@ -20,6 +20,12 @@ injected directly):
   (default: ``all-MiniLM-L6-v2``).
 - ``AI_ENGINE_GENERATION_CACHE_PATH`` – persistent cache file path for
     optimized generation responses.
+- ``AI_ENGINE_GENERATION_CACHE_BACKEND`` – persistent cache backend
+    (``tinydb`` or ``redis``).
+- ``AI_ENGINE_GENERATION_CACHE_REDIS_URL`` – Redis URL used when backend is
+    ``redis``.
+- ``AI_ENGINE_GENERATION_CACHE_REDIS_PREFIX`` – key prefix used for Redis
+    cache entries.
 - ``AI_ENGINE_API_KEY``         – When set, every request must include an
   ``X-API-Key`` header with this value.  Absent or incorrect keys return
   HTTP 401 / 403 respectively.  Unset means no authentication required.
@@ -204,7 +210,10 @@ def create_app(
             app.state.optimizer = GenerationOptimizationService(
                 app.state.generator,
                 app.state.rag_pipeline,
+                cache_backend=settings.generation_cache_backend,
                 persistent_cache_path=settings.generation_cache_path,
+                redis_url=settings.generation_cache_redis_url,
+                redis_prefix=settings.generation_cache_redis_prefix,
             )
 
         logger.info("ai-engine generation API started.")

@@ -85,3 +85,24 @@ def test_persistent_cache_stats_and_reset_use_cache_index(tmp_path) -> None:
 
     stats_after = service.cache_stats()
     assert stats_after["persistent_entries"] == 0
+
+
+def test_redis_backend_falls_back_to_tinydb_when_unavailable(tmp_path) -> None:
+    """Redis backend selection should gracefully fallback to TinyDB."""
+    cache_file = tmp_path / "generation_cache.json"
+    service = GenerationOptimizationService(
+        generator=_StubGenerator(),
+        rag_pipeline=_StubRAGPipeline(),
+        cache_max_entries=0,
+        cache_backend="redis",
+        redis_url=None,
+        persistent_cache_path=str(cache_file),
+    )
+
+    req = GenerateRequest(query="water", topic="Science")
+    service.generate(req)
+
+    stats = service.cache_stats()
+    assert stats["persistent_enabled"] is True
+    assert stats["persistent_backend"] == "tinydb"
+    assert stats["persistent_entries"] == 1
