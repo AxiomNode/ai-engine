@@ -43,11 +43,21 @@ class _StubGenerator:
         game_type: str = "quiz",
         *,
         language: str | None = None,
+        difficulty_percentage: int | None = None,
         num_questions: int = 5,
         letters: str = "A,B,C",
         max_tokens: int | None = None,
     ) -> GameEnvelope:
-        _ = (context, topic, game_type, language, num_questions, letters, max_tokens)
+        _ = (
+            context,
+            topic,
+            game_type,
+            language,
+            difficulty_percentage,
+            num_questions,
+            letters,
+            max_tokens,
+        )
         return GameEnvelope(
             game_type="quiz",
             game=QuizGame(
