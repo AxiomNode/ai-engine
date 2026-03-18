@@ -24,6 +24,22 @@ Environment variables
     Shared secret propagated to ``X-API-Key`` header validation.  When
     absent, authentication is disabled.
 
+``AI_ENGINE_GAMES_API_KEY``
+    API key used for game microservices consuming generation endpoints
+    (``/generate*``).
+
+``AI_ENGINE_BRIDGE_API_KEY``
+    API key used for bridge microservice integration on ingest and
+    observability endpoints.
+
+``AI_ENGINE_STATS_API_KEY``
+    Dedicated API key used by ``ai-api`` when pushing internal
+    observability events to ``ai-stats``.
+
+``AI_ENGINE_STATS_URL``
+    Base URL for the observability service receiving event ingestion
+    from the main API (e.g. ``http://ai-stats:8000``).
+
 ``AI_ENGINE_MODELS_DIR``
     Directory where GGUF model files are stored.  Defaults to the
     ``models/`` folder at the project root.
@@ -92,6 +108,10 @@ class AIEngineSettings(BaseSettings):
         model_path: Path to a local GGUF model file.
         embedding_model: Sentence-transformers model name for RAG.
         api_key: Shared secret for ``X-API-Key`` header auth.
+        games_api_key: API key for game microservice generation routes.
+        bridge_api_key: API key for bridge microservice routes.
+        stats_api_key: API key for internal ai-api -> ai-stats events.
+        stats_url: Base URL for observability event ingestion.
         models_dir: Directory where GGUF model files are stored.
         generation_cache_path: Path to persistent generation cache file.
         generation_cache_backend: Persistent cache backend (tinydb/redis).
@@ -129,6 +149,26 @@ class AIEngineSettings(BaseSettings):
         default=None,
         alias="AI_ENGINE_API_KEY",
         validation_alias="AI_ENGINE_API_KEY",
+    )
+    games_api_key: str | None = Field(
+        default=None,
+        alias="AI_ENGINE_GAMES_API_KEY",
+        validation_alias="AI_ENGINE_GAMES_API_KEY",
+    )
+    bridge_api_key: str | None = Field(
+        default=None,
+        alias="AI_ENGINE_BRIDGE_API_KEY",
+        validation_alias="AI_ENGINE_BRIDGE_API_KEY",
+    )
+    stats_api_key: str | None = Field(
+        default=None,
+        alias="AI_ENGINE_STATS_API_KEY",
+        validation_alias="AI_ENGINE_STATS_API_KEY",
+    )
+    stats_url: str | None = Field(
+        default=None,
+        alias="AI_ENGINE_STATS_URL",
+        validation_alias="AI_ENGINE_STATS_URL",
     )
     models_dir: str = Field(
         default=_DEFAULT_MODELS_DIR,

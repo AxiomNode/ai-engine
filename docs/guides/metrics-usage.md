@@ -1,15 +1,23 @@
 # Metrics Usage
 
-This guide explains the advanced metrics now emitted by the generation API for
+This guide explains the advanced metrics emitted by the stats service for
 microservice workloads.
 
 ## Endpoints
 
+Stats service (`ai-stats`):
+
+- `POST /events`
 - `GET /stats`
 - `GET /stats/history?last_n=100`
-- `GET /cache/stats`
-- `POST /cache/reset`
 - `GET /metrics`
+- `GET /health`
+
+Generation service (`ai-api`):
+
+- `POST /generate`
+- `POST /generate/sdk`
+- `POST /ingest`
 - `GET /health`
 
 The generation service records telemetry for:
@@ -41,7 +49,6 @@ The generation service records telemetry for:
 - `db_reads_total`
 - `db_writes_total`
 - `language_counts`
-- `cache_runtime` (runtime entries and cache configuration)
 - `generation_outcome_by_game_type`
 - `generation_outcome_by_language`
 - `persistent_backend_counts`
@@ -75,12 +82,6 @@ The response includes:
 
 Set `force_refresh=true` to bypass cache and force a fresh model generation.
 
-## Cache runtime endpoints
-
-- `GET /cache/stats` returns cache runtime status and entry counts.
-- `POST /cache/reset` clears in-memory and persistent generation cache and
-	returns removed-entry counters.
-
 ## Prometheus export endpoint
 
 `GET /metrics` returns scrape-compatible text exposition with key metrics,
@@ -105,7 +106,7 @@ Additional cache gauges now include:
 
 ## Health diagnostics
 
-`GET /health` now includes dependency diagnostics for:
+`GET /health` (on `ai-api`) includes dependency diagnostics for:
 
 - generator readiness/type
 - RAG pipeline readiness (embedder/vector store)

@@ -8,18 +8,10 @@ Full documentation is available in the [`docs/`](docs/) folder:
 
 | Guide | Description |
 |---|---|
-| [Project Context](docs/project-context.md) | AxiomNode vision, high-level architecture, and ai-engine scope |
-| [Architecture](docs/architecture.md) | System design, layers, data flows, and extension points |
-| [Repository Layout](docs/repository-layout.md) | Folder distribution for root, scripts, and src modules |
-| [Distributions Matrix](distributions/README.md) | Stage/environment deployment matrix (dev/stg/pro x windows/vps-cpu/vps-gpu) |
-| [Technologies](docs/technologies.md) | Libraries, tools, models, and standards |
-| [Getting Started](docs/getting-started.md) | Local setup, TDD workflow, code quality |
-| [Deployment](docs/deployment.md) | API server, Docker, llama.cpp server |
-| [RAG Usage](docs/rag-usage.md) | Ingestion, retrieval, custom embedders and vector stores |
-| [KBD Usage](docs/kbd-usage.md) | Knowledge Base CRUD, tag/keyword search |
-| [SDK Usage](docs/sdk-usage.md) | Typed client-side models for generate endpoint responses |
-| [Cache Strategy ADR](docs/adr-0001-cache-strategy.md) | Architecture decision for in-memory, TinyDB, and Redis cache layers |
-| [Incident Runbook](docs/incident-runbook.md) | Operational response and rollback procedures for runtime incidents |
+| [Architecture Index](docs/architecture/README.md) | Context, system design, technologies, ADRs, and repository layout |
+| [Distributions Matrix](src/distributions/README.md) | Stage/environment deployment matrix (dev/stg/pro x windows/vps-cpu/vps-gpu) |
+| [Guides Index](docs/guides/README.md) | Getting started, RAG, KBD, SDK, and metrics usage guides |
+| [Operations Index](docs/operations/README.md) | Deployment, incident runbook, and continuous improvement logs |
 
 ## Description
 
@@ -64,24 +56,28 @@ src/ai_engine/
 ### Development
 
 ```bash
+cd src
 pip install -e ".[dev]"
 ```
 
 ### With local LLM support (llama.cpp)
 
 ```bash
+cd src
 pip install -e ".[llm]"
 ```
 
 ### Full install (RAG + LLM + games)
 
 ```bash
+cd src
 pip install -e ".[games]"
 ```
 
 ### With observability API (FastAPI)
 
 ```bash
+cd src
 pip install -e ".[api]"
 ```
 
@@ -103,6 +99,7 @@ python -m ai_engine.llm.model_manager list
 ## Tests
 
 ```bash
+cd src
 pytest
 ```
 
@@ -174,10 +171,10 @@ results = kb.search_by_tag("python")
 Run simple, deterministic demos for each module and for cross-module integration:
 
 ```bash
-python scripts/demo_suite.py list
-python scripts/demo_suite.py run kbd
-python scripts/demo_suite.py run integration
-python scripts/demo_suite.py run all
+python src/scripts/demo_suite.py list
+python src/scripts/demo_suite.py run kbd
+python src/scripts/demo_suite.py run integration
+python src/scripts/demo_suite.py run all
 ```
 
 The suite prints stylized output with concrete pass/fail results and a final summary table.

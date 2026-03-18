@@ -12,6 +12,7 @@ dist/
 
 # Virtual environments
 .venv/
+src/.venv/
 venv/
 env/
 ENV/
@@ -21,6 +22,7 @@ ENV/
 .coverage
 htmlcov/
 .tox/
+src/.cache/
 
 # IDEs
 .vscode/

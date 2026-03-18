@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Backward-compatible wrapper.
-# Prefer: ./scripts/install/deploy.sh <dev|stg|pro> vps-cpu
+# Prefer from repo root: ./src/scripts/install/deploy.sh <dev|stg|pro> vps-cpu
 
 STAGE="${1:-dev}"
 

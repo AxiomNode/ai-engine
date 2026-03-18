@@ -373,42 +373,89 @@ class TestIngest:
 
 
 # ------------------------------------------------------------------
-# Monitoring endpoints moved to ai-stats
+# GET /stats and GET /stats/history
 # ------------------------------------------------------------------
 
 
-class TestMonitoringOwnership:
-    """Tests that monitoring endpoints are not exposed by ai-api."""
+class TestStats:
+    """Tests for GET /stats and GET /stats/history."""
 
-    def test_stats_endpoint_not_exposed_in_main_api(self) -> None:
-        """GET /stats must be served by ai-stats, not ai-api."""
+    def test_stats_empty_on_fresh_collector(self) -> None:
+        """Stats returns zeros when no events have been recorded."""
         client, *_ = _make_client()
         resp = client.get("/stats")
-        assert resp.status_code == 404
+        assert resp.status_code == 200
+        assert resp.json()["total_calls"] == 0
+        assert "cache_runtime" in resp.json()
 
-    def test_history_endpoint_not_exposed_in_main_api(self) -> None:
-        """GET /stats/history must be served by ai-stats, not ai-api."""
+    def test_stats_after_recording_event(self) -> None:
+        """Stats reflect recorded events."""
+        client, _, _, collector = _make_client()
+        collector.record_call(
+            prompt="test",
+            response="ok",
+            latency_ms=100.0,
+            max_tokens=512,
+            game_type="quiz",
+        )
+        resp = client.get("/stats")
+        data = resp.json()
+        assert data["total_calls"] == 1
+        assert data["game_type_counts"]["quiz"] == 1
+
+    def test_history_empty_on_fresh_collector(self) -> None:
+        """History returns empty list when no events have been recorded."""
         client, *_ = _make_client()
         resp = client.get("/stats/history")
-        assert resp.status_code == 404
+        assert resp.status_code == 200
+        assert resp.json() == []
 
-    def test_cache_endpoints_not_exposed_in_main_api(self) -> None:
-        """Cache runtime endpoints are removed from ai-api."""
-        client, *_ = _make_client()
-        stats_resp = client.get("/cache/stats")
-        reset_resp = client.post("/cache/reset")
-        assert stats_resp.status_code == 404
-        assert reset_resp.status_code == 404
-
-    def test_metrics_endpoint_not_exposed_in_main_api(self) -> None:
-        """Prometheus endpoint must be served by ai-stats only."""
-        client, *_ = _make_client()
-        resp = client.get("/metrics")
-        assert resp.status_code == 404
-
-    def test_correlation_id_is_stored_in_internal_event_metadata(self) -> None:
-        """Correlation ID is echoed in response and stored in collector metadata."""
+    def test_history_last_n_filter(self) -> None:
+        """last_n query parameter limits the number of history events returned."""
         client, _, _, collector = _make_client()
+        for i in range(5):
+            collector.record_call(
+                prompt=f"p{i}", response="r", latency_ms=10.0, max_tokens=64
+            )
+        resp = client.get("/stats/history?last_n=2")
+        assert len(resp.json()) == 2
+
+    def test_cache_stats_endpoint_returns_runtime_cache_info(self) -> None:
+        """/cache/stats returns runtime cache information."""
+        client, *_ = _make_client()
+        resp = client.get("/cache/stats")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "memory_entries" in data
+        assert "persistent_entries" in data
+        assert "cache_ttl_seconds" in data
+
+    def test_cache_reset_endpoint_clears_cache(self) -> None:
+        """/cache/reset returns counters for removed cache entries."""
+        client, *_ = _make_client()
+        resp = client.post("/cache/reset")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "removed_memory" in data
+        assert "removed_persistent" in data
+
+    def test_metrics_endpoint_returns_prometheus_with_cache_runtime(self) -> None:
+        """/metrics returns extended Prometheus metrics including cache runtime gauges."""
+        client, *_ = _make_client()
+        client.post("/generate", json={"query": "water", "topic": "Science"})
+
+        resp = client.get("/metrics")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/plain")
+        body = resp.text
+        assert "ai_engine_total_calls" in body
+        assert "ai_engine_generation_outcome_by_game_type_total" in body
+        assert "ai_engine_cache_memory_saturation_ratio" in body
+        assert "ai_engine_distribution_version_info" in body
+
+    def test_correlation_id_propagates_to_response_and_history(self) -> None:
+        """Correlation ID is echoed in response header and stored in event metadata."""
+        client, *_ = _make_client()
         correlation_id = "corr-test-123"
 
         resp = client.post(
@@ -419,9 +466,16 @@ class TestMonitoringOwnership:
         assert resp.status_code == 200
         assert resp.headers.get("X-Correlation-ID") == correlation_id
 
-        history = collector.history(last_n=1)
-        assert len(history) == 1
-        assert history[0]["metadata"]["correlation_id"] == correlation_id
+        history = client.get("/stats/history?last_n=1")
+        assert history.status_code == 200
+        event = history.json()[0]
+        assert event["metadata"]["correlation_id"] == correlation_id
+
+    def test_history_invalid_last_n_returns_422(self) -> None:
+        """last_n=0 is rejected with HTTP 422 (ge=1 constraint)."""
+        client, *_ = _make_client()
+        resp = client.get("/stats/history?last_n=0")
+        assert resp.status_code == 422
 
 
 # ------------------------------------------------------------------

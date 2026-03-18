@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Unified deploy script for Linux hosts.
-# Usage: ./scripts/install/deploy.sh <dev|stg|pro> <windows|vps-cpu|vps-gpu>
+# Usage from repo root: ./src/scripts/install/deploy.sh <dev|stg|pro> <windows|vps-cpu|vps-gpu>
 
 if [[ $# -ne 2 ]]; then
   echo "Usage: $0 <dev|stg|pro> <windows|vps-cpu|vps-gpu>"
@@ -23,8 +23,8 @@ case "${ENVIRONMENT}" in
 esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-cd "${REPO_ROOT}"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+cd "${PROJECT_ROOT}"
 
 ENV_FILE="distributions/${STAGE}/${ENVIRONMENT}.env"
 if [[ ! -f "${ENV_FILE}" ]]; then

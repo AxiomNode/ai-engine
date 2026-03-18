@@ -72,12 +72,6 @@ class TestAIEngineSettingsDefaults:
         settings = cfg.AIEngineSettings()
         assert settings.stats_api_key is None
 
-    def test_stats_url_default_is_none(self, monkeypatch):
-        monkeypatch.delenv("AI_ENGINE_STATS_URL", raising=False)
-        cfg = _reload_config(monkeypatch)
-        settings = cfg.AIEngineSettings()
-        assert settings.stats_url is None
-
     def test_models_dir_default_is_not_none(self, monkeypatch):
         monkeypatch.delenv("AI_ENGINE_MODELS_DIR", raising=False)
         cfg = _reload_config(monkeypatch)
@@ -171,12 +165,6 @@ class TestAIEngineSettingsFromEnv:
         cfg = _reload_config(monkeypatch)
         settings = cfg.AIEngineSettings()
         assert settings.stats_api_key == "stats-key-123"
-
-    def test_stats_url_from_env(self, monkeypatch):
-        monkeypatch.setenv("AI_ENGINE_STATS_URL", "http://ai-stats:8000")
-        cfg = _reload_config(monkeypatch)
-        settings = cfg.AIEngineSettings()
-        assert settings.stats_url == "http://ai-stats:8000"
 
     def test_models_dir_from_env(self, monkeypatch):
         monkeypatch.setenv("AI_ENGINE_MODELS_DIR", "/custom/models")

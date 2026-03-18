@@ -11,7 +11,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 # Backward-compatible wrapper.
-# Prefer: ./scripts/install/deploy.ps1 -Stage dev -Environment windows
+# Prefer from repo root: ./src/scripts/install/deploy.ps1 -Stage dev -Environment windows
 
 if ($UseCpuProfile) {
     $Environment = "vps-cpu"

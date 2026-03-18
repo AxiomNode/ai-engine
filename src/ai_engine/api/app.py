@@ -6,8 +6,6 @@ configured :class:`~fastapi.FastAPI` instance with the following endpoints:
 - ``GET  /health``           – Liveness check.
 - ``POST /generate``         – Generate a structured educational game via RAG + LLM.
 - ``POST /ingest``           – Ingest documents into the RAG pipeline.
-- ``GET  /stats``            – Aggregate generation statistics.
-- ``GET  /stats/history``    – Recent generation event log.
 
 Environment variables (used when ``generator`` / ``rag_pipeline`` are not
 injected directly):
@@ -46,11 +44,14 @@ import uuid
 from contextlib import asynccontextmanager
 from typing import Any
 
+import httpx
+
 logger = logging.getLogger(__name__)
 
+DEFAULT_PASAPALABRA_LETTERS = "A,B,C,D,E,F,G,H,I,J,L,M,N,O,P,R,S,T,V,Z"
+
 try:
-    from fastapi import FastAPI, HTTPException, Query, Request
-    from fastapi.responses import PlainTextResponse
+    from fastapi import FastAPI, Header, HTTPException, Query, Request
 except ImportError as _imp_err:  # pragma: no cover
     raise ImportError(
         "FastAPI is required for the generation API.  "
@@ -65,10 +66,7 @@ from ai_engine.api.schemas import (  # noqa: E402
     IngestRequest,
 )
 from ai_engine.config import get_settings  # noqa: E402
-from ai_engine.observability.collector import (  # noqa: E402
-    StatsCollector,
-    summary_to_prometheus,
-)
+from ai_engine.observability.collector import StatsCollector  # noqa: E402
 
 
 def _build_from_env() -> tuple[Any, Any]:
@@ -174,6 +172,126 @@ def _get_distribution_version(request: Request) -> str:
     if isinstance(value, str) and value.strip():
         return value.strip()
     return "unknown-v0"
+
+
+def _generation_failure_metadata(
+    req: GenerateRequest,
+    *,
+    correlation_id: str,
+    distribution_version: str,
+) -> dict[str, Any]:
+    """Build normalized metadata for failed generation events."""
+    return {
+        "event_type": "generation",
+        "cache_hit": False,
+        "cache_layer": "none",
+        "language": req.language,
+        "correlation_id": correlation_id,
+        "distribution_version": distribution_version,
+    }
+
+
+def _apply_generate_headers(
+    req: GenerateRequest,
+    *,
+    language_header: str | None,
+    difficulty_header: int | None,
+) -> GenerateRequest:
+    """Apply optional generation overrides coming from HTTP headers."""
+    updates: dict[str, Any] = {}
+    if isinstance(language_header, str) and language_header.strip():
+        updates["language"] = language_header.strip().lower()
+    if difficulty_header is not None:
+        updates["difficulty_percentage"] = max(0, min(100, int(difficulty_header)))
+    return req.model_copy(update=updates) if updates else req
+
+
+def _build_model_generate_request(
+    *,
+    game_type: str,
+    query_text: str,
+    topic: str,
+    language_header: str | None,
+    difficulty_header: int | None,
+    num_questions: int,
+    letters: str,
+    max_tokens: int,
+    use_cache: bool,
+    force_refresh: bool,
+) -> GenerateRequest:
+    """Build a validated GenerateRequest from query params and headers."""
+    req = GenerateRequest(
+        query=query_text,
+        topic=topic,
+        game_type=game_type,
+        language=(language_header or "es").strip().lower(),
+        difficulty_percentage=max(0, min(100, int(difficulty_header or 50))),
+        num_questions=num_questions,
+        letters=letters,
+        max_tokens=max_tokens,
+        use_cache=use_cache,
+        force_refresh=force_refresh,
+    )
+    return req
+
+
+def _publish_event_to_stats(request: Request, payload: dict[str, Any]) -> None:
+    """Push observability event to ai-stats without breaking generation flow."""
+    stats_url = getattr(request.app.state, "stats_url", None)
+    if not isinstance(stats_url, str) or not stats_url.strip():
+        return
+
+    endpoint = f"{stats_url.rstrip('/')}/events"
+    headers: dict[str, str] = {}
+    stats_api_key = getattr(request.app.state, "stats_api_key", None)
+    if isinstance(stats_api_key, str) and stats_api_key.strip():
+        headers["X-API-Key"] = stats_api_key.strip()
+
+    try:
+        httpx.post(endpoint, json=payload, headers=headers, timeout=2.0)
+    except Exception:
+        logger.warning("Failed to push observability event to ai-stats", exc_info=True)
+
+
+def _record_observability_event(
+    request: Request,
+    *,
+    prompt: str,
+    response: str,
+    latency_ms: float,
+    max_tokens: int,
+    json_mode: bool,
+    success: bool,
+    game_type: str,
+    metadata: dict[str, Any],
+    error: str | None = None,
+) -> None:
+    """Record event locally and forward it to ai-stats."""
+    _get_collector(request).record_call(
+        prompt=prompt,
+        response=response,
+        latency_ms=latency_ms,
+        max_tokens=max_tokens,
+        json_mode=json_mode,
+        success=success,
+        game_type=game_type,
+        error=error,
+        metadata=metadata,
+    )
+    _publish_event_to_stats(
+        request,
+        {
+            "prompt": prompt,
+            "response": response,
+            "latency_ms": latency_ms,
+            "max_tokens": max_tokens,
+            "json_mode": json_mode,
+            "success": success,
+            "game_type": game_type,
+            "error": error,
+            "metadata": metadata,
+        },
+    )
 
 
 class _FixedWindowRateLimiter:
@@ -400,6 +518,10 @@ def create_app(
     app.state.rag_pipeline = rag_pipeline
     app.state.collector = _collector
     app.state.distribution_version = distribution_version
+    app.state.stats_url = settings.stats_url
+    app.state.stats_api_key = (
+        settings.stats_api_key or settings.bridge_api_key or settings.api_key
+    )
     app.state.rate_limiter = (
         _FixedWindowRateLimiter(
             max_requests=settings.rate_limit_requests,
@@ -420,8 +542,8 @@ def create_app(
         else None
     )
 
-    # Attach API key middleware when AI_ENGINE_API_KEY is set in the environment.
-    add_api_key_middleware(app)
+    # Attach route-scoped API key middleware for service-to-service integrations.
+    add_api_key_middleware(app, service="generation", public_paths={"/health"})
 
     @app.middleware("http")
     async def correlation_id_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
@@ -437,7 +559,7 @@ def create_app(
     # Endpoints
     # ------------------------------------------------------------------
 
-    @app.get("/health", tags=["monitoring"])
+    @app.get("/health", tags=["service"])
     def health(request: Request) -> dict[str, Any]:
         """Return basic health and event-count information.
 
@@ -452,28 +574,8 @@ def create_app(
             "dependencies": _health_dependencies(request),
         }
 
-    @app.post("/generate", tags=["generation"])
-    def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
-        """Generate a structured educational game using RAG + LLM.
-
-        The pipeline:
-        1. Retrieves relevant context from the ingested knowledge base.
-        2. Builds a game-type-specific prompt.
-        3. Sends it to the LLM with JSON grammar constraint.
-        4. Validates and returns the parsed game as JSON.
-
-        Args:
-            req: Generation parameters (topic, game_type, language, …).
-
-        Returns:
-            A dictionary with ``game_type`` and ``game`` keys matching the
-            :class:`~ai_engine.games.schemas.GameEnvelope` structure.
-
-        Raises:
-            HTTPException 422: If JSON extraction or schema validation fails.
-            HTTPException 429: If generation rate limit is exceeded.
-            HTTPException 503: If the generator is not available.
-        """
+    def _execute_generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
+        """Execute generation request and return normalized payload."""
         _enforce_generation_rate_limit(request)
 
         gen = _get_generator(request)
@@ -497,7 +599,8 @@ def create_app(
 
         try:
             result = optimizer.generate(req, correlation_id=correlation_id)
-            _get_collector(request).record_call(
+            _record_observability_event(
+                request,
                 prompt=req.query,
                 response=str(result.payload),
                 latency_ms=float(result.metrics.get("total_latency_ms", 0.0)),
@@ -509,7 +612,8 @@ def create_app(
             )
             return result.payload
         except ValueError as exc:
-            _get_collector(request).record_call(
+            _record_observability_event(
+                request,
                 prompt=req.query,
                 response="",
                 latency_ms=0.0,
@@ -518,20 +622,19 @@ def create_app(
                 success=False,
                 game_type=req.game_type,
                 error=str(exc),
-                metadata={
-                    "event_type": "generation",
-                    "cache_hit": False,
-                    "cache_layer": "none",
-                    "language": req.language,
-                    "correlation_id": correlation_id,
-                    "distribution_version": distribution_version,
-                },
+                metadata=_generation_failure_metadata(
+                    req,
+                    correlation_id=correlation_id,
+                    distribution_version=distribution_version,
+                ),
             )
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    @app.post("/generate/sdk", tags=["generation"], response_model=GenerateSDKResponse)
-    def generate_sdk(req: GenerateRequest, request: Request) -> GenerateSDKResponse:
-        """Generate and return SDK-shaped game objects for microservice consumers."""
+    def _execute_generate_sdk(
+        req: GenerateRequest,
+        request: Request,
+    ) -> GenerateSDKResponse:
+        """Execute generation request and return SDK-shaped response."""
         _enforce_generation_rate_limit(request)
 
         gen = _get_generator(request)
@@ -557,7 +660,8 @@ def create_app(
         try:
             result = optimizer.generate(req, correlation_id=correlation_id)
             sdk_payload = result.sdk_payload
-            _get_collector(request).record_call(
+            _record_observability_event(
+                request,
                 prompt=req.query,
                 response=str(sdk_payload),
                 latency_ms=float(result.metrics.get("total_latency_ms", 0.0)),
@@ -579,7 +683,8 @@ def create_app(
             )
         except ValueError as exc:
             elapsed_ms = (time.perf_counter() - started) * 1000
-            _get_collector(request).record_call(
+            _record_observability_event(
+                request,
                 prompt=req.query,
                 response="",
                 latency_ms=elapsed_ms,
@@ -588,35 +693,22 @@ def create_app(
                 success=False,
                 game_type=req.game_type,
                 error=str(exc),
-                metadata={
-                    "event_type": "generation",
-                    "cache_hit": False,
-                    "cache_layer": "none",
-                    "language": req.language,
-                    "correlation_id": correlation_id,
-                    "distribution_version": distribution_version,
-                },
+                metadata=_generation_failure_metadata(
+                    req,
+                    correlation_id=correlation_id,
+                    distribution_version=distribution_version,
+                ),
             )
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    @app.post("/ingest", tags=["rag"])
-    def ingest(req: IngestRequest, request: Request) -> dict[str, int]:
-        """Ingest documents into the RAG knowledge base.
-
-        Documents are chunked, embedded, and stored in the in-memory vector
-        store.  Call this endpoint before ``/generate`` to provide the LLM
-        with relevant context for a specific topic.
-
-        Args:
-            req: List of documents to ingest.
-
-        Returns:
-            A dictionary with ``ingested`` key reporting how many documents
-            were processed.
-
-        Raises:
-            HTTPException 503: If the RAG pipeline is not available.
-        """
+    def _execute_ingest(
+        req: IngestRequest,
+        request: Request,
+        *,
+        ingest_model: str,
+        ingest_source: str,
+    ) -> dict[str, int]:
+        """Execute ingestion request and emit normalized observability event."""
         from ai_engine.rag.document import Document
 
         pipeline = _get_pipeline(request)
@@ -646,7 +738,8 @@ def create_app(
             correlation_id,
             distribution_version,
         )
-        _get_collector(request).record_call(
+        _record_observability_event(
+            request,
             prompt="ingest",
             response=f"ingested={len(docs)}",
             latency_ms=elapsed_ms,
@@ -656,6 +749,8 @@ def create_app(
             game_type="ingest",
             metadata={
                 "event_type": "ingest",
+                "ingest_model": ingest_model,
+                "ingest_source": ingest_source,
                 "rag_latency_ms": round(elapsed_ms, 2),
                 "cache_hit": False,
                 "cache_layer": "none",
@@ -668,81 +763,229 @@ def create_app(
         )
         return {"ingested": len(docs)}
 
-    @app.get("/stats", tags=["monitoring"])
-    def get_stats(request: Request) -> dict[str, Any]:
-        """Return aggregate statistics over all recorded generation events.
-
-        Returns:
-            A summary dictionary produced by
-            :meth:`~ai_engine.observability.collector.StatsCollector.summary`.
-        """
-        summary = _get_collector(request).summary()
-        summary["distribution_version"] = _get_distribution_version(request)
-        optimizer = _get_optimizer(request)
-        if optimizer is not None:
-            summary["cache_runtime"] = optimizer.cache_stats()
-        return summary
-
-    @app.get("/cache/stats", tags=["monitoring"])
-    def get_cache_stats(request: Request) -> dict[str, Any]:
-        """Return runtime cache metrics for generation optimization layers."""
-        optimizer = _get_optimizer(request)
-        if optimizer is None:
-            raise HTTPException(status_code=503, detail="Generator not initialised.")
-        data = optimizer.cache_stats()
-        data["distribution_version"] = _get_distribution_version(request)
-        return data
-
-    @app.post("/cache/reset", tags=["monitoring"])
-    def reset_cache(
+    @app.post("/generate", tags=["generation"])
+    def generate(
+        req: GenerateRequest,
         request: Request,
-        namespace: str | None = Query(
+        x_game_language: str | None = Header(default=None, alias="X-Game-Language"),
+        x_difficulty_percentage: int | None = Header(
             default=None,
-            description="Optional cache namespace/version to invalidate.",
+            alias="X-Difficulty-Percentage",
         ),
-        all_namespaces: bool = Query(
-            default=False,
-            description="When true, invalidate all namespaces in persistent cache.",
-        ),
-    ) -> dict[str, int]:
-        """Clear in-memory and persistent generation cache entries."""
-        optimizer = _get_optimizer(request)
-        if optimizer is None:
-            raise HTTPException(status_code=503, detail="Generator not initialised.")
-        return optimizer.reset_cache(
-            namespace=namespace,
-            all_namespaces=all_namespaces,
-        )
+    ) -> dict[str, Any]:
+        """Generate a structured educational game using RAG + LLM.
 
-    @app.get("/stats/history", tags=["monitoring"])
-    def get_history(
-        request: Request,
-        last_n: int | None = Query(
-            default=None,
-            ge=1,
-            description="Return only the N most recent events.",
-        ),
-    ) -> list[dict[str, Any]]:
-        """Return the raw generation event log.
+        The pipeline:
+        1. Retrieves relevant context from the ingested knowledge base.
+        2. Builds a game-type-specific prompt.
+        3. Sends it to the LLM with JSON grammar constraint.
+        4. Validates and returns the parsed game as JSON.
 
         Args:
-            last_n: If provided, only the *last_n* most recent events are
-                included.
+            req: Generation parameters (topic, game_type, language, …).
 
         Returns:
-            A list of event dictionaries ordered oldest-first.
-        """
-        return _get_collector(request).history(last_n=last_n)
+            A dictionary with ``game_type`` and ``game`` keys matching the
+            :class:`~ai_engine.games.schemas.GameEnvelope` structure.
 
-    @app.get("/metrics", tags=["monitoring"], response_class=PlainTextResponse)
-    def get_metrics(request: Request) -> str:
-        """Return Prometheus scrape-compatible metrics with cache runtime gauges."""
-        summary = _get_collector(request).summary()
-        summary["distribution_version"] = _get_distribution_version(request)
-        optimizer = _get_optimizer(request)
-        if optimizer is not None:
-            summary["cache_runtime"] = optimizer.cache_stats()
-        return summary_to_prometheus(summary)
+        Raises:
+            HTTPException 422: If JSON extraction or schema validation fails.
+            HTTPException 429: If generation rate limit is exceeded.
+            HTTPException 503: If the generator is not available.
+        """
+        resolved_req = _apply_generate_headers(
+            req,
+            language_header=x_game_language,
+            difficulty_header=x_difficulty_percentage,
+        )
+        return _execute_generate(resolved_req, request)
+
+    @app.post("/generate/sdk", tags=["generation"], response_model=GenerateSDKResponse)
+    def generate_sdk(
+        req: GenerateRequest,
+        request: Request,
+        x_game_language: str | None = Header(default=None, alias="X-Game-Language"),
+        x_difficulty_percentage: int | None = Header(
+            default=None,
+            alias="X-Difficulty-Percentage",
+        ),
+    ) -> GenerateSDKResponse:
+        """Generate and return SDK-shaped game objects for microservice consumers."""
+        resolved_req = _apply_generate_headers(
+            req,
+            language_header=x_game_language,
+            difficulty_header=x_difficulty_percentage,
+        )
+        return _execute_generate_sdk(resolved_req, request)
+
+    @app.post("/generate/quiz", tags=["generation"])
+    def generate_quiz(
+        request: Request,
+        query_text: str = Query(..., alias="query"),
+        topic: str = Query(...),
+        num_questions: int = Query(default=5, ge=1, le=50),
+        max_tokens: int = Query(default=1024, ge=64, le=4096),
+        use_cache: bool = Query(default=True),
+        force_refresh: bool = Query(default=False),
+        x_game_language: str = Header(default="es", alias="X-Game-Language"),
+        x_difficulty_percentage: int = Header(
+            default=50,
+            alias="X-Difficulty-Percentage",
+        ),
+    ) -> dict[str, Any]:
+        """Generate quiz with model-specific endpoint and header-driven settings."""
+        req = _build_model_generate_request(
+            game_type="quiz",
+            query_text=query_text,
+            topic=topic,
+            language_header=x_game_language,
+            difficulty_header=x_difficulty_percentage,
+            num_questions=num_questions,
+            letters=DEFAULT_PASAPALABRA_LETTERS,
+            max_tokens=max_tokens,
+            use_cache=use_cache,
+            force_refresh=force_refresh,
+        )
+        return _execute_generate(req, request)
+
+    @app.post("/generate/pasapalabra", tags=["generation"])
+    def generate_pasapalabra(
+        request: Request,
+        query_text: str = Query(..., alias="query"),
+        topic: str = Query(...),
+        letters: str = Query(default=DEFAULT_PASAPALABRA_LETTERS),
+        max_tokens: int = Query(default=1024, ge=64, le=4096),
+        use_cache: bool = Query(default=True),
+        force_refresh: bool = Query(default=False),
+        x_game_language: str = Header(default="es", alias="X-Game-Language"),
+        x_difficulty_percentage: int = Header(
+            default=50,
+            alias="X-Difficulty-Percentage",
+        ),
+    ) -> dict[str, Any]:
+        """Generate pasapalabra with model-specific endpoint and settings headers."""
+        req = _build_model_generate_request(
+            game_type="pasapalabra",
+            query_text=query_text,
+            topic=topic,
+            language_header=x_game_language,
+            difficulty_header=x_difficulty_percentage,
+            num_questions=5,
+            letters=letters,
+            max_tokens=max_tokens,
+            use_cache=use_cache,
+            force_refresh=force_refresh,
+        )
+        return _execute_generate(req, request)
+
+    @app.post("/generate/true-false", tags=["generation"])
+    def generate_true_false(
+        request: Request,
+        query_text: str = Query(..., alias="query"),
+        topic: str = Query(...),
+        num_questions: int = Query(default=5, ge=1, le=50),
+        max_tokens: int = Query(default=1024, ge=64, le=4096),
+        use_cache: bool = Query(default=True),
+        force_refresh: bool = Query(default=False),
+        x_game_language: str = Header(default="es", alias="X-Game-Language"),
+        x_difficulty_percentage: int = Header(
+            default=50,
+            alias="X-Difficulty-Percentage",
+        ),
+    ) -> dict[str, Any]:
+        """Generate true/false with model-specific endpoint and settings headers."""
+        req = _build_model_generate_request(
+            game_type="true_false",
+            query_text=query_text,
+            topic=topic,
+            language_header=x_game_language,
+            difficulty_header=x_difficulty_percentage,
+            num_questions=num_questions,
+            letters=DEFAULT_PASAPALABRA_LETTERS,
+            max_tokens=max_tokens,
+            use_cache=use_cache,
+            force_refresh=force_refresh,
+        )
+        return _execute_generate(req, request)
+
+    @app.post("/ingest", tags=["rag"])
+    def ingest(
+        req: IngestRequest,
+        request: Request,
+        source: str = Query(default="default"),
+        x_ingest_source: str | None = Header(default=None, alias="X-Ingest-Source"),
+    ) -> dict[str, int]:
+        """Ingest documents into the RAG knowledge base.
+
+        Documents are chunked, embedded, and stored in the in-memory vector
+        store.  Call this endpoint before ``/generate`` to provide the LLM
+        with relevant context for a specific topic.
+
+        Args:
+            req: List of documents to ingest.
+
+        Returns:
+            A dictionary with ``ingested`` key reporting how many documents
+            were processed.
+
+        Raises:
+            HTTPException 503: If the RAG pipeline is not available.
+        """
+        ingest_source = x_ingest_source.strip() if x_ingest_source else source
+        return _execute_ingest(
+            req,
+            request,
+            ingest_model="generic",
+            ingest_source=ingest_source,
+        )
+
+    @app.post("/ingest/quiz", tags=["rag"])
+    def ingest_quiz(
+        req: IngestRequest,
+        request: Request,
+        source: str = Query(default="quiz"),
+        x_ingest_source: str | None = Header(default=None, alias="X-Ingest-Source"),
+    ) -> dict[str, int]:
+        """Ingest quiz-oriented content using model-specific ingest endpoint."""
+        ingest_source = x_ingest_source.strip() if x_ingest_source else source
+        return _execute_ingest(
+            req,
+            request,
+            ingest_model="quiz",
+            ingest_source=ingest_source,
+        )
+
+    @app.post("/ingest/pasapalabra", tags=["rag"])
+    def ingest_pasapalabra(
+        req: IngestRequest,
+        request: Request,
+        source: str = Query(default="pasapalabra"),
+        x_ingest_source: str | None = Header(default=None, alias="X-Ingest-Source"),
+    ) -> dict[str, int]:
+        """Ingest pasapalabra-oriented content using model-specific endpoint."""
+        ingest_source = x_ingest_source.strip() if x_ingest_source else source
+        return _execute_ingest(
+            req,
+            request,
+            ingest_model="pasapalabra",
+            ingest_source=ingest_source,
+        )
+
+    @app.post("/ingest/true-false", tags=["rag"])
+    def ingest_true_false(
+        req: IngestRequest,
+        request: Request,
+        source: str = Query(default="true_false"),
+        x_ingest_source: str | None = Header(default=None, alias="X-Ingest-Source"),
+    ) -> dict[str, int]:
+        """Ingest true/false-oriented content using model-specific endpoint."""
+        ingest_source = x_ingest_source.strip() if x_ingest_source else source
+        return _execute_ingest(
+            req,
+            request,
+            ingest_model="true_false",
+            ingest_source=ingest_source,
+        )
 
     return app
 

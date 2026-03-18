@@ -8,7 +8,7 @@ test suite, and making your first code contribution.
 ## Prerequisites
 
 - **Python ≥ 3.10** — verify with `python --version`.
-- **Git** — the project uses Git Flow branching (see [CONTRIBUTING.md](../CONTRIBUTING.md)).
+- **Git** — the project uses Git Flow branching (see [CONTRIBUTING.md](../../CONTRIBUTING.md)).
 - (Optional) **CUDA toolkit** if you want GPU acceleration for local LLM inference.
 
 ---
@@ -18,17 +18,18 @@ test suite, and making your first code contribution.
 ```bash
 git clone <repo-url>
 cd ai-engine
+cd src
 
 # Create an isolated virtual environment
-python -m venv .venv
+python -m venv src/.venv
 
 # Activate it
 # Linux / macOS
-source .venv/bin/activate
+source src/.venv/bin/activate
 # Windows (PowerShell)
-.venv\Scripts\Activate.ps1
+src\.venv\Scripts\Activate.ps1
 # Windows (Git Bash)
-source .venv/Scripts/activate
+source src/.venv/Scripts/activate
 ```
 
 ### Install in editable mode
@@ -104,7 +105,7 @@ AI_ENGINE_MODELS_DIR=/data/models python -m ai_engine.llm.model_manager download
 pytest
 
 # Run with coverage report
-pytest --cov=src/ai_engine --cov-report=term-missing
+pytest --cov=ai_engine --cov-report=term-missing
 
 # Run a specific module's tests
 pytest tests/test_rag/
@@ -124,19 +125,19 @@ useful to run them manually during development):
 
 ```bash
 # Lint
-ruff check src/ tests/
+ruff check ai_engine/ tests/
 
 # Auto-fix lint issues
-ruff check --fix src/ tests/
+ruff check --fix ai_engine/ tests/
 
 # Format
-black src/ tests/
+black ai_engine/ tests/
 
 # Sort imports
-isort src/ tests/
+isort ai_engine/ tests/
 
 # Type check
-mypy src/ai_engine/ --ignore-missing-imports
+mypy ai_engine/ --ignore-missing-imports
 ```
 
 ---
@@ -159,7 +160,7 @@ Example:
 # 2. Confirm it fails
 pytest tests/test_rag/test_my_feature.py -v
 
-# 3. Implement in src/ai_engine/rag/my_feature.py
+# 3. Implement in ai_engine/rag/my_feature.py
 # 4. Confirm it passes
 pytest tests/test_rag/test_my_feature.py -v
 
@@ -177,18 +178,18 @@ git commit -m "feat(rag): add my feature"
 
 ```
 ai-engine/
-├── src/ai_engine/          # Source code
-│   ├── rag/                # RAG layer
-│   ├── llm/                # LLM layer
-│   ├── games/              # Educational game generation
-│   ├── observability/      # Stats & API
-│   └── kbd/                # Knowledge base
-├── tests/                  # Mirrors src/ layout
-├── docs/                   # This documentation
-├── notebooks/              # Jupyter demo notebooks
-├── models/                 # Downloaded GGUF files (gitignored)
-├── data/                   # Notebook-generated artefacts (gitignored)
-├── pyproject.toml          # Build system + dependencies + tool config
+├── src/
+│   ├── ai_engine/          # Source code
+│   │   ├── rag/            # RAG layer
+│   │   ├── llm/            # LLM layer
+│   │   ├── games/          # Educational game generation
+│   │   ├── observability/  # Stats & API
+│   │   └── kbd/            # Knowledge base
+│   ├── tests/              # Test suites
+│   ├── notebooks/          # Jupyter demo notebooks
+│   ├── models/             # Downloaded GGUF files (gitignored)
+│   ├── data/               # Runtime artefacts (gitignored)
+│   └── pyproject.toml      # Build system + dependencies + tool config
 ├── AGENTS.md               # Contribution rules
 └── CONTRIBUTING.md         # Developer quick-reference
 ```

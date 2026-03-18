@@ -5,22 +5,26 @@ This folder defines deployment distributions by:
 - stage: `dev`, `stg`, `pro`
 - environment: `windows`, `vps-cpu`, `vps-gpu`
 
-Each combination is a dedicated env file:
+Each combination is a dedicated env file (from repository root):
 
-- `distributions/<stage>/<environment>.env`
+- `src/distributions/<stage>/<environment>.env`
+
+General local template:
+
+- `src/distributions/examples/.env.example`
 
 Examples:
 
-- `distributions/dev/windows.env`
-- `distributions/stg/vps-cpu.env`
-- `distributions/pro/vps-gpu.env`
+- `src/distributions/dev/windows.env`
+- `src/distributions/stg/vps-cpu.env`
+- `src/distributions/pro/vps-gpu.env`
 
 ## Usage
 
-Use the unified installers under `scripts/install/`:
+Use the unified installers under `src/scripts/install/`:
 
-- Linux: `scripts/install/deploy.sh <stage> <environment>`
-- Windows: `scripts/install/deploy.ps1 -Stage <stage> -Environment <environment>`
+- Linux: `src/scripts/install/deploy.sh <stage> <environment>`
+- Windows: `src/scripts/install/deploy.ps1 -Stage <stage> -Environment <environment>`
 
 The installers automatically map environment to a centralized compose profile:
 
@@ -28,7 +32,7 @@ The installers automatically map environment to a centralized compose profile:
 - `vps-cpu` -> `cpu`
 - `vps-gpu` -> `gpu`
 
-So all deployments run from a single `docker-compose.yml`.
+So all deployments run from a single `src/docker-compose.yml`.
 
 Valid values:
 

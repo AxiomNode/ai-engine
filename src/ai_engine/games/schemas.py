@@ -91,6 +91,7 @@ class QuizGame(BaseModel):
     game_type: Literal["quiz"] = "quiz"
     title: str
     topic: str
+    difficulty_percentage: int = Field(default=50, ge=0, le=100)
     questions: list[QuizQuestion] = Field(default_factory=list)
 
     @field_validator("title")
@@ -193,6 +194,7 @@ class PasapalabraGame(BaseModel):
     game_type: Literal["pasapalabra"] = "pasapalabra"
     title: str
     topic: str
+    difficulty_percentage: int = Field(default=50, ge=0, le=100)
     words: list[PasapalabraWord] = Field(default_factory=list)
 
     @field_validator("title")
@@ -275,6 +277,7 @@ class TrueFalseGame(BaseModel):
     game_type: Literal["true_false"] = "true_false"
     title: str
     topic: str
+    difficulty_percentage: int = Field(default=50, ge=0, le=100)
     statements: list[TrueFalseStatement] = Field(default_factory=list)
 
     @field_validator("title")

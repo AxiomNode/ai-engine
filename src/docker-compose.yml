@@ -5,16 +5,16 @@
 #   llama-server-cpu  – llama.cpp CPU server (profile: cpu)
 #   llama-server-gpu  – llama.cpp CUDA server (profile: gpu)
 #   ai-stats      – ai-engine observability / statistics FastAPI (port 8000)
-#   ai-api        – ai-engine generation FastAPI  POST /generate  (port 8001)
+#   ai-api        – ai-engine generation/ingest FastAPI (port 8001)
 #
 # Prerequisites:
 #   1. Download at least one model:
 #        python -m ai_engine.llm.model_manager download qwen2.5-3b
 #   2. Copy the env template:
-#        cp .env.example .env
+#        cp src/distributions/examples/.env.example src/.env
 #
 # Usage:
-#   docker compose up --build
+#   docker compose --profile cpu up --build
 # ──────────────────────────────────────────────────────────────────────────────
 
 services:
@@ -34,7 +34,7 @@ services:
     mem_reservation: "${LLAMA_MEMORY_RESERVATION:-8g}"
     shm_size: "${LLAMA_SHM_SIZE:-2g}"
     ports:
-      - "${LLAMA_PORT:-8080}:8080"
+      - "7002:8080"
     volumes:
       - ./models:/app/models:ro
     environment:
@@ -71,7 +71,7 @@ services:
     mem_reservation: "${LLAMA_MEMORY_RESERVATION:-10g}"
     shm_size: "${LLAMA_SHM_SIZE:-2g}"
     ports:
-      - "${LLAMA_PORT:-8080}:8080"
+      - "7002:8080"
     volumes:
       - ./models:/models:ro
     command:
@@ -102,7 +102,7 @@ services:
 
   # ---------------------------------------------------------------------------
   # ai-engine observability / statistics API
-  # Exposes: GET /health  GET /stats  GET /stats/history  POST /stats/reset
+  # Exposes: GET /health  GET /stats  GET /stats/history  POST /stats/reset  GET /metrics
   # ---------------------------------------------------------------------------
   ai-stats:
     build:
@@ -114,11 +114,14 @@ services:
     mem_limit: "${STATS_MEMORY_LIMIT:-1g}"
     mem_reservation: "${STATS_MEMORY_RESERVATION:-512m}"
     ports:
-      - "${STATS_PORT:-8000}:8000"
+      - "7000:8000"
     environment:
       AI_ENGINE_MODELS_DIR: /app/models
       AI_ENGINE_DISTRIBUTION: "${AI_ENGINE_DISTRIBUTION:-dev}"
       AI_ENGINE_RELEASE_VERSION: "${AI_ENGINE_RELEASE_VERSION:-v1}"
+      AI_ENGINE_API_KEY: "${AI_ENGINE_API_KEY:-}"
+      AI_ENGINE_BRIDGE_API_KEY: "${AI_ENGINE_BRIDGE_API_KEY:-}"
+      AI_ENGINE_STATS_API_KEY: "${AI_ENGINE_STATS_API_KEY:-}"
       PYTHONUNBUFFERED: "1"
       PORT: "8000"
       UVICORN_WORKERS: "${STATS_WORKERS:-1}"
@@ -145,7 +148,7 @@ services:
 
   # ---------------------------------------------------------------------------
   # ai-engine generation API
-  # Exposes: POST /generate  POST /ingest  GET /health  GET /stats (port 8001)
+  # Exposes: POST /generate  POST /generate/sdk  POST /ingest  GET /health (port 8001)
   # ---------------------------------------------------------------------------
   ai-api:
     build:
@@ -158,7 +161,7 @@ services:
     mem_reservation: "${API_MEMORY_RESERVATION:-4g}"
     shm_size: "${API_SHM_SIZE:-1g}"
     ports:
-      - "${API_PORT:-8001}:8001"
+      - "7001:8001"
     environment:
       # Point to the llama.cpp server – no local model needed in this container.
       AI_ENGINE_LLAMA_URL: "http://llama-server:8080/v1/completions"
@@ -174,6 +177,11 @@ services:
       AI_ENGINE_RATE_LIMIT_WINDOW_SECONDS: "${AI_ENGINE_RATE_LIMIT_WINDOW_SECONDS:-60}"
       AI_ENGINE_DISTRIBUTION: "${AI_ENGINE_DISTRIBUTION:-dev}"
       AI_ENGINE_RELEASE_VERSION: "${AI_ENGINE_RELEASE_VERSION:-v1}"
+      AI_ENGINE_STATS_URL: "${AI_ENGINE_STATS_URL:-http://ai-stats:8000}"
+      AI_ENGINE_API_KEY: "${AI_ENGINE_API_KEY:-}"
+      AI_ENGINE_GAMES_API_KEY: "${AI_ENGINE_GAMES_API_KEY:-}"
+      AI_ENGINE_BRIDGE_API_KEY: "${AI_ENGINE_BRIDGE_API_KEY:-}"
+      AI_ENGINE_STATS_API_KEY: "${AI_ENGINE_STATS_API_KEY:-}"
       PYTHONUNBUFFERED: "1"
       PORT: "8001"
       UVICORN_WORKERS: "${API_WORKERS:-2}"

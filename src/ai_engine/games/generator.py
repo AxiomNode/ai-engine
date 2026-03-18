@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from typing import Any
 
@@ -20,6 +21,11 @@ logger = logging.getLogger(__name__)
 _JSON_RETRY_SUFFIX = (
     "\n\nIMPORTANT: Return only one valid JSON object that strictly matches the "
     "requested schema. Do not include markdown, comments, or extra text."
+)
+
+_INLINE_OPTIONS_RE = re.compile(
+    r"\s+[A-D][\)\.:\-]\s*[^\n]+(?:\s+[A-D][\)\.:\-]\s*[^\n]+)+",
+    re.IGNORECASE,
 )
 
 
@@ -64,6 +70,7 @@ class GameGenerator:
         game_type: str = "quiz",
         *,
         language: str | None = None,
+        difficulty_percentage: int = 50,
         num_questions: int = 5,
         letters: str = "A,B,C,D,E,F,G,H,I,J,L,M,N,O,P,R,S,T,V,Z",
         max_tokens: int | None = None,
@@ -101,6 +108,7 @@ class GameGenerator:
             topic=topic,
             game_type=game_type,
             language=language,
+            difficulty_percentage=difficulty_percentage,
             num_questions=num_questions,
             letters=letters,
             max_tokens=max_tokens,
@@ -113,6 +121,7 @@ class GameGenerator:
         game_type: str = "quiz",
         *,
         language: str | None = None,
+        difficulty_percentage: int = 50,
         num_questions: int = 5,
         letters: str = "A,B,C,D,E,F,G,H,I,J,L,M,N,O,P,R,S,T,V,Z",
         max_tokens: int | None = None,
@@ -130,6 +139,7 @@ class GameGenerator:
             context=context,
             topic=topic,
             language=lang,
+            difficulty_percentage=difficulty_percentage,
             num_questions=num_questions,
             letters=letters,
         )
@@ -139,6 +149,12 @@ class GameGenerator:
         self.last_run_metrics = run_metrics
 
         data = json.loads(json_text)
+        data = self._normalize_generated_payload(
+            data=data,
+            game_type=game_type,
+            topic=topic,
+            difficulty_percentage=difficulty_percentage,
+        )
         if "game_type" not in data:
             data["game_type"] = game_type
         return GameEnvelope.from_dict(data)
@@ -150,6 +166,7 @@ class GameGenerator:
         game_type: str = "quiz",
         *,
         language: str | None = None,
+        difficulty_percentage: int = 50,
         num_questions: int = 5,
         letters: str = "A,B,C,D,E,F,G,H,I,J,L,M,N,O,P,R,S,T,V,Z",
         max_tokens: int | None = None,
@@ -169,12 +186,62 @@ class GameGenerator:
             context=context,
             topic=topic,
             language=lang,
+            difficulty_percentage=difficulty_percentage,
             num_questions=num_questions,
             letters=letters,
         )
         json_text, _, run_metrics = self._generate_json_with_retry(prompt, tokens)
         self.last_run_metrics = run_metrics
-        return json.loads(json_text)
+        data = json.loads(json_text)
+        return self._normalize_generated_payload(
+            data=data,
+            game_type=game_type,
+            topic=topic,
+            difficulty_percentage=difficulty_percentage,
+        )
+
+    def _normalize_generated_payload(
+        self,
+        *,
+        data: dict[str, Any],
+        game_type: str,
+        topic: str,
+        difficulty_percentage: int,
+    ) -> dict[str, Any]:
+        """Normalize generated payload fields for downstream contracts."""
+        normalized = dict(data)
+        normalized.setdefault("game_type", game_type)
+        normalized.setdefault("topic", topic)
+        normalized["difficulty_percentage"] = max(0, min(100, difficulty_percentage))
+
+        if normalized.get("game_type") == "quiz":
+            raw_questions = normalized.get("questions", [])
+            if isinstance(raw_questions, list):
+                cleaned_questions: list[dict[str, Any]] = []
+                for item in raw_questions:
+                    if not isinstance(item, dict):
+                        continue
+                    question = str(item.get("question", ""))
+                    item = dict(item)
+                    item["question"] = self._clean_quiz_question_text(question)
+                    cleaned_questions.append(item)
+                normalized["questions"] = cleaned_questions
+        return normalized
+
+    def _clean_quiz_question_text(self, question: str) -> str:
+        """Strip embedded options from question title and keep only prompt text."""
+        text = (question or "").strip()
+        if not text:
+            return text
+
+        # Keep first logical line if options were appended as multiline content.
+        first_line = next(
+            (line.strip() for line in text.splitlines() if line.strip()), text
+        )
+        sanitized = _INLINE_OPTIONS_RE.sub("", first_line).strip()
+
+        # Fallback: when parser removed all text, keep first line untouched.
+        return sanitized or first_line
 
     def _generate_json_with_retry(
         self,

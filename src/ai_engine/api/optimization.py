@@ -208,6 +208,7 @@ class GenerationOptimizationService:
             "kbd_hits": 0,
             "language": req.language,
             "game_type": req.game_type,
+            "difficulty_percentage": req.difficulty_percentage,
             "rag_docs_retrieved": 0,
             "orchestration_engine": "native-ai-engine",
         }
@@ -274,6 +275,7 @@ class GenerationOptimizationService:
                 topic=req.topic,
                 game_type=req.game_type,
                 language=req.language,
+                difficulty_percentage=req.difficulty_percentage,
                 num_questions=req.num_questions,
                 letters=req.letters,
                 max_tokens=req.max_tokens,
@@ -285,6 +287,7 @@ class GenerationOptimizationService:
                 topic=req.topic,
                 game_type=req.game_type,
                 language=req.language,
+                difficulty_percentage=req.difficulty_percentage,
                 num_questions=req.num_questions,
                 letters=req.letters,
                 max_tokens=req.max_tokens,
@@ -302,6 +305,8 @@ class GenerationOptimizationService:
         sdk_payload = parse_generate_response(
             payload, language=req.language
         ).model_dump()
+        if isinstance(sdk_payload.get("metadata"), dict):
+            sdk_payload["metadata"]["difficulty_percentage"] = req.difficulty_percentage
 
         cached_value = {
             "payload": payload,

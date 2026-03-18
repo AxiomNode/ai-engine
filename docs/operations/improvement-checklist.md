@@ -113,6 +113,6 @@ This document tracks the next improvement cycle for the ai-engine project.
 - 2026-03-16: N3-01 completed. Expanded Prometheus output with generation outcome counters, persistent backend/fallback counters, and cache saturation gauges.
 - 2026-03-16: N3-02 completed. Extended `/health` with dependency diagnostics for generator, RAG pipeline, LLM mode/target, and cache backend status.
 - 2026-03-16: N3-03 completed. Added request correlation ID propagation in API headers, optimizer metadata, logs, and observability event/metric outputs.
-- 2026-03-16: N4-01 completed. Added ADR `adr-0001-cache-strategy.md` defining backend choices, invalidation strategy, and trade-offs.
+- 2026-03-16: N4-01 completed. Added ADR `../architecture/adr-0001-cache-strategy.md` defining backend choices, invalidation strategy, and trade-offs.
 - 2026-03-16: N4-02 completed. Added optional dependency CI matrix profiles (`core_api`, `rag_kbd`, `redis`) and introduced `redis` optional extra.
 - 2026-03-16: N4-03 completed. Published `incident-runbook.md` with cache corruption, backend outage, metrics-gap response, and rollback procedures.

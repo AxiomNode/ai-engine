@@ -12,6 +12,7 @@ The most common deployment: import ai-engine into your own application or
 notebook. No server required.
 
 ```bash
+cd src
 pip install -e ".[games]"   # or install from PyPI when published
 ```
 
@@ -40,6 +41,7 @@ The observability module ships a ready-to-run FastAPI application.
 ### Development server
 
 ```bash
+cd src
 pip install -e ".[api]"
 uvicorn ai_engine.observability.api:app --reload --host 0.0.0.0 --port 8000
 ```
@@ -133,9 +135,9 @@ response = llm.generate("Explain photosynthesis.", max_tokens=256)
 ## Option D — Docker (recommended for production)
 
 The repository ships a production-ready multi-stage `Dockerfile` and a
-`docker-compose.yml` that orchestrates the full stack.
+`src/docker-compose.yml` that orchestrates the full stack.
 
-### Distribution Matrix (root-level)
+### Distribution Matrix
 
 The repository now defines deployment distributions by stage and environment:
 
@@ -144,28 +146,28 @@ The repository now defines deployment distributions by stage and environment:
 
 Files live in:
 
-- `distributions/<stage>/<environment>.env`
+- `src/distributions/<stage>/<environment>.env`
 
 Use the unified installers:
 
 ```bash
 # Linux/macOS shells
-./scripts/install/deploy.sh dev vps-cpu
-./scripts/install/deploy.sh stg vps-gpu
-./scripts/install/deploy.sh pro vps-cpu
+./src/scripts/install/deploy.sh dev vps-cpu
+./src/scripts/install/deploy.sh stg vps-gpu
+./src/scripts/install/deploy.sh pro vps-cpu
 ```
 
 ```powershell
 # Windows PowerShell
-./scripts/install/deploy.ps1 -Stage dev -Environment windows
-./scripts/install/deploy.ps1 -Stage stg -Environment vps-cpu
-./scripts/install/deploy.ps1 -Stage pro -Environment vps-gpu
+./src/scripts/install/deploy.ps1 -Stage dev -Environment windows
+./src/scripts/install/deploy.ps1 -Stage stg -Environment vps-cpu
+./src/scripts/install/deploy.ps1 -Stage pro -Environment vps-gpu
 ```
 
 All distributions now propagate deployment tags through runtime channels:
 
 - response header: `X-Distribution-Version`
-- monitoring payloads (`/health`, `/stats`, `/cache/stats`): `distribution_version`
+- monitoring payloads (`/health`, `/stats`, `/metrics`): `distribution_version`
 - Prometheus metrics label: `distribution_version` via
   `ai_engine_distribution_version_info` and
   `ai_engine_distribution_version_calls`
@@ -197,18 +199,18 @@ runtime dependencies:
 2. Copy the environment template and adjust if needed:
 
    ```bash
-   cp .env.example .env
+  cp src/distributions/examples/.env.example src/.env
    ```
 
 ### Single image – observability API only
 
 ```bash
 # Build
-docker build -t ai-engine-stats .
+docker build -t ai-engine-stats -f src/Dockerfile src
 
 # Run (mount the local models directory)
 docker run -p 8000:8000 \
-  -v "$(pwd)/models:/app/models:ro" \
+  -v "$(pwd)/src/models:/app/models:ro" \
   ai-engine-stats
 ```
 
@@ -217,14 +219,14 @@ Visit `http://localhost:8000/docs` for the interactive Swagger UI.
 ### Full stack – docker compose
 
 ```bash
-docker compose up --build
+docker compose -f src/docker-compose.yml up --build
 ```
 
 If port `8080` is already used on your machine, start with a different host
 port for llama-server:
 
 ```bash
-LLAMA_PORT=18080 docker compose up -d --build
+LLAMA_PORT=18080 docker compose -f src/docker-compose.yml up -d --build
 ```
 
 If you want the stack to consume more host resources, raise the limits in
@@ -254,43 +256,37 @@ This starts three services:
 | `ai-stats` | 8000 | ai-engine observability / statistics FastAPI |
 | `ai-api` | 8001 | ai-engine generation FastAPI |
 
-> **Tip:** Override the model file or port without editing `docker-compose.yml`
-> by setting variables in `.env` (see `.env.example` for all options).
+> **Tip:** Override the model file or port without editing `src/docker-compose.yml`
+> by setting variables in `src/.env` (see `src/distributions/examples/.env.example` for all options).
 
 ### Useful compose commands
 
 ```bash
 # Start in background
-docker compose --profile cpu up -d --build
+docker compose -f src/docker-compose.yml --profile cpu up -d --build
 
 # Follow logs for a specific service
-docker compose logs -f ai-stats
+docker compose -f src/docker-compose.yml logs -f ai-stats
 
 # Stop and remove containers (volumes are preserved)
-docker compose --profile cpu down
+docker compose -f src/docker-compose.yml --profile cpu down
 
 # Rebuild after code changes
-docker compose --profile cpu up --build --force-recreate ai-stats
+docker compose -f src/docker-compose.yml --profile cpu up --build --force-recreate ai-stats
 ```
 
 ### Linux VPS (CPU-only) optimized profile
 
-The repository uses a centralized single `docker-compose.yml` with
+The repository uses a centralized single `src/docker-compose.yml` with
 runtime profiles (`cpu`, `gpu`).
 
-1. Prepare profile env file:
-
-```bash
-cp .env.vps-cpu.example .env.vps-cpu
-```
-
-2. Start stack using the centralized compose + CPU profile:
+1. Start stack using a distribution env file + CPU profile:
 
 ```bash
 docker compose \
-  --env-file .env.vps-cpu \
+  --env-file src/distributions/stg/vps-cpu.env \
   --profile cpu \
-  -f docker-compose.yml \
+  -f src/docker-compose.yml \
   up -d --build
 ```
 
@@ -298,8 +294,9 @@ docker compose \
 
 ```bash
 curl -sS http://localhost:8000/health
+curl -sS http://localhost:8000/stats
 curl -sS http://localhost:8001/health
-curl -sS http://localhost:8001/cache/stats
+curl -sS http://localhost:8001/generate -X POST -H 'Content-Type: application/json' -d '{"query":"test","topic":"demo"}'
 ```
 
 Notes:
@@ -315,19 +312,13 @@ Notes:
 
 GPU deployments use the same centralized compose file with `gpu` profile.
 
-1. Prepare profile env file:
-
-```bash
-cp .env.vps-gpu.example .env.vps-gpu
-```
-
-2. Start stack using centralized compose + GPU profile:
+1. Start stack using a distribution env file + GPU profile:
 
 ```bash
 docker compose \
-  --env-file .env.vps-gpu \
+  --env-file src/distributions/pro/vps-gpu.env \
   --profile gpu \
-  -f docker-compose.yml \
+  -f src/docker-compose.yml \
   up -d --build
 ```
 
@@ -345,39 +336,39 @@ The GPU profile uses `ghcr.io/ggerganov/llama.cpp:server-cuda` for
 
 You can run one command per target environment:
 
-- Linux VPS (CPU): `scripts/install/install_vps_linux_cpu.sh`
-- Linux VPS (GPU): `scripts/install/install_vps_linux_gpu.sh`
-- Windows (Docker Desktop): `scripts/install/install_windows.ps1`
+- Linux VPS (CPU): `src/scripts/install/install_vps_linux_cpu.sh`
+- Linux VPS (GPU): `src/scripts/install/install_vps_linux_gpu.sh`
+- Windows (Docker Desktop): `src/scripts/install/install_windows.ps1`
 
 These wrappers now map to the distribution matrix system.
 
 Examples with stage:
 
 ```bash
-./scripts/install/install_vps_linux_cpu.sh dev
-./scripts/install/install_vps_linux_gpu.sh pro
+./src/scripts/install/install_vps_linux_cpu.sh dev
+./src/scripts/install/install_vps_linux_gpu.sh pro
 ```
 
 ```powershell
-./scripts/install/install_windows.ps1 -Stage stg -Environment windows
+./src/scripts/install/install_windows.ps1 -Stage stg -Environment windows
 ```
 
 Examples:
 
 ```bash
 # Linux CPU
-./scripts/install/install_vps_linux_cpu.sh
+./src/scripts/install/install_vps_linux_cpu.sh
 
 # Linux GPU
-./scripts/install/install_vps_linux_gpu.sh
+./src/scripts/install/install_vps_linux_gpu.sh
 ```
 
 ```powershell
 # Windows (defaults LLAMA port to 18080)
-./scripts/install/install_windows.ps1
+./src/scripts/install/install_windows.ps1
 
 # Windows with CPU profile override file
-./scripts/install/install_windows.ps1 -UseCpuProfile
+./src/scripts/install/install_windows.ps1 -UseCpuProfile
 ```
 
 ---
@@ -386,7 +377,7 @@ Examples:
 
 | Variable | Default | Description |
 |---|---|---|
-| `AI_ENGINE_MODELS_DIR` | `<project_root>/models/` | Path where GGUF model files are stored. Override to point to a shared network drive or Docker volume. |
+| `AI_ENGINE_MODELS_DIR` | `<project_root>/src/models/` | Path where GGUF model files are stored. Override to point to a shared network drive or Docker volume. |
 | `LLAMA_MODEL_FILE` | `Qwen2.5-3B-Instruct-Q4_K_M.gguf` | GGUF filename loaded by the `llama-server` compose service. |
 | `LLAMA_CTX_SIZE` | `4096` | Context window size (tokens) for the llama.cpp server. |
 | `LLAMA_PORT` | `8080` | Host port exposed by the `llama-server` service. |
@@ -405,7 +396,11 @@ Examples:
 | `API_SHM_SIZE` | `1g` | Shared memory available to `ai-api`. |
 | `API_WORKERS` | `2` | Number of Uvicorn workers used by `ai-api`. |
 | `STATS_WORKERS` | `1` | Number of Uvicorn workers used by `ai-stats`. |
-| `AI_ENGINE_API_KEY` | *(unset)* | Shared secret for the future generation API (`X-API-Key` header). |
+| `AI_ENGINE_STATS_URL` | `http://ai-stats:8000` | Base URL used by `ai-api` to push observability events into `ai-stats` (`POST /events`). |
+| `AI_ENGINE_GAMES_API_KEY` | *(unset)* | API key required on generation routes (`/generate*`) for game microservices. |
+| `AI_ENGINE_BRIDGE_API_KEY` | *(unset)* | API key required on bridge-facing routes (`/ingest*`, `/stats*`, `/metrics`). |
+| `AI_ENGINE_STATS_API_KEY` | *(unset)* | API key used by `ai-api` to publish events to `ai-stats` (`POST /events`). |
+| `AI_ENGINE_API_KEY` | *(unset)* | Global fallback API key kept for backward compatibility. |
 
 ### Windows note: Docker Desktop resource ceiling
 
@@ -421,8 +416,8 @@ assigned to the Linux backend.
 After that, run:
 
 ```bash
-docker compose down
-docker compose up -d --build
+docker compose -f src/docker-compose.yml down
+docker compose -f src/docker-compose.yml up -d --build
 ```
 
 ---

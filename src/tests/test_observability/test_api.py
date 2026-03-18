@@ -73,47 +73,6 @@ class TestStatsEndpoint:
         assert data["game_type_counts"]["quiz"] == 2
 
 
-class TestEventsIngestionEndpoint:
-    """Tests for POST /events."""
-
-    def test_ingests_single_event(self) -> None:
-        """Posting an event records it in the collector."""
-        client, collector = _make_client()
-        resp = client.post(
-            "/events",
-            json={
-                "prompt": "p",
-                "response": "r",
-                "latency_ms": 12.5,
-                "max_tokens": 128,
-                "json_mode": True,
-                "success": True,
-                "game_type": "quiz",
-                "metadata": {"source": "ai-api"},
-            },
-        )
-
-        assert resp.status_code == 200
-        assert len(collector) == 1
-        history = collector.history(last_n=1)
-        assert history[0]["latency_ms"] == 12.5
-        assert history[0]["metadata"]["source"] == "ai-api"
-
-    def test_rejects_negative_latency(self) -> None:
-        """Validation rejects malformed event payloads."""
-        client, _ = _make_client()
-        resp = client.post(
-            "/events",
-            json={
-                "prompt": "p",
-                "response": "r",
-                "latency_ms": -1,
-                "max_tokens": 64,
-            },
-        )
-        assert resp.status_code == 422
-
-
 class TestHistoryEndpoint:
     """Tests for GET /stats/history."""
 

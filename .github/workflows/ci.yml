@@ -10,6 +10,9 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
@@ -28,24 +31,27 @@ jobs:
           pip install -e ".[dev,rag,api]"
 
       - name: Lint with ruff
-        run: ruff check src/ tests/
+        run: ruff check ai_engine/ tests/
 
       - name: Check formatting with black
-        run: black --check src/ tests/
+        run: black --check ai_engine/ tests/
 
       - name: Check import order with isort
-        run: isort --check-only src/ tests/
+        run: isort --check-only ai_engine/ tests/
 
       - name: Type check with mypy
-        run: mypy src/ai_engine/ --ignore-missing-imports
+        run: mypy ai_engine/ --ignore-missing-imports
         continue-on-error: true  # advisory until full stubs are added
 
       - name: Run tests with coverage
         run: |
-          pytest --cov=src/ai_engine --cov-report=term-missing --cov-fail-under=80
+          pytest --cov=ai_engine --cov-report=term-missing --cov-fail-under=80
 
   optional-extras-matrix:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src
     strategy:
       fail-fast: false
       matrix:

@@ -29,6 +29,7 @@ QUIZ_TEMPLATE = (
     "### Requirements\n"
     "- Topic: {topic}\n"
     "- Language for all content: {language}\n"
+    "- Difficulty percentage: {difficulty_percentage}% (0 easy, 100 hard)\n"
     "- Number of questions: {num_questions}\n"
     "- Each question has exactly 4 options, only one correct.\n"
     "- Include a short pedagogical explanation for each answer.\n\n"
@@ -60,6 +61,7 @@ PASAPALABRA_TEMPLATE = (
     "### Requirements\n"
     "- Topic: {topic}\n"
     "- Language for all content: {language}\n"
+    "- Difficulty percentage: {difficulty_percentage}% (0 easy, 100 hard)\n"
     "- Cover these letters: {letters}\n"
     "- For each letter provide a hint (definition/clue) and the answer word.\n"
     '- Set "starts_with" to true if the answer starts with the letter, false if it only contains it.\n\n'
@@ -91,6 +93,7 @@ TRUE_FALSE_TEMPLATE = (
     "### Requirements\n"
     "- Topic: {topic}\n"
     "- Language for all content: {language}\n"
+    "- Difficulty percentage: {difficulty_percentage}% (0 easy, 100 hard)\n"
     "- Number of statements: {num_questions}\n"
     "- Mix of true and false statements (roughly balanced).\n"
     "- Include a short pedagogical explanation for each.\n\n"
@@ -126,6 +129,7 @@ def get_prompt(
     context: str,
     topic: str,
     language: str = "es",
+    difficulty_percentage: int = 50,
     num_questions: int = 5,
     letters: str = "A,B,C,D,E,F,G,H,I,J,L,M,N,O,P,R,S,T,V,Z",
 ) -> str:
@@ -155,6 +159,7 @@ def get_prompt(
         context=context,
         topic=topic,
         language=language,
+        difficulty_percentage=difficulty_percentage,
         num_questions=num_questions,
         letters=letters,
     )

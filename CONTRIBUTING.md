@@ -56,7 +56,7 @@ All commit messages **must be in English**.
 pytest
 
 # Run with coverage
-pytest --cov=src/ai_engine --cov-report=term-missing
+pytest --cov=ai_engine --cov-report=term-missing
 ```
 
 Target: **≥ 80% coverage** on changed modules.
@@ -67,6 +67,7 @@ Target: **≥ 80% coverage** on changed modules.
 # Clone and install in editable mode with dev tools
 git clone <repo>
 cd ai-engine
+cd src
 pip install -e ".[dev]"
 
 # Install pre-commit hooks
@@ -78,16 +79,16 @@ pre-commit install
 The following tools run automatically via `pre-commit` and CI:
 
 ```bash
-black src/ tests/          # formatting
-isort src/ tests/          # import ordering
-ruff check src/ tests/     # linting
-mypy src/ai_engine/        # type checking
+black ai_engine/ tests/    # formatting
+isort ai_engine/ tests/    # import ordering
+ruff check ai_engine/ tests/  # linting
+mypy ai_engine/            # type checking
 ```
 
 Run them manually before pushing:
 
 ```bash
-black src/ tests/ && isort src/ tests/ && ruff check src/ tests/ && mypy src/ai_engine/ --ignore-missing-imports
+black ai_engine/ tests/ && isort ai_engine/ tests/ && ruff check ai_engine/ tests/ && mypy ai_engine/ --ignore-missing-imports
 ```
 
 ## PR Checklist

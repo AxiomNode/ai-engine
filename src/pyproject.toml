@@ -61,10 +61,12 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+cache_dir = ".cache/pytest"
 
 [tool.ruff]
 line-length = 88
 exclude = ["build", "dist", ".venv", "__pycache__", "*.ipynb"]
+cache-dir = ".cache/ruff"
 
 [tool.black]
 line-length = 88
@@ -91,3 +93,11 @@ line_length = 88
 python_version = "3.10"
 ignore_missing_imports = true
 warn_unused_configs = true
+cache_dir = ".cache/mypy"
+
+[tool.coverage.run]
+data_file = ".cache/coverage/.coverage"
+source = ["ai_engine"]
+
+[tool.coverage.html]
+directory = ".cache/coverage/htmlcov"

@@ -31,6 +31,7 @@ class GenerationMetadata(BaseModel):
     generation_id: str = Field(default_factory=lambda: f"gen-{uuid4().hex}")
     language: LanguageCode = LanguageCode.ES
     language_id: str | None = None
+    difficulty_percentage: int = Field(default=50, ge=0, le=100)
 
     @model_validator(mode="after")
     def ensure_language_id(self) -> "GenerationMetadata":
@@ -120,6 +121,15 @@ class GeneratedQuiz(BaseModel):
             )
 
         metadata = GenerationMetadata(language=_normalize_language(language))
+        if isinstance(payload.get("metadata"), dict):
+            incoming_meta = payload["metadata"]
+            if "difficulty_percentage" in incoming_meta:
+                metadata.difficulty_percentage = int(
+                    incoming_meta["difficulty_percentage"]
+                )
+
+        if "difficulty_percentage" in game:
+            metadata.difficulty_percentage = int(game["difficulty_percentage"])
 
         if game_type == "true_false":
             statements = game.get("statements", [])
@@ -243,6 +253,15 @@ class GeneratedPasapalabra(BaseModel):
             )
 
         metadata = GenerationMetadata(language=_normalize_language(language))
+        if isinstance(payload.get("metadata"), dict):
+            incoming_meta = payload["metadata"]
+            if "difficulty_percentage" in incoming_meta:
+                metadata.difficulty_percentage = int(
+                    incoming_meta["difficulty_percentage"]
+                )
+
+        if "difficulty_percentage" in game:
+            metadata.difficulty_percentage = int(game["difficulty_percentage"])
         entries: list[PasapalabraEntry] = []
 
         for item in game.get("words", []):

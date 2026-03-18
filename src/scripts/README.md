@@ -8,3 +8,6 @@ This folder is organized by purpose:
 
 Backward-compatible wrappers are kept at the top level (`scripts/demo_suite.py`,
 `scripts/demo_rag_kbd.py`, and `scripts/benchmark_generation_paths.py`).
+
+From repository root, invoke scripts using the `src/` prefix (for example,
+`./src/scripts/install/deploy.sh dev windows`).

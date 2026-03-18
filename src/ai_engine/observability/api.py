@@ -5,6 +5,7 @@ configured :class:`~fastapi.FastAPI` instance with the following
 endpoints:
 
 - ``GET /health`` – Liveness check.
+- ``POST /events`` – Ingest one observability event.
 - ``GET /stats`` – Aggregate statistics from the collector.
 - ``GET /stats/history`` – Recent event log.
 - ``POST /stats/reset`` – Clear all recorded events.
@@ -25,6 +26,7 @@ from typing import Any
 try:
     from fastapi import FastAPI, Query, Request
     from fastapi.responses import PlainTextResponse
+    from pydantic import BaseModel, Field
 except ImportError as _imp_err:  # pragma: no cover
     raise ImportError(
         "FastAPI is required for the observability API.  "
@@ -45,6 +47,20 @@ _default_collector = StatsCollector()
 _start_time: float = time.time()
 
 
+class EventIngestRequest(BaseModel):
+    """Payload accepted by the observability event ingestion endpoint."""
+
+    prompt: str = ""
+    response: str = ""
+    latency_ms: float = Field(default=0.0, ge=0.0)
+    max_tokens: int = Field(default=0, ge=0)
+    json_mode: bool = False
+    success: bool = True
+    game_type: str = "unknown"
+    error: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 def _get_collector(request: Request) -> StatsCollector:
     """Retrieve the :class:`StatsCollector` from app state.
 
@@ -55,6 +71,21 @@ def _get_collector(request: Request) -> StatsCollector:
         The collector attached to ``app.state``.
     """
     return request.app.state.collector  # type: ignore[no-any-return]
+
+
+def _get_distribution_version(request: Request) -> str:
+    """Return distribution-version tag stored on the application state."""
+    value = getattr(request.app.state, "distribution_version", None)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return "unknown-v0"
+
+
+def _summary_with_distribution(request: Request) -> dict[str, Any]:
+    """Return collector summary enriched with distribution-version tag."""
+    summary = _get_collector(request).summary()
+    summary["distribution_version"] = _get_distribution_version(request)
+    return summary
 
 
 def create_app(collector: StatsCollector | None = None) -> FastAPI:
@@ -82,17 +113,19 @@ def create_app(collector: StatsCollector | None = None) -> FastAPI:
     app.state.collector = stats
     app.state.distribution_version = distribution_version
 
-    # Attach API key middleware when AI_ENGINE_API_KEY is set in the environment.
+    # Attach route-scoped API key middleware for bridge/internal integrations.
     if add_api_key_middleware is not None:
-        add_api_key_middleware(app)
+        add_api_key_middleware(
+            app,
+            service="observability",
+            public_paths={"/health"},
+        )
 
     @app.middleware("http")
     async def distribution_header_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
         """Attach distribution-version tag to every response."""
         response = await call_next(request)
-        response.headers["X-Distribution-Version"] = str(
-            getattr(request.app.state, "distribution_version", "unknown-v0")
-        )
+        response.headers["X-Distribution-Version"] = _get_distribution_version(request)
         return response
 
     # ------------------------------------------------------------------
@@ -112,7 +145,7 @@ def create_app(collector: StatsCollector | None = None) -> FastAPI:
             "status": "ok",
             "uptime_seconds": round(time.time() - _start_time, 2),
             "total_events": len(coll),
-            "distribution_version": str(app.state.distribution_version),
+            "distribution_version": _get_distribution_version(request),
         }
 
     @app.get("/stats", tags=["monitoring"])
@@ -123,9 +156,23 @@ def create_app(collector: StatsCollector | None = None) -> FastAPI:
             A summary dictionary produced by
             :meth:`StatsCollector.summary`.
         """
-        summary = _get_collector(request).summary()
-        summary["distribution_version"] = str(app.state.distribution_version)
-        return summary
+        return _summary_with_distribution(request)
+
+    @app.post("/events", tags=["ingestion"])
+    def ingest_event(request: Request, payload: EventIngestRequest) -> dict[str, str]:
+        """Ingest one observability event emitted by another service."""
+        _get_collector(request).record_call(
+            prompt=payload.prompt,
+            response=payload.response,
+            latency_ms=payload.latency_ms,
+            max_tokens=payload.max_tokens,
+            json_mode=payload.json_mode,
+            success=payload.success,
+            game_type=payload.game_type,
+            error=payload.error,
+            metadata=payload.metadata,
+        )
+        return {"message": "Event recorded."}
 
     @app.get("/stats/history", tags=["monitoring"])
     def get_history(
@@ -160,9 +207,7 @@ def create_app(collector: StatsCollector | None = None) -> FastAPI:
     @app.get("/metrics", tags=["monitoring"], response_class=PlainTextResponse)
     def metrics(request: Request) -> str:
         """Return Prometheus scrape-compatible metrics text."""
-        summary = _get_collector(request).summary()
-        summary["distribution_version"] = str(app.state.distribution_version)
-        return summary_to_prometheus(summary)
+        return summary_to_prometheus(_summary_with_distribution(request))
 
     return app
 
