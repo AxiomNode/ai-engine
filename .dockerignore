@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.whl
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Models (large binary files – mount via volume at runtime)
+models/*.gguf
+models/*.part
+data/
+
+# Test artefacts
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+*.cover
+.hypothesis/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Notebooks (not needed in production image)
+notebooks/
+scripts/
+
+# Documentation (not needed in production image)
+docs/

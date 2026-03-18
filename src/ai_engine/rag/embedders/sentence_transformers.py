@@ -1,35 +1,51 @@
-"""Sentence-Transformers based embedder implementation.
-
-Uses `sentence-transformers` for local embeddings. Falls back with a clear
-error message if the package is not installed.
-"""
+"""SentenceTransformers-based embedder for the RAG pipeline."""
 
 from __future__ import annotations
 
-from typing import List
-
-from ai_engine.rag.embedder import Embedder
 from ai_engine.rag.document import Document
-
-try:
-    from sentence_transformers import SentenceTransformer
-except Exception:  # pragma: no cover - optional dependency
-    SentenceTransformer = None
+from ai_engine.rag.embedder import Embedder
 
 
 class SentenceTransformersEmbedder(Embedder):
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
-        if SentenceTransformer is None:
-            raise RuntimeError(
-                "sentence-transformers is not installed. Install extras 'rag' or 'pip install sentence-transformers'."
-            )
-        self.model = SentenceTransformer(model_name)
+    """Embedder backed by the ``sentence-transformers`` library.
 
-    def embed_text(self, text: str) -> List[float]:
-        vec = self.model.encode(text)
-        return vec.tolist() if hasattr(vec, "tolist") else list(vec)
+    Args:
+        model_name: Name or path of the sentence-transformers model.
+            Defaults to ``"all-MiniLM-L6-v2"`` which is small, fast,
+            and produces 384-dimensional embeddings.
+
+    Example:
+        >>> emb = SentenceTransformersEmbedder()
+        >>> vec = emb.embed_text("hello world")
+        >>> len(vec)
+        384
+    """
+
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
+        try:
+            from sentence_transformers import (
+                SentenceTransformer,  # type: ignore[import-untyped]
+            )
+        except ImportError as exc:
+            raise ImportError(
+                "sentence-transformers is required for SentenceTransformersEmbedder. "
+                "Install it with: pip install sentence-transformers"
+            ) from exc
+
+        self.model_name = model_name
+        self._model = SentenceTransformer(model_name)
+
+    def embed_text(self, text: str) -> list[float]:
+        """Return a vector embedding for a single text string."""
+        embedding = self._model.encode(text, convert_to_numpy=True)
+        return embedding.tolist()
 
     def embed_documents(self, documents: list[Document]) -> list[list[float]]:
-        texts = [d.content for d in documents]
-        vecs = self.model.encode(texts)
-        return [v.tolist() if hasattr(v, "tolist") else list(v) for v in vecs]
+        """Return embeddings for a batch of documents.
+
+        More efficient than the default one-by-one approach because
+        sentence-transformers can batch-encode.
+        """
+        texts = [doc.content for doc in documents]
+        embeddings = self._model.encode(texts, convert_to_numpy=True)
+        return [emb.tolist() for emb in embeddings]

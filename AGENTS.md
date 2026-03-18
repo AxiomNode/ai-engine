@@ -23,6 +23,8 @@ Core Rules
    - All documentation, commit messages, docstrings, and inline comments MUST be written in English.
    - Docstrings should follow the project's chosen style (e.g., Google or NumPy). Add examples where helpful.
    - Update high-level docs (README, architecture files) for any public API, behavior change, or new component.
+   - Every public module, class, method, and function MUST have a docstring. Code without documentation will not be accepted.
+   - Generate or update documentation as part of every change — this includes inline comments explaining non-obvious logic and module-level docstrings for new files.
 
 4) Clean Code & Architecture
    - Follow clean-code principles: single responsibility, modularity, explicit interfaces, and simple functions.

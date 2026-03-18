@@ -1,0 +1,206 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# AxiomNode – ai-engine docker-compose
+#
+# Services:
+#   llama-server-cpu  – llama.cpp CPU server (profile: cpu)
+#   llama-server-gpu  – llama.cpp CUDA server (profile: gpu)
+#   ai-stats      – ai-engine observability / statistics FastAPI (port 8000)
+#   ai-api        – ai-engine generation/ingest FastAPI (port 8001)
+#
+# Prerequisites:
+#   1. Download at least one model:
+#        python -m ai_engine.llm.model_manager download qwen2.5-3b
+#   2. Copy the env template:
+#        cp src/distributions/examples/.env.example src/.env
+#
+# Usage:
+#   docker compose --profile cpu up --build
+# ──────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # llama.cpp CPU profile (default for windows + vps-cpu).
+  # ---------------------------------------------------------------------------
+  llama-server-cpu:
+    profiles: ["cpu"]
+    build:
+      context: .
+      dockerfile: Dockerfile.llama
+      target: runtime
+    restart: unless-stopped
+    cpus: "${LLAMA_CPUS:-6.0}"
+    mem_limit: "${LLAMA_MEMORY_LIMIT:-12g}"
+    mem_reservation: "${LLAMA_MEMORY_RESERVATION:-8g}"
+    shm_size: "${LLAMA_SHM_SIZE:-2g}"
+    ports:
+      - "7002:8080"
+    volumes:
+      - ./models:/app/models:ro
+    environment:
+      MODEL: "/app/models/${LLAMA_MODEL_FILE:-Qwen2.5-3B-Instruct-Q4_K_M.gguf}"
+      HOST: "0.0.0.0"
+      PORT: "8080"
+      N_CTX: "${LLAMA_CTX_SIZE:-4096}"
+      N_THREADS: "${LLAMA_THREADS:-6}"
+      N_BATCH: "${LLAMA_BATCH:-512}"
+      N_GPU_LAYERS: "0"
+      PYTHONUNBUFFERED: "1"
+    networks:
+      default:
+        aliases:
+          - llama-server
+    healthcheck:
+      test: ["CMD", "python", "-c",
+            "import urllib.request; urllib.request.urlopen('http://localhost:8080/v1/models')"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # llama.cpp GPU profile (vps-gpu).
+  # ---------------------------------------------------------------------------
+  llama-server-gpu:
+    profiles: ["gpu"]
+    image: ghcr.io/ggerganov/llama.cpp:server-cuda
+    restart: unless-stopped
+    gpus: all
+    cpus: "${LLAMA_CPUS:-4.0}"
+    mem_limit: "${LLAMA_MEMORY_LIMIT:-16g}"
+    mem_reservation: "${LLAMA_MEMORY_RESERVATION:-10g}"
+    shm_size: "${LLAMA_SHM_SIZE:-2g}"
+    ports:
+      - "7002:8080"
+    volumes:
+      - ./models:/models:ro
+    command:
+      - -m
+      - /models/${LLAMA_MODEL_FILE:-Qwen2.5-7B-Instruct-Q4_K_M.gguf}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --ctx-size
+      - "${LLAMA_CTX_SIZE:-4096}"
+      - --threads
+      - "${LLAMA_THREADS:-4}"
+      - --batch-size
+      - "${LLAMA_BATCH:-512}"
+      - --n-gpu-layers
+      - "${LLAMA_N_GPU_LAYERS:-99}"
+    networks:
+      default:
+        aliases:
+          - llama-server
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:8080/v1/models >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # ai-engine observability / statistics API
+  # Exposes: GET /health  GET /stats  GET /stats/history  POST /stats/reset  GET /metrics
+  # ---------------------------------------------------------------------------
+  ai-stats:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime-stats
+    restart: unless-stopped
+    cpus: "${STATS_CPUS:-1.0}"
+    mem_limit: "${STATS_MEMORY_LIMIT:-1g}"
+    mem_reservation: "${STATS_MEMORY_RESERVATION:-512m}"
+    ports:
+      - "7000:8000"
+    environment:
+      AI_ENGINE_MODELS_DIR: /app/models
+      AI_ENGINE_DISTRIBUTION: "${AI_ENGINE_DISTRIBUTION:-dev}"
+      AI_ENGINE_RELEASE_VERSION: "${AI_ENGINE_RELEASE_VERSION:-v1}"
+      AI_ENGINE_API_KEY: "${AI_ENGINE_API_KEY:-}"
+      AI_ENGINE_BRIDGE_API_KEY: "${AI_ENGINE_BRIDGE_API_KEY:-}"
+      AI_ENGINE_STATS_API_KEY: "${AI_ENGINE_STATS_API_KEY:-}"
+      PYTHONUNBUFFERED: "1"
+      PORT: "8000"
+      UVICORN_WORKERS: "${STATS_WORKERS:-1}"
+    volumes:
+      - ./models:/app/models:ro
+    # ai-stats is independent of the model — it only records events.
+    # Game microservices push stats here directly; no llama-server dependency.
+    command:
+      - uvicorn
+      - "ai_engine.observability.api:app"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8000"
+      - "--workers"
+      - "${STATS_WORKERS:-1}"
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # ai-engine generation API
+  # Exposes: POST /generate  POST /generate/sdk  POST /ingest  GET /health (port 8001)
+  # ---------------------------------------------------------------------------
+  ai-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime-api
+    restart: unless-stopped
+    cpus: "${API_CPUS:-4.0}"
+    mem_limit: "${API_MEMORY_LIMIT:-8g}"
+    mem_reservation: "${API_MEMORY_RESERVATION:-4g}"
+    shm_size: "${API_SHM_SIZE:-1g}"
+    ports:
+      - "7001:8001"
+    environment:
+      # Point to the llama.cpp server – no local model needed in this container.
+      AI_ENGINE_LLAMA_URL: "http://llama-server:8080/v1/completions"
+      AI_ENGINE_EMBEDDING_MODEL: "${AI_ENGINE_EMBEDDING_MODEL:-all-MiniLM-L6-v2}"
+      AI_ENGINE_MODELS_DIR: /app/models
+      AI_ENGINE_GENERATION_CACHE_PATH: /app/data/generation_cache.json
+      AI_ENGINE_GENERATION_CACHE_BACKEND: "${AI_ENGINE_GENERATION_CACHE_BACKEND:-tinydb}"
+      AI_ENGINE_GENERATION_CACHE_REDIS_URL: "${AI_ENGINE_GENERATION_CACHE_REDIS_URL:-}"
+      AI_ENGINE_GENERATION_CACHE_REDIS_PREFIX: "${AI_ENGINE_GENERATION_CACHE_REDIS_PREFIX:-ai-engine:generation-cache}"
+      AI_ENGINE_GENERATION_CACHE_NAMESPACE: "${AI_ENGINE_GENERATION_CACHE_NAMESPACE:-v1}"
+      AI_ENGINE_RATE_LIMIT_ENABLED: "${AI_ENGINE_RATE_LIMIT_ENABLED:-false}"
+      AI_ENGINE_RATE_LIMIT_REQUESTS: "${AI_ENGINE_RATE_LIMIT_REQUESTS:-60}"
+      AI_ENGINE_RATE_LIMIT_WINDOW_SECONDS: "${AI_ENGINE_RATE_LIMIT_WINDOW_SECONDS:-60}"
+      AI_ENGINE_DISTRIBUTION: "${AI_ENGINE_DISTRIBUTION:-dev}"
+      AI_ENGINE_RELEASE_VERSION: "${AI_ENGINE_RELEASE_VERSION:-v1}"
+      AI_ENGINE_STATS_URL: "${AI_ENGINE_STATS_URL:-http://ai-stats:8000}"
+      AI_ENGINE_API_KEY: "${AI_ENGINE_API_KEY:-}"
+      AI_ENGINE_GAMES_API_KEY: "${AI_ENGINE_GAMES_API_KEY:-}"
+      AI_ENGINE_BRIDGE_API_KEY: "${AI_ENGINE_BRIDGE_API_KEY:-}"
+      AI_ENGINE_STATS_API_KEY: "${AI_ENGINE_STATS_API_KEY:-}"
+      PYTHONUNBUFFERED: "1"
+      PORT: "8001"
+      UVICORN_WORKERS: "${API_WORKERS:-2}"
+    volumes:
+      - ./models:/app/models:ro
+      - ./data:/app/data
+    command:
+      - uvicorn
+      - "ai_engine.api.app:app"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8001"
+      - "--workers"
+      - "${API_WORKERS:-2}"
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s   # sentence-transformers model download on first start
+      retries: 3

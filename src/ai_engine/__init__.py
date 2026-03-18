@@ -1,4 +1,4 @@
-"""ai-engine – Motor de IA."""
+"""ai-engine – AI Engine for RAG, LLM and educational game generation."""
 
 from importlib.metadata import PackageNotFoundError, version
 

@@ -64,12 +64,9 @@ class InMemoryVectorStore(VectorStore):
             return []
 
         scores = [
-            self._cosine_similarity(query_embedding, emb)
-            for emb in self._embeddings
+            self._cosine_similarity(query_embedding, emb) for emb in self._embeddings
         ]
-        ranked = sorted(
-            zip(self._documents, scores), key=lambda x: x[1], reverse=True
-        )
+        ranked = sorted(zip(self._documents, scores), key=lambda x: x[1], reverse=True)
         return list(ranked[:top_k])
 
     def clear(self) -> None:
@@ -83,8 +80,8 @@ class InMemoryVectorStore(VectorStore):
     @staticmethod
     def _cosine_similarity(a: list[float], b: list[float]) -> float:
         dot = sum(x * y for x, y in zip(a, b))
-        norm_a = sum(x ** 2 for x in a) ** 0.5
-        norm_b = sum(x ** 2 for x in b) ** 0.5
+        norm_a = sum(x**2 for x in a) ** 0.5
+        norm_b = sum(x**2 for x in b) ** 0.5
         if norm_a == 0 or norm_b == 0:
             return 0.0
         return dot / (norm_a * norm_b)

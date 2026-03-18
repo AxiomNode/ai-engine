@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+import json
+
+from ai_engine.llm.llama_client import LlamaClient
 from ai_engine.rag.chunker import Chunker
 from ai_engine.rag.document import Document
 from ai_engine.rag.embedder import Embedder
 from ai_engine.rag.retriever import Retriever
-from ai_engine.rag.vector_store import VectorStore
 from ai_engine.rag.utils import extract_json_from_text
-from ai_engine.llm.llama_client import LlamaClient
-import json
+from ai_engine.rag.vector_store import VectorStore
 
 
 class RAGPipeline:
