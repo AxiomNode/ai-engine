@@ -52,6 +52,7 @@ DEFAULT_PASAPALABRA_LETTERS = "A,B,C,D,E,F,G,H,I,J,L,M,N,O,P,R,S,T,V,Z"
 
 try:
     from fastapi import FastAPI, Header, HTTPException, Query, Request
+    from fastapi.responses import PlainTextResponse
 except ImportError as _imp_err:  # pragma: no cover
     raise ImportError(
         "FastAPI is required for the generation API.  "
@@ -66,7 +67,10 @@ from ai_engine.api.schemas import (  # noqa: E402
     IngestRequest,
 )
 from ai_engine.config import get_settings  # noqa: E402
-from ai_engine.observability.collector import StatsCollector  # noqa: E402
+from ai_engine.observability.collector import (  # noqa: E402
+    StatsCollector,
+    summary_to_prometheus,
+)
 
 
 def _build_from_env() -> tuple[Any, Any]:
@@ -172,6 +176,36 @@ def _get_distribution_version(request: Request) -> str:
     if isinstance(value, str) and value.strip():
         return value.strip()
     return "unknown-v0"
+
+
+def _stats_summary_with_runtime(request: Request) -> dict[str, Any]:
+    """Return collector summary enriched with cache runtime and version."""
+    summary = _get_collector(request).summary()
+    optimizer = _get_optimizer(request)
+    cache_runtime = {
+        "memory_entries": 0,
+        "memory_max_entries": 0,
+        "memory_saturation_ratio": 0.0,
+        "persistent_entries": 0,
+        "memory_enabled": False,
+        "persistent_enabled": False,
+        "persistent_backend": "none",
+        "cache_namespace": "v1",
+        "distribution_version": _get_distribution_version(request),
+        "cache_ttl_seconds": 0,
+        "persistent_backend_errors": {
+            "read": 0,
+            "write": 0,
+            "delete": 0,
+            "stats": 0,
+        },
+    }
+    if optimizer is not None:
+        cache_runtime = optimizer.cache_stats()
+
+    summary["cache_runtime"] = cache_runtime
+    summary["distribution_version"] = _get_distribution_version(request)
+    return summary
 
 
 def _generation_failure_metadata(
@@ -573,6 +607,68 @@ def create_app(
             "distribution_version": _get_distribution_version(request),
             "dependencies": _health_dependencies(request),
         }
+
+    @app.get("/stats", tags=["monitoring"])
+    def get_stats(request: Request) -> dict[str, Any]:
+        """Return aggregate stats enriched with runtime cache telemetry."""
+        return _stats_summary_with_runtime(request)
+
+    @app.get("/stats/history", tags=["monitoring"])
+    def get_history(
+        request: Request,
+        last_n: int | None = Query(
+            default=None,
+            ge=1,
+            description="Return only the N most recent events.",
+        ),
+    ) -> list[dict[str, Any]]:
+        """Return recorded generation/ingest events."""
+        return _get_collector(request).history(last_n=last_n)
+
+    @app.get("/cache/stats", tags=["monitoring"])
+    def get_cache_stats(request: Request) -> dict[str, Any]:
+        """Return current cache runtime counters."""
+        optimizer = _get_optimizer(request)
+        if optimizer is None:
+            return {
+                "memory_entries": 0,
+                "memory_max_entries": 0,
+                "memory_saturation_ratio": 0.0,
+                "persistent_entries": 0,
+                "memory_enabled": False,
+                "persistent_enabled": False,
+                "persistent_backend": "none",
+                "cache_namespace": "v1",
+                "distribution_version": _get_distribution_version(request),
+                "cache_ttl_seconds": 0,
+                "persistent_backend_errors": {
+                    "read": 0,
+                    "write": 0,
+                    "delete": 0,
+                    "stats": 0,
+                },
+            }
+        return optimizer.cache_stats()
+
+    @app.post("/cache/reset", tags=["monitoring"])
+    def reset_cache(
+        request: Request,
+        namespace: str | None = Query(default=None),
+        all_namespaces: bool = Query(default=False),
+    ) -> dict[str, int]:
+        """Invalidate cache entries for one namespace or all namespaces."""
+        optimizer = _get_optimizer(request)
+        if optimizer is None:
+            return {"removed_memory": 0, "removed_persistent": 0}
+        return optimizer.reset_cache(
+            namespace=namespace,
+            all_namespaces=all_namespaces,
+        )
+
+    @app.get("/metrics", tags=["monitoring"], response_class=PlainTextResponse)
+    def metrics(request: Request) -> str:
+        """Return Prometheus metrics including runtime cache gauges."""
+        return summary_to_prometheus(_stats_summary_with_runtime(request))
 
     def _execute_generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
         """Execute generation request and return normalized payload."""
