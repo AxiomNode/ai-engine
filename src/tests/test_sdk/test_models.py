@@ -1,7 +1,7 @@
 """Tests for ai_engine.sdk models."""
 
 from ai_engine.sdk import (
-    GeneratedPasapalabra,
+    GeneratedWordPass,
     GeneratedQuiz,
     LanguageCode,
     get_language_info,
@@ -59,11 +59,11 @@ def test_parse_true_false_payload_to_generated_quiz_variant() -> None:
     assert result.questions[0].question_type == "true_false"
 
 
-def test_parse_pasapalabra_payload() -> None:
+def test_parse_word_pass_payload() -> None:
     payload = {
-        "game_type": "pasapalabra",
+        "game_type": "word-pass",
         "game": {
-            "game_type": "pasapalabra",
+            "game_type": "word-pass",
             "title": "Science Rosco",
             "topic": "Science",
             "words": [
@@ -84,7 +84,7 @@ def test_parse_pasapalabra_payload() -> None:
     }
 
     result = parse_generate_response(payload, language="fr")
-    assert isinstance(result, GeneratedPasapalabra)
+    assert isinstance(result, GeneratedWordPass)
     assert result.metadata.language_id == "lang-fr"
     assert result.entries[0].relation == "starts_with"
     assert result.entries[1].relation == "contains"

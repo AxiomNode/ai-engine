@@ -7,7 +7,7 @@ import pytest
 from ai_engine.games.generator import GameGenerator
 from ai_engine.games.schemas import (
     GameEnvelope,
-    PasapalabraGame,
+    WordPassGame,
     QuizGame,
     TrueFalseGame,
 )
@@ -48,12 +48,12 @@ class _MockLLMQuiz:
         return json.dumps(data)
 
 
-class _MockLLMPasapalabra:
-    """Mock LLM that returns a valid pasapalabra JSON."""
+class _MockLLMWordPass:
+    """Mock LLM that returns a valid word-pass JSON."""
 
     def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
         data = {
-            "game_type": "pasapalabra",
+            "game_type": "word-pass",
             "title": "Mock Rosco",
             "topic": "Testing",
             "words": [
@@ -181,17 +181,17 @@ class TestGameGeneratorQuiz:
         assert result["game_type"] == "quiz"
 
 
-class TestGameGeneratorPasapalabra:
+class TestGameGeneratorWordPass:
 
-    def test_generate_pasapalabra(self, rag_pipeline):
-        gen = GameGenerator(rag_pipeline=rag_pipeline, llm_client=_MockLLMPasapalabra())
+    def test_generate_word_pass(self, rag_pipeline):
+        gen = GameGenerator(rag_pipeline=rag_pipeline, llm_client=_MockLLMWordPass())
         result = gen.generate(
-            query="letters", topic="Alphabet", game_type="pasapalabra"
+            query="letters", topic="Alphabet", game_type="word-pass"
         )
 
         assert isinstance(result, GameEnvelope)
-        assert result.game_type == "pasapalabra"
-        assert isinstance(result.game, PasapalabraGame)
+        assert result.game_type == "word-pass"
+        assert isinstance(result.game, WordPassGame)
         assert len(result.game.words) == 2
 
 

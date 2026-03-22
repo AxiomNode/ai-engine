@@ -205,8 +205,8 @@ class GeneratedQuiz(BaseModel):
         )
 
 
-class PasapalabraEntry(BaseModel):
-    """Single Pasapalabra item with definition and letter relation."""
+class WordPassEntry(BaseModel):
+    """Single WordPass item with definition and letter relation."""
 
     letter: str
     relation: Literal["starts_with", "contains"] = "starts_with"
@@ -216,34 +216,34 @@ class PasapalabraEntry(BaseModel):
     @field_validator("letter")
     @classmethod
     def validate_letter(cls, value: str) -> str:
-        """Normalize and validate the Pasapalabra letter."""
+        """Normalize and validate the WordPass letter."""
         normalized = value.strip().upper()
         if len(normalized) != 1 or not normalized.isalpha():
             raise ValueError("letter must be a single alphabetic character")
         return normalized
 
 
-class GeneratedPasapalabra(BaseModel):
-    """SDK model for generated Pasapalabra games."""
+class GeneratedWordPass(BaseModel):
+    """SDK model for generated WordPass games."""
 
-    model_type: Literal["pasapalabra"] = "pasapalabra"
+    model_type: Literal["word-pass"] = "word-pass"
     metadata: GenerationMetadata = Field(default_factory=GenerationMetadata)
     title: str
     topic: str
-    entries: list[PasapalabraEntry] = Field(default_factory=list)
+    entries: list[WordPassEntry] = Field(default_factory=list)
 
     @classmethod
     def from_generate_payload(
         cls,
         payload: dict[str, Any],
         language: LanguageCode | str = LanguageCode.ES,
-    ) -> "GeneratedPasapalabra":
-        """Create a pasapalabra model from ``POST /generate`` API payload."""
+    ) -> "GeneratedWordPass":
+        """Create a word-pass model from ``POST /generate`` API payload."""
 
-        game_type = str(payload.get("game_type", "pasapalabra"))
-        if game_type != "pasapalabra":
+        game_type = str(payload.get("game_type", "word-pass"))
+        if game_type != "word-pass":
             raise ValueError(
-                f"Payload game_type {game_type!r} cannot be mapped to GeneratedPasapalabra"
+                f"Payload game_type {game_type!r} cannot be mapped to GeneratedWordPass"
             )
 
         game = payload.get("game") if isinstance(payload.get("game"), dict) else payload
@@ -262,14 +262,14 @@ class GeneratedPasapalabra(BaseModel):
 
         if "difficulty_percentage" in game:
             metadata.difficulty_percentage = int(game["difficulty_percentage"])
-        entries: list[PasapalabraEntry] = []
+        entries: list[WordPassEntry] = []
 
         for item in game.get("words", []):
             if not isinstance(item, dict):
                 continue
             starts_with = bool(item.get("starts_with", True))
             entries.append(
-                PasapalabraEntry(
+                WordPassEntry(
                     letter=str(item.get("letter", "")),
                     relation="starts_with" if starts_with else "contains",
                     word=str(item.get("answer", "")),
@@ -279,13 +279,13 @@ class GeneratedPasapalabra(BaseModel):
 
         return cls(
             metadata=metadata,
-            title=str(game.get("title", "Untitled Pasapalabra")),
+            title=str(game.get("title", "Untitled WordPass")),
             topic=str(game.get("topic", "General")),
             entries=entries,
         )
 
 
-GeneratedGameModel = Union[GeneratedQuiz, GeneratedPasapalabra]
+GeneratedGameModel = Union[GeneratedQuiz, GeneratedWordPass]
 
 
 def parse_generate_response(
@@ -297,6 +297,6 @@ def parse_generate_response(
     game_type = str(payload.get("game_type", "quiz"))
     if game_type in {"quiz", "true_false"}:
         return GeneratedQuiz.from_generate_payload(payload, language=language)
-    if game_type == "pasapalabra":
-        return GeneratedPasapalabra.from_generate_payload(payload, language=language)
+    if game_type == "word-pass":
+        return GeneratedWordPass.from_generate_payload(payload, language=language)
     raise ValueError(f"Unsupported game_type in generate response: {game_type!r}")

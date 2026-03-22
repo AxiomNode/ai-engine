@@ -19,8 +19,8 @@ except ImportError:
 
 from ai_engine.games.schemas import (
     GameEnvelope,
-    PasapalabraGame,
-    PasapalabraWord,
+    WordPassGame,
+    WordPassWord,
     QuizGame,
     QuizQuestion,
 )
@@ -53,15 +53,15 @@ def _make_quiz_envelope() -> GameEnvelope:
     )
 
 
-def _make_pasapalabra_envelope() -> GameEnvelope:
-    """Return a minimal valid pasapalabra GameEnvelope for testing."""
+def _make_word_pass_envelope() -> GameEnvelope:
+    """Return a minimal valid word-pass GameEnvelope for testing."""
     return GameEnvelope(
-        game_type="pasapalabra",
-        game=PasapalabraGame(
+        game_type="word-pass",
+        game=WordPassGame(
             title="Test Rosco",
             topic="Science",
             words=[
-                PasapalabraWord(
+                WordPassWord(
                     letter="A", hint="First letter", answer="Atom", starts_with=True
                 )
             ],
@@ -183,15 +183,15 @@ class TestGenerate:
         assert call_kwargs["num_questions"] == 3
         assert call_kwargs["max_tokens"] == 512
 
-    def test_generate_pasapalabra(self) -> None:
-        """Pasapalabra game type is handled correctly."""
-        client, *_ = _make_client(envelope=_make_pasapalabra_envelope())
+    def test_generate_word_pass(self) -> None:
+        """WordPass game type is handled correctly."""
+        client, *_ = _make_client(envelope=_make_word_pass_envelope())
         resp = client.post(
             "/generate",
-            json={"query": "chemistry", "topic": "Science", "game_type": "pasapalabra"},
+            json={"query": "chemistry", "topic": "Science", "game_type": "word-pass"},
         )
         assert resp.status_code == 200
-        assert resp.json()["game_type"] == "pasapalabra"
+        assert resp.json()["game_type"] == "word-pass"
 
     def test_generate_missing_required_fields_returns_422(self) -> None:
         """Missing required fields returns HTTP 422 Unprocessable Entity."""
@@ -267,16 +267,16 @@ class TestGenerate:
         assert call_kwargs["language"] == "en"
         assert call_kwargs["difficulty_percentage"] == 65
 
-    def test_generate_pasapalabra_model_specific_endpoint(self) -> None:
-        """/generate/pasapalabra should pass letters and force pasapalabra game type."""
-        client, mock_gen, *_ = _make_client(envelope=_make_pasapalabra_envelope())
+    def test_generate_word_pass_model_specific_endpoint(self) -> None:
+        """/generate/word-pass should pass letters and force word-pass game type."""
+        client, mock_gen, *_ = _make_client(envelope=_make_word_pass_envelope())
         resp = client.post(
-            "/generate/pasapalabra",
+            "/generate/word-pass",
             params={"query": "chemistry", "topic": "Science", "letters": "A,B,C"},
         )
         assert resp.status_code == 200
         call_kwargs = mock_gen.generate_from_context.call_args.kwargs
-        assert call_kwargs["game_type"] == "pasapalabra"
+        assert call_kwargs["game_type"] == "word-pass"
         assert call_kwargs["letters"] == "A,B,C"
 
 
@@ -373,91 +373,44 @@ class TestIngest:
 
 
 # ------------------------------------------------------------------
-# GET /stats and GET /stats/history
+# Internal cache endpoints and monitoring separation
 # ------------------------------------------------------------------
 
 
-class TestStats:
-    """Tests for GET /stats and GET /stats/history."""
+class TestMonitoringSeparation:
+    """Monitoring endpoints are delegated to ai-stats service."""
 
-    def test_stats_empty_on_fresh_collector(self) -> None:
-        """Stats returns zeros when no events have been recorded."""
+    def test_public_monitoring_endpoints_are_not_exposed(self) -> None:
+        """ai-api should not expose public /stats, /metrics or /cache endpoints."""
         client, *_ = _make_client()
-        resp = client.get("/stats")
-        assert resp.status_code == 200
-        assert resp.json()["total_calls"] == 0
-        assert "cache_runtime" in resp.json()
+        assert client.get("/stats").status_code == 404
+        assert client.get("/stats/history").status_code == 404
+        assert client.get("/cache/stats").status_code == 404
+        assert client.post("/cache/reset").status_code == 404
+        assert client.get("/metrics").status_code == 404
 
-    def test_stats_after_recording_event(self) -> None:
-        """Stats reflect recorded events."""
-        client, _, _, collector = _make_client()
-        collector.record_call(
-            prompt="test",
-            response="ok",
-            latency_ms=100.0,
-            max_tokens=512,
-            game_type="quiz",
-        )
-        resp = client.get("/stats")
-        data = resp.json()
-        assert data["total_calls"] == 1
-        assert data["game_type_counts"]["quiz"] == 1
-
-    def test_history_empty_on_fresh_collector(self) -> None:
-        """History returns empty list when no events have been recorded."""
+    def test_internal_cache_stats_is_available(self) -> None:
+        """ai-stats should consume cache stats through this internal endpoint."""
         client, *_ = _make_client()
-        resp = client.get("/stats/history")
+        resp = client.get("/internal/cache/stats")
         assert resp.status_code == 200
-        assert resp.json() == []
+        payload = resp.json()
+        assert "memory_entries" in payload
+        assert "persistent_entries" in payload
 
-    def test_history_last_n_filter(self) -> None:
-        """last_n query parameter limits the number of history events returned."""
-        client, _, _, collector = _make_client()
-        for i in range(5):
-            collector.record_call(
-                prompt=f"p{i}", response="r", latency_ms=10.0, max_tokens=64
-            )
-        resp = client.get("/stats/history?last_n=2")
-        assert len(resp.json()) == 2
-
-    def test_cache_stats_endpoint_returns_runtime_cache_info(self) -> None:
-        """/cache/stats returns runtime cache information."""
+    def test_internal_cache_reset_is_available(self) -> None:
+        """ai-stats should be able to trigger cache invalidation internally."""
         client, *_ = _make_client()
-        resp = client.get("/cache/stats")
+        resp = client.post("/internal/cache/reset")
         assert resp.status_code == 200
-        data = resp.json()
-        assert "memory_entries" in data
-        assert "persistent_entries" in data
-        assert "cache_ttl_seconds" in data
+        payload = resp.json()
+        assert "removed_memory" in payload
+        assert "removed_persistent" in payload
 
-    def test_cache_reset_endpoint_clears_cache(self) -> None:
-        """/cache/reset returns counters for removed cache entries."""
-        client, *_ = _make_client()
-        resp = client.post("/cache/reset")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "removed_memory" in data
-        assert "removed_persistent" in data
-
-    def test_metrics_endpoint_returns_prometheus_with_cache_runtime(self) -> None:
-        """/metrics returns extended Prometheus metrics including cache runtime gauges."""
-        client, *_ = _make_client()
-        client.post("/generate", json={"query": "water", "topic": "Science"})
-
-        resp = client.get("/metrics")
-        assert resp.status_code == 200
-        assert resp.headers["content-type"].startswith("text/plain")
-        body = resp.text
-        assert "ai_engine_total_calls" in body
-        assert "ai_engine_generation_outcome_by_game_type_total" in body
-        assert "ai_engine_cache_memory_saturation_ratio" in body
-        assert "ai_engine_distribution_version_info" in body
-
-    def test_correlation_id_propagates_to_response_and_history(self) -> None:
-        """Correlation ID is echoed in response header and stored in event metadata."""
+    def test_correlation_id_propagates_in_generate_response(self) -> None:
+        """Generation response should preserve incoming correlation id."""
         client, *_ = _make_client()
         correlation_id = "corr-test-123"
-
         resp = client.post(
             "/generate",
             json={"query": "water", "topic": "Science"},
@@ -465,17 +418,6 @@ class TestStats:
         )
         assert resp.status_code == 200
         assert resp.headers.get("X-Correlation-ID") == correlation_id
-
-        history = client.get("/stats/history?last_n=1")
-        assert history.status_code == 200
-        event = history.json()[0]
-        assert event["metadata"]["correlation_id"] == correlation_id
-
-    def test_history_invalid_last_n_returns_422(self) -> None:
-        """last_n=0 is rejected with HTTP 422 (ge=1 constraint)."""
-        client, *_ = _make_client()
-        resp = client.get("/stats/history?last_n=0")
-        assert resp.status_code == 422
 
 
 # ------------------------------------------------------------------

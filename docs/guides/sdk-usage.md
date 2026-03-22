@@ -6,7 +6,7 @@ parsing and validating objects returned by `POST /generate`.
 ## Goals
 
 - Provide typed client-side objects for generated games.
-- Keep quiz and pasapalabra models separated.
+- Keep quiz and word-pass models separated.
 - Include language metadata with a stable `language_id`.
 
 ## Supported Models
@@ -19,9 +19,9 @@ parsing and validating objects returned by `POST /generate`.
 - `true_false`
 - `best_answer` (2 to 4 options, most-correct option)
 
-### Pasapalabra model
+### WordPass model
 
-`GeneratedPasapalabra` stores entries with:
+`GeneratedWordPass` stores entries with:
 
 - `letter`
 - `relation` (`starts_with` or `contains`)
@@ -42,9 +42,9 @@ Every generated SDK object includes metadata:
 from ai_engine.sdk import LanguageCode, parse_generate_response
 
 payload = {
-    "game_type": "pasapalabra",
+    "game_type": "word-pass",
     "game": {
-        "game_type": "pasapalabra",
+        "game_type": "word-pass",
         "title": "Science Rosco",
         "topic": "Science",
         "words": [

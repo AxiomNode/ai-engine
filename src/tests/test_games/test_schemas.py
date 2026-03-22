@@ -5,8 +5,8 @@ from pydantic import ValidationError
 
 from ai_engine.games.schemas import (
     GameEnvelope,
-    PasapalabraGame,
-    PasapalabraWord,
+    WordPassGame,
+    WordPassWord,
     QuizGame,
     QuizQuestion,
     TrueFalseGame,
@@ -105,64 +105,64 @@ class TestQuizGame:
 
 
 # ------------------------------------------------------------------
-# PasapalabraWord
+# WordPassWord
 # ------------------------------------------------------------------
 
 
-class TestPasapalabraWord:
+class TestWordPassWord:
 
     def test_valid_creation(self):
-        w = PasapalabraWord(letter="A", hint="First letter", answer="Alpha")
+        w = WordPassWord(letter="A", hint="First letter", answer="Alpha")
         assert w.letter == "A"
         assert w.starts_with is True
 
     def test_letter_uppercased(self):
-        w = PasapalabraWord(letter="b", hint="H", answer="Beta")
+        w = WordPassWord(letter="b", hint="H", answer="Beta")
         assert w.letter == "B"
 
     def test_invalid_letter_raises(self):
         with pytest.raises(ValidationError, match="single alphabetic character"):
-            PasapalabraWord(letter="AB", hint="H", answer="A")
+            WordPassWord(letter="AB", hint="H", answer="A")
 
     def test_empty_hint_raises(self):
         with pytest.raises(ValidationError, match="hint must not be empty"):
-            PasapalabraWord(letter="A", hint="", answer="A")
+            WordPassWord(letter="A", hint="", answer="A")
 
     def test_empty_answer_raises(self):
         with pytest.raises(ValidationError, match="answer must not be empty"):
-            PasapalabraWord(letter="A", hint="H", answer="")
+            WordPassWord(letter="A", hint="H", answer="")
 
     def test_round_trip(self):
-        w = PasapalabraWord(letter="z", hint="Last", answer="Zebra", starts_with=True)
+        w = WordPassWord(letter="z", hint="Last", answer="Zebra", starts_with=True)
         d = w.to_dict()
-        w2 = PasapalabraWord.from_dict(d)
+        w2 = WordPassWord.from_dict(d)
         assert w2.letter == "Z"
         assert w2.answer == "Zebra"
 
 
 # ------------------------------------------------------------------
-# PasapalabraGame
+# WordPassGame
 # ------------------------------------------------------------------
 
 
-class TestPasapalabraGame:
+class TestWordPassGame:
 
     def test_valid_creation(self):
-        game = PasapalabraGame(title="Rosco", topic="Geography")
+        game = WordPassGame(title="Rosco", topic="Geography")
         assert game.words == []
 
     def test_to_dict_game_type(self):
-        game = PasapalabraGame(
+        game = WordPassGame(
             title="R",
             topic="G",
             words=[
-                PasapalabraWord(
+                WordPassWord(
                     letter="A", hint="Capital of France \u2013 not!", answer="Amsterdam"
                 ),
             ],
         )
         d = game.to_dict()
-        assert d["game_type"] == "pasapalabra"
+        assert d["game_type"] == "word-pass"
         assert len(d["words"]) == 1
 
 
@@ -230,9 +230,9 @@ class TestGameEnvelope:
         assert env.game_type == "quiz"
         assert isinstance(env.game, QuizGame)
 
-    def test_from_dict_pasapalabra(self):
+    def test_from_dict_word_pass(self):
         data = {
-            "game_type": "pasapalabra",
+            "game_type": "word-pass",
             "title": "P",
             "topic": "T",
             "words": [
@@ -240,8 +240,8 @@ class TestGameEnvelope:
             ],
         }
         env = GameEnvelope.from_dict(data)
-        assert env.game_type == "pasapalabra"
-        assert isinstance(env.game, PasapalabraGame)
+        assert env.game_type == "word-pass"
+        assert isinstance(env.game, WordPassGame)
 
     def test_from_dict_true_false(self):
         data = {

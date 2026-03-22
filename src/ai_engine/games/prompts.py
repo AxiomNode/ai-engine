@@ -51,12 +51,12 @@ QUIZ_TEMPLATE = (
 )
 
 # ------------------------------------------------------------------
-# Pasapalabra
+# WordPass
 # ------------------------------------------------------------------
 
-PASAPALABRA_TEMPLATE = (
+WORD_PASS_TEMPLATE = (
     "{system}\n\n"
-    "Using the following educational context, create a Pasapalabra (rosco) game.\n\n"
+    "Using the following educational context, create a WordPass (rosco) game.\n\n"
     "### Context\n{context}\n\n"
     "### Requirements\n"
     "- Topic: {topic}\n"
@@ -67,7 +67,7 @@ PASAPALABRA_TEMPLATE = (
     '- Set "starts_with" to true if the answer starts with the letter, false if it only contains it.\n\n'
     "### Output JSON schema\n"
     "{{\n"
-    '  "game_type": "pasapalabra",\n'
+    '  "game_type": "word-pass",\n'
     '  "title": "<string>",\n'
     '  "topic": "<string>",\n'
     '  "words": [\n'
@@ -79,7 +79,7 @@ PASAPALABRA_TEMPLATE = (
     "    }}\n"
     "  ]\n"
     "}}\n\n"
-    "Generate the pasapalabra now:"
+    "Generate the word-pass now:"
 )
 
 # ------------------------------------------------------------------
@@ -119,7 +119,7 @@ TRUE_FALSE_TEMPLATE = (
 
 TEMPLATES: dict[str, str] = {
     "quiz": QUIZ_TEMPLATE,
-    "pasapalabra": PASAPALABRA_TEMPLATE,
+    "word-pass": WORD_PASS_TEMPLATE,
     "true_false": TRUE_FALSE_TEMPLATE,
 }
 
@@ -136,12 +136,12 @@ def get_prompt(
     """Build a complete prompt for the given game type.
 
     Args:
-        game_type: One of ``"quiz"``, ``"pasapalabra"``, ``"true_false"``.
+        game_type: One of ``"quiz"``, ``"word-pass"``, ``"true_false"``.
         context: RAG-retrieved context text.
         topic: Educational topic.
         language: Target language code (default ``"es"`` = Spanish).
         num_questions: Number of questions/statements to generate.
-        letters: Comma-separated letters for pasapalabra.
+        letters: Comma-separated letters for word-pass.
 
     Returns:
         Ready-to-send prompt string.

@@ -27,7 +27,7 @@ If scoped key protection is enabled, bridge requests MUST include:
 - `X-API-Key: <shared-secret>`
 
 Key mapping:
-- `AI_ENGINE_BRIDGE_API_KEY` protects bridge-facing endpoints (`/ingest*`, `/stats*`, `/metrics`).
+- `AI_ENGINE_BRIDGE_API_KEY` protects bridge-facing endpoints (`/ingest*`, `/stats*`, `/cache/*`, `/metrics`).
 - `AI_ENGINE_STATS_API_KEY` is dedicated to internal `ai-api -> ai-stats` event publishing (`POST /events`).
 
 Recommended tracing header:
@@ -64,7 +64,7 @@ Optional query parameter:
 
 Optional model-specific ingest endpoints:
 - `POST /ingest/quiz`
-- `POST /ingest/pasapalabra`
+- `POST /ingest/word-pass`
 - `POST /ingest/true-false`
 
 Use model-specific paths when bridge can classify the target game domain.
@@ -134,10 +134,16 @@ Success response:
 - `GET /health`
 - `GET /stats`
 - `GET /stats/history?last_n=100`
+- `GET /cache/stats`
+- `POST /cache/reset?namespace=<namespace>`
+- `POST /cache/reset?all_namespaces=true`
 - `GET /metrics` (Prometheus format)
 
 Optional admin operation:
 - `POST /stats/reset`
+
+Monitoring/cache routes are exposed by `ai-stats`. The bridge should not call
+`ai-api` public routes for monitoring concerns.
 
 ## Error Contract
 

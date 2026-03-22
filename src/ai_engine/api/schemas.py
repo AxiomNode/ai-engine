@@ -41,10 +41,10 @@ class GenerateRequest(BaseModel):
     Attributes:
         query: Keywords used to retrieve relevant context from the RAG pipeline.
         topic: Educational topic for the game content.
-        game_type: One of ``"quiz"``, ``"pasapalabra"``, ``"true_false"``.
+        game_type: One of ``"quiz"``, ``"word-pass"``, ``"true_false"``.
         language: ISO 639-1 language code for the generated content.
         num_questions: Number of questions / statements to generate.
-        letters: Comma-separated letters for pasapalabra rosco.
+        letters: Comma-separated letters for word-pass rosco.
         max_tokens: Maximum tokens for the LLM generation call.
     """
 

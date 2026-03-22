@@ -20,14 +20,36 @@
 services:
 
   # ---------------------------------------------------------------------------
+  # Redis cache backend for ai-api generation cache persistence.
+  # ---------------------------------------------------------------------------
+  ai-cache:
+    image: redis:7-alpine
+    container_name: "${APP_NAME:-AxiomNode}_ai_cache_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - ai_cache_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ---------------------------------------------------------------------------
   # llama.cpp CPU profile (default for windows + vps-cpu).
   # ---------------------------------------------------------------------------
   llama-server-cpu:
     profiles: ["cpu"]
+    image: "${APP_NAME:-AxiomNode}_${LLAMA_CPU_SERVICE_NAME:-llama_server_cpu}_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
+    container_name: "${APP_NAME:-AxiomNode}_${LLAMA_CPU_SERVICE_NAME:-llama_server_cpu}_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
     build:
       context: .
       dockerfile: Dockerfile.llama
       target: runtime
+      args:
+        APP_NAME: "${APP_NAME:-AxiomNode}"
+        SERVICE_NAME: "${LLAMA_CPU_SERVICE_NAME:-llama_server_cpu}"
+        DISTRIBUTION: "${AI_ENGINE_DISTRIBUTION:-dev}"
+        RELEASE_VERSION: "${AI_ENGINE_RELEASE_VERSION:-v1}"
     restart: unless-stopped
     cpus: "${LLAMA_CPUS:-6.0}"
     mem_limit: "${LLAMA_MEMORY_LIMIT:-12g}"
@@ -53,10 +75,10 @@ services:
     healthcheck:
       test: ["CMD", "python", "-c",
             "import urllib.request; urllib.request.urlopen('http://localhost:8080/v1/models')"]
-      interval: 30s
-      timeout: 10s
-      start_period: 120s
-      retries: 5
+      interval: 45s
+      timeout: 30s
+      start_period: 180s
+      retries: 8
 
   # ---------------------------------------------------------------------------
   # llama.cpp GPU profile (vps-gpu).
@@ -64,6 +86,7 @@ services:
   llama-server-gpu:
     profiles: ["gpu"]
     image: ghcr.io/ggerganov/llama.cpp:server-cuda
+    container_name: "${APP_NAME:-AxiomNode}_${LLAMA_GPU_SERVICE_NAME:-llama_server_gpu}_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
     restart: unless-stopped
     gpus: all
     cpus: "${LLAMA_CPUS:-4.0}"
@@ -102,13 +125,21 @@ services:
 
   # ---------------------------------------------------------------------------
   # ai-engine observability / statistics API
-  # Exposes: GET /health  GET /stats  GET /stats/history  POST /stats/reset  GET /metrics
+  # Exposes: GET /health  GET /stats  GET /stats/history  POST /stats/reset
+  #          GET /cache/stats  POST /cache/reset  GET /metrics
   # ---------------------------------------------------------------------------
   ai-stats:
+    image: "${APP_NAME:-AxiomNode}_${STATS_SERVICE_NAME:-ai_stats}_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
+    container_name: "${APP_NAME:-AxiomNode}_${STATS_SERVICE_NAME:-ai_stats}_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
     build:
       context: .
       dockerfile: Dockerfile
       target: runtime-stats
+      args:
+        APP_NAME: "${APP_NAME:-AxiomNode}"
+        SERVICE_NAME: "${STATS_SERVICE_NAME:-ai_stats}"
+        DISTRIBUTION: "${AI_ENGINE_DISTRIBUTION:-dev}"
+        RELEASE_VERSION: "${AI_ENGINE_RELEASE_VERSION:-v1}"
     restart: unless-stopped
     cpus: "${STATS_CPUS:-1.0}"
     mem_limit: "${STATS_MEMORY_LIMIT:-1g}"
@@ -119,6 +150,7 @@ services:
       AI_ENGINE_MODELS_DIR: /app/models
       AI_ENGINE_DISTRIBUTION: "${AI_ENGINE_DISTRIBUTION:-dev}"
       AI_ENGINE_RELEASE_VERSION: "${AI_ENGINE_RELEASE_VERSION:-v1}"
+      AI_ENGINE_GENERATION_API_URL: "${AI_ENGINE_GENERATION_API_URL:-http://ai-api:8001}"
       AI_ENGINE_API_KEY: "${AI_ENGINE_API_KEY:-}"
       AI_ENGINE_BRIDGE_API_KEY: "${AI_ENGINE_BRIDGE_API_KEY:-}"
       AI_ENGINE_STATS_API_KEY: "${AI_ENGINE_STATS_API_KEY:-}"
@@ -148,13 +180,22 @@ services:
 
   # ---------------------------------------------------------------------------
   # ai-engine generation API
-  # Exposes: POST /generate  POST /generate/sdk  POST /ingest  GET /health (port 8001)
+  # Exposes: POST /generate*  POST /ingest*  GET /health (port 8001)
+  # Internal monitoring bridge for ai-stats:
+  #          GET /internal/cache/stats  POST /internal/cache/reset
   # ---------------------------------------------------------------------------
   ai-api:
+    image: "${APP_NAME:-AxiomNode}_${API_SERVICE_NAME:-ai_api}_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
+    container_name: "${APP_NAME:-AxiomNode}_${API_SERVICE_NAME:-ai_api}_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
     build:
       context: .
       dockerfile: Dockerfile
       target: runtime-api
+      args:
+        APP_NAME: "${APP_NAME:-AxiomNode}"
+        SERVICE_NAME: "${API_SERVICE_NAME:-ai_api}"
+        DISTRIBUTION: "${AI_ENGINE_DISTRIBUTION:-dev}"
+        RELEASE_VERSION: "${AI_ENGINE_RELEASE_VERSION:-v1}"
     restart: unless-stopped
     cpus: "${API_CPUS:-4.0}"
     mem_limit: "${API_MEMORY_LIMIT:-8g}"
@@ -166,10 +207,11 @@ services:
       # Point to the llama.cpp server – no local model needed in this container.
       AI_ENGINE_LLAMA_URL: "http://llama-server:8080/v1/completions"
       AI_ENGINE_EMBEDDING_MODEL: "${AI_ENGINE_EMBEDDING_MODEL:-all-MiniLM-L6-v2}"
+      AI_ENGINE_LLAMA_TIMEOUT_SECONDS: "${AI_ENGINE_LLAMA_TIMEOUT_SECONDS:-420}"
       AI_ENGINE_MODELS_DIR: /app/models
       AI_ENGINE_GENERATION_CACHE_PATH: /app/data/generation_cache.json
-      AI_ENGINE_GENERATION_CACHE_BACKEND: "${AI_ENGINE_GENERATION_CACHE_BACKEND:-tinydb}"
-      AI_ENGINE_GENERATION_CACHE_REDIS_URL: "${AI_ENGINE_GENERATION_CACHE_REDIS_URL:-}"
+      AI_ENGINE_GENERATION_CACHE_BACKEND: "${AI_ENGINE_GENERATION_CACHE_BACKEND:-redis}"
+      AI_ENGINE_GENERATION_CACHE_REDIS_URL: "${AI_ENGINE_GENERATION_CACHE_REDIS_URL:-redis://ai-cache:6379/0}"
       AI_ENGINE_GENERATION_CACHE_REDIS_PREFIX: "${AI_ENGINE_GENERATION_CACHE_REDIS_PREFIX:-ai-engine:generation-cache}"
       AI_ENGINE_GENERATION_CACHE_NAMESPACE: "${AI_ENGINE_GENERATION_CACHE_NAMESPACE:-v1}"
       AI_ENGINE_RATE_LIMIT_ENABLED: "${AI_ENGINE_RATE_LIMIT_ENABLED:-false}"
@@ -188,6 +230,9 @@ services:
     volumes:
       - ./models:/app/models:ro
       - ./data:/app/data
+    depends_on:
+      ai-cache:
+        condition: service_healthy
     command:
       - uvicorn
       - "ai_engine.api.app:app"
@@ -204,3 +249,6 @@ services:
       timeout: 5s
       start_period: 60s   # sentence-transformers model download on first start
       retries: 3
+
+volumes:
+  ai_cache_data:

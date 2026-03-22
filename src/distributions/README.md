@@ -48,3 +48,21 @@ and monitoring endpoints:
 Runtime systems expose the combined label as:
 
 - `distribution-version` = `<AI_ENGINE_DISTRIBUTION>-<AI_ENGINE_RELEASE_VERSION>`
+
+## Docker Image and Container Naming
+
+Compose uses the naming pattern below for built images and container names:
+
+- `<APP_NAME>_<SERVICE_NAME>_<AI_ENGINE_DISTRIBUTION>_<AI_ENGINE_RELEASE_VERSION>`
+
+Default example:
+
+- `AxiomNode_ai_api_dev_v1`
+
+Required naming variables are now included in each distribution env file:
+
+- `APP_NAME`
+- `API_SERVICE_NAME`
+- `STATS_SERVICE_NAME`
+- `LLAMA_CPU_SERVICE_NAME`
+- `LLAMA_GPU_SERVICE_NAME`

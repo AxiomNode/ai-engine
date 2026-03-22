@@ -18,7 +18,7 @@ easy to swap backends without changing calling code.
 │     Games Layer        │  │   Observability Layer      │
 │  GameGenerator         │  │   StatsCollector           │
 │  GameEnvelope          │  │   TrackedLlamaClient       │
-│  Quiz / Pasapalabra /  │  │   FastAPI endpoints        │
+│  Quiz / WordPass /  │  │   FastAPI endpoints        │
 │  TrueFalse schemas     │  │   /health /stats /history  │
 └────────────┬───────────┘  └───────────────────────────┘
              │
@@ -104,7 +104,7 @@ validated dataclass instances.
 
 | Component | File | Responsibility |
 |---|---|---|
-| `QuizGame`, `PasapalabraGame`, `TrueFalseGame` | `schemas.py` | Validated dataclasses with `to_dict()` / `from_dict()` |
+| `QuizGame`, `WordPassGame`, `TrueFalseGame` | `schemas.py` | Validated dataclasses with `to_dict()` / `from_dict()` |
 | `GameEnvelope` | `schemas.py` | Generic wrapper; `GAME_TYPE_REGISTRY` maps `game_type` string → class |
 | Prompt templates | `prompts.py` | Per-game-type prompt strings with JSON schema embedded |
 | `GameGenerator` | `generator.py` | `generate()` → RAG context → prompt → LLM → JSON → `GameEnvelope`; `generate_raw()` → same pipeline but returns raw `dict` |

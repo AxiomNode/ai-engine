@@ -48,11 +48,46 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_PASAPALABRA_LETTERS = "A,B,C,D,E,F,G,H,I,J,L,M,N,O,P,R,S,T,V,Z"
+DEFAULT_WORD_PASS_LETTERS = "A,B,C,D,E,F,G,H,I,J,L,M,N,O,P,R,S,T,V,Z"
+
+SUPPORTED_LANGUAGES_CATALOG: list[dict[str, str]] = [
+    {"code": "es", "name": "espanol"},
+    {"code": "en", "name": "ingles"},
+    {"code": "fr", "name": "frances"},
+    {"code": "de", "name": "aleman"},
+    {"code": "it", "name": "italiano"},
+]
+
+TRIVIA_CATEGORIES_CATALOG: list[dict[str, str]] = [
+    {"id": "9", "name": "General Knowledge"},
+    {"id": "10", "name": "Entertainment: Books"},
+    {"id": "11", "name": "Entertainment: Film"},
+    {"id": "12", "name": "Entertainment: Music"},
+    {"id": "13", "name": "Entertainment: Musicals & Theatres"},
+    {"id": "14", "name": "Entertainment: Television"},
+    {"id": "15", "name": "Entertainment: Video Games"},
+    {"id": "16", "name": "Entertainment: Board Games"},
+    {"id": "17", "name": "Science & Nature"},
+    {"id": "18", "name": "Science: Computers"},
+    {"id": "19", "name": "Science: Mathematics"},
+    {"id": "20", "name": "Mythology"},
+    {"id": "21", "name": "Sports"},
+    {"id": "22", "name": "Geography"},
+    {"id": "23", "name": "History"},
+    {"id": "24", "name": "Politics"},
+    {"id": "25", "name": "Art"},
+    {"id": "26", "name": "Celebrities"},
+    {"id": "27", "name": "Animals"},
+    {"id": "28", "name": "Vehicles"},
+    {"id": "29", "name": "Entertainment: Comics"},
+    {"id": "30", "name": "Science: Gadgets"},
+    {"id": "31", "name": "Entertainment: Japanese Anime & Manga"},
+    {"id": "32", "name": "Entertainment: Cartoon & Animations"},
+]
 
 try:
     from fastapi import FastAPI, Header, HTTPException, Query, Request
-    from fastapi.responses import PlainTextResponse
+    from fastapi.openapi.utils import get_openapi
 except ImportError as _imp_err:  # pragma: no cover
     raise ImportError(
         "FastAPI is required for the generation API.  "
@@ -67,10 +102,7 @@ from ai_engine.api.schemas import (  # noqa: E402
     IngestRequest,
 )
 from ai_engine.config import get_settings  # noqa: E402
-from ai_engine.observability.collector import (  # noqa: E402
-    StatsCollector,
-    summary_to_prometheus,
-)
+from ai_engine.observability.collector import StatsCollector  # noqa: E402
 
 
 def _build_from_env() -> tuple[Any, Any]:
@@ -116,7 +148,12 @@ def _build_from_env() -> tuple[Any, Any]:
         "Connecting to LLM: %s",
         api_url if api_url else model_path,
     )
-    llm = LlamaClient(api_url=api_url, model_path=model_path, json_mode=True)
+    llm = LlamaClient(
+        api_url=api_url,
+        model_path=model_path,
+        json_mode=True,
+        request_timeout_seconds=settings.llama_timeout_seconds,
+    )
     raw_gen = GameGenerator(rag_pipeline=pipeline, llm_client=llm)
 
     # Wrap for automatic stats collection
@@ -178,36 +215,6 @@ def _get_distribution_version(request: Request) -> str:
     return "unknown-v0"
 
 
-def _stats_summary_with_runtime(request: Request) -> dict[str, Any]:
-    """Return collector summary enriched with cache runtime and version."""
-    summary = _get_collector(request).summary()
-    optimizer = _get_optimizer(request)
-    cache_runtime = {
-        "memory_entries": 0,
-        "memory_max_entries": 0,
-        "memory_saturation_ratio": 0.0,
-        "persistent_entries": 0,
-        "memory_enabled": False,
-        "persistent_enabled": False,
-        "persistent_backend": "none",
-        "cache_namespace": "v1",
-        "distribution_version": _get_distribution_version(request),
-        "cache_ttl_seconds": 0,
-        "persistent_backend_errors": {
-            "read": 0,
-            "write": 0,
-            "delete": 0,
-            "stats": 0,
-        },
-    }
-    if optimizer is not None:
-        cache_runtime = optimizer.cache_stats()
-
-    summary["cache_runtime"] = cache_runtime
-    summary["distribution_version"] = _get_distribution_version(request)
-    return summary
-
-
 def _generation_failure_metadata(
     req: GenerateRequest,
     *,
@@ -223,6 +230,59 @@ def _generation_failure_metadata(
         "correlation_id": correlation_id,
         "distribution_version": distribution_version,
     }
+
+
+def _install_api_key_openapi(
+    app: FastAPI,
+    *,
+    public_paths: set[str] | None = None,
+) -> None:
+    """Inject API key security schema so `/docs` shows Authorize + X-API-Key."""
+
+    def custom_openapi() -> dict[str, Any]:
+        if app.openapi_schema:
+            return app.openapi_schema  # type: ignore[return-value]
+
+        schema = get_openapi(
+            title=app.title,
+            version=app.version,
+            description=app.description,
+            routes=app.routes,
+        )
+
+        components = schema.setdefault("components", {})
+        security_schemes = components.setdefault("securitySchemes", {})
+        security_schemes["ApiKeyAuth"] = {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-API-Key",
+            "description": "Use a valid scoped key. Public `/health` is excluded.",
+        }
+
+        public = public_paths or set()
+        paths = schema.get("paths", {})
+        for path, path_item in paths.items():
+            if path in public or not isinstance(path_item, dict):
+                continue
+            for method, operation in path_item.items():
+                if method.lower() not in {
+                    "get",
+                    "post",
+                    "put",
+                    "patch",
+                    "delete",
+                    "options",
+                    "head",
+                    "trace",
+                }:
+                    continue
+                if isinstance(operation, dict):
+                    operation.setdefault("security", [{"ApiKeyAuth": []}])
+
+        app.openapi_schema = schema
+        return schema  # type: ignore[return-value]
+
+    app.openapi = custom_openapi
 
 
 def _apply_generate_headers(
@@ -492,6 +552,37 @@ def create_app(
     _collector = collector if collector is not None else StatsCollector()
     settings = get_settings()
     distribution_version = settings.distribution_version_tag
+    openapi_version = f"0.1.0+{distribution_version}"
+    openapi_tags = [
+        {
+            "name": "service",
+            "description": (
+                "Service-level endpoints for liveness and dependency readiness."
+            ),
+        },
+        {
+            "name": "generation",
+            "description": (
+                "Game-generation endpoints consumed by game microservices."
+            ),
+        },
+        {
+            "name": "rag",
+            "description": "RAG ingestion endpoints for knowledge synchronization.",
+        },
+        {
+            "name": "catalog",
+            "description": (
+                "Canonical language and category catalogs for downstream clients."
+            ),
+        },
+        {
+            "name": "internal",
+            "description": (
+                "Internal-only endpoints used by ai-stats monitoring bridge."
+            ),
+        },
+    ]
 
     # Store mutable references so lifespan can replace them if needed.
     _state: dict[str, Any] = {
@@ -536,13 +627,15 @@ def create_app(
         )
 
     app = FastAPI(
-        title="ai-engine generation API",
+        title=f"ai-engine game & RAG API ({distribution_version})",
         description=(
-            "Content generation service for AxiomNode educational games. "
-            "Exposes RAG-augmented LLM generation as a single REST endpoint."
+            "Dedicated API for game generation and RAG ingestion workflows. "
+            "Monitoring, metrics, and cache management are exposed by ai-stats. "
+            f"Active deployment version: {distribution_version}."
         ),
-        version="0.1.0",
+        version=openapi_version,
         lifespan=lifespan,
+        openapi_tags=openapi_tags,
     )
 
     # Set state immediately so the app is usable without triggering the lifespan
@@ -577,7 +670,17 @@ def create_app(
     )
 
     # Attach route-scoped API key middleware for service-to-service integrations.
-    add_api_key_middleware(app, service="generation", public_paths={"/health"})
+    add_api_key_middleware(
+        app,
+        service="generation",
+        public_paths={
+            "/health",
+            "/docs",
+            "/openapi.json",
+            "/docs/oauth2-redirect",
+            "/redoc",
+        },
+    )
 
     @app.middleware("http")
     async def correlation_id_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
@@ -608,26 +711,34 @@ def create_app(
             "dependencies": _health_dependencies(request),
         }
 
-    @app.get("/stats", tags=["monitoring"])
-    def get_stats(request: Request) -> dict[str, Any]:
-        """Return aggregate stats enriched with runtime cache telemetry."""
-        return _stats_summary_with_runtime(request)
+    @app.get("/catalogs", tags=["catalog"])
+    def get_catalogs(request: Request) -> dict[str, Any]:
+        """Return canonical language/category catalogs for microservice discovery."""
+        return {
+            "distribution_version": _get_distribution_version(request),
+            "languages": SUPPORTED_LANGUAGES_CATALOG,
+            "categories": TRIVIA_CATEGORIES_CATALOG,
+        }
 
-    @app.get("/stats/history", tags=["monitoring"])
-    def get_history(
-        request: Request,
-        last_n: int | None = Query(
-            default=None,
-            ge=1,
-            description="Return only the N most recent events.",
-        ),
-    ) -> list[dict[str, Any]]:
-        """Return recorded generation/ingest events."""
-        return _get_collector(request).history(last_n=last_n)
+    @app.get("/catalogs/languages", tags=["catalog"])
+    def get_catalog_languages(request: Request) -> dict[str, Any]:
+        """Return canonical language catalog."""
+        return {
+            "distribution_version": _get_distribution_version(request),
+            "languages": SUPPORTED_LANGUAGES_CATALOG,
+        }
 
-    @app.get("/cache/stats", tags=["monitoring"])
-    def get_cache_stats(request: Request) -> dict[str, Any]:
-        """Return current cache runtime counters."""
+    @app.get("/catalogs/categories", tags=["catalog"])
+    def get_catalog_categories(request: Request) -> dict[str, Any]:
+        """Return canonical category catalog."""
+        return {
+            "distribution_version": _get_distribution_version(request),
+            "categories": TRIVIA_CATEGORIES_CATALOG,
+        }
+
+    @app.get("/internal/cache/stats", tags=["internal"], include_in_schema=False)
+    def get_internal_cache_stats(request: Request) -> dict[str, Any]:
+        """Return cache runtime counters for internal monitoring consumers."""
         optimizer = _get_optimizer(request)
         if optimizer is None:
             return {
@@ -650,8 +761,8 @@ def create_app(
             }
         return optimizer.cache_stats()
 
-    @app.post("/cache/reset", tags=["monitoring"])
-    def reset_cache(
+    @app.post("/internal/cache/reset", tags=["internal"], include_in_schema=False)
+    def reset_internal_cache(
         request: Request,
         namespace: str | None = Query(default=None),
         all_namespaces: bool = Query(default=False),
@@ -664,11 +775,6 @@ def create_app(
             namespace=namespace,
             all_namespaces=all_namespaces,
         )
-
-    @app.get("/metrics", tags=["monitoring"], response_class=PlainTextResponse)
-    def metrics(request: Request) -> str:
-        """Return Prometheus metrics including runtime cache gauges."""
-        return summary_to_prometheus(_stats_summary_with_runtime(request))
 
     def _execute_generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
         """Execute generation request and return normalized payload."""
@@ -937,19 +1043,19 @@ def create_app(
             language_header=x_game_language,
             difficulty_header=x_difficulty_percentage,
             num_questions=num_questions,
-            letters=DEFAULT_PASAPALABRA_LETTERS,
+            letters=DEFAULT_WORD_PASS_LETTERS,
             max_tokens=max_tokens,
             use_cache=use_cache,
             force_refresh=force_refresh,
         )
         return _execute_generate(req, request)
 
-    @app.post("/generate/pasapalabra", tags=["generation"])
-    def generate_pasapalabra(
+    @app.post("/generate/word-pass", tags=["generation"])
+    def generate_word_pass(
         request: Request,
         query_text: str = Query(..., alias="query"),
         topic: str = Query(...),
-        letters: str = Query(default=DEFAULT_PASAPALABRA_LETTERS),
+        letters: str = Query(default=DEFAULT_WORD_PASS_LETTERS),
         max_tokens: int = Query(default=1024, ge=64, le=4096),
         use_cache: bool = Query(default=True),
         force_refresh: bool = Query(default=False),
@@ -959,9 +1065,9 @@ def create_app(
             alias="X-Difficulty-Percentage",
         ),
     ) -> dict[str, Any]:
-        """Generate pasapalabra with model-specific endpoint and settings headers."""
+        """Generate word-pass with model-specific endpoint and settings headers."""
         req = _build_model_generate_request(
-            game_type="pasapalabra",
+            game_type="word-pass",
             query_text=query_text,
             topic=topic,
             language_header=x_game_language,
@@ -997,7 +1103,7 @@ def create_app(
             language_header=x_game_language,
             difficulty_header=x_difficulty_percentage,
             num_questions=num_questions,
-            letters=DEFAULT_PASAPALABRA_LETTERS,
+            letters=DEFAULT_WORD_PASS_LETTERS,
             max_tokens=max_tokens,
             use_cache=use_cache,
             force_refresh=force_refresh,
@@ -1051,19 +1157,19 @@ def create_app(
             ingest_source=ingest_source,
         )
 
-    @app.post("/ingest/pasapalabra", tags=["rag"])
-    def ingest_pasapalabra(
+    @app.post("/ingest/word-pass", tags=["rag"])
+    def ingest_word_pass(
         req: IngestRequest,
         request: Request,
-        source: str = Query(default="pasapalabra"),
+        source: str = Query(default="word-pass"),
         x_ingest_source: str | None = Header(default=None, alias="X-Ingest-Source"),
     ) -> dict[str, int]:
-        """Ingest pasapalabra-oriented content using model-specific endpoint."""
+        """Ingest word-pass-oriented content using model-specific endpoint."""
         ingest_source = x_ingest_source.strip() if x_ingest_source else source
         return _execute_ingest(
             req,
             request,
-            ingest_model="pasapalabra",
+            ingest_model="word-pass",
             ingest_source=ingest_source,
         )
 
@@ -1082,6 +1188,17 @@ def create_app(
             ingest_model="true_false",
             ingest_source=ingest_source,
         )
+
+    _install_api_key_openapi(
+        app,
+        public_paths={
+            "/health",
+            "/docs",
+            "/openapi.json",
+            "/docs/oauth2-redirect",
+            "/redoc",
+        },
+    )
 
     return app
 

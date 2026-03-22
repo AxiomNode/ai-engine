@@ -95,7 +95,7 @@ Example response from `/stats`:
   "p95_latency_ms": 3210.0,
   "p99_latency_ms": 4050.0,
   "json_mode_calls": 38,
-  "game_type_counts": {"quiz": 30, "true_false": 8, "pasapalabra": 4}
+  "game_type_counts": {"quiz": 30, "true_false": 8, "word-pass": 4}
 }
 ```
 
@@ -206,12 +206,19 @@ runtime dependencies:
 
 ```bash
 # Build
-docker build -t ai-engine-stats -f src/Dockerfile src
+docker build \
+  --build-arg APP_NAME=AxiomNode \
+  --build-arg SERVICE_NAME=ai_stats \
+  --build-arg DISTRIBUTION=dev \
+  --build-arg RELEASE_VERSION=v1 \
+  --target runtime-stats \
+  -t AxiomNode_ai_stats_dev_v1 \
+  -f src/Dockerfile src
 
 # Run (mount the local models directory)
 docker run -p 8000:8000 \
   -v "$(pwd)/src/models:/app/models:ro" \
-  ai-engine-stats
+  AxiomNode_ai_stats_dev_v1
 ```
 
 Visit `http://localhost:8000/docs` for the interactive Swagger UI.
@@ -219,15 +226,22 @@ Visit `http://localhost:8000/docs` for the interactive Swagger UI.
 ### Full stack – docker compose
 
 ```bash
-docker compose -f src/docker-compose.yml up --build
+docker compose -f src/docker-compose.yml --profile cpu up --build
 ```
 
 If port `8080` is already used on your machine, start with a different host
 port for llama-server:
 
 ```bash
-LLAMA_PORT=18080 docker compose -f src/docker-compose.yml up -d --build
+docker compose \
+  --env-file src/distributions/dev/windows.env \
+  --profile cpu \
+  -f src/docker-compose.yml \
+  up -d --build
 ```
+
+`src/docker-compose.yml` currently publishes fixed host ports (`7002`, `7001`,
+`7000`) mapped to container ports (`8080`, `8001`, `8000`).
 
 If you want the stack to consume more host resources, raise the limits in
 `.env` before starting Compose. Example:
@@ -248,14 +262,50 @@ On Windows, these values are still capped by Docker Desktop's global limits.
 If Compose does not use the requested memory/CPU, increase the Docker Desktop
 or WSL 2 allocation first, then restart Docker Desktop.
 
-This starts three services:
+With `--profile cpu` this starts four services:
 
 | Service | Port | Description |
 |---|---|---|
-| `llama-server` | 8080 | llama.cpp HTTP inference server |
-| `ai-stats` | 8000 | ai-engine observability / statistics FastAPI |
-| `ai-api` | 8001 | ai-engine generation FastAPI |
+| `llama-server` | 7002 -> 8080 | llama.cpp HTTP inference server |
+| `ai-stats` | 7000 -> 8000 | Monitoring/backoffice API (`/health`, `/stats*`, `/cache/*`, `/metrics`) |
+| `ai-api` | 7001 -> 8001 | Game API for microservices (`/generate*`, `/ingest*`, `/health`) |
+| `ai-cache` | (internal) | Redis cache backend with AOF persistence volume (`ai_cache_data`) |
 
+Without any profile, only `ai-api` and `ai-stats` are started (llama services
+are profile-gated).
+
+### Service Integration Contract (Backoffice vs Microservices)
+
+| Consumer | Service | Endpoint family | Purpose | Required key/header |
+|---|---|---|---|---|
+| Backoffice | `ai-stats` | `/health`, `/stats`, `/stats/history`, `/metrics` | Platform monitoring and operational dashboards | `X-API-Key` = `AI_ENGINE_BRIDGE_API_KEY` (or `AI_ENGINE_API_KEY` fallback); `/health` can remain public |
+| Backoffice | `ai-stats` | `/cache/stats`, `/cache/reset` | Cache runtime visibility and selective/global invalidation | `X-API-Key` = `AI_ENGINE_BRIDGE_API_KEY` (or `AI_ENGINE_API_KEY` fallback) |
+| Game microservices | `ai-api` | `/generate*` | Structured game generation for quiz/word-pass/true-false | `X-API-Key` = `AI_ENGINE_GAMES_API_KEY` (or `AI_ENGINE_API_KEY` fallback) |
+| Bridge/integration service | `ai-api` | `/ingest*` | RAG corpus ingestion from external systems | `X-API-Key` = `AI_ENGINE_BRIDGE_API_KEY` (or `AI_ENGINE_API_KEY` fallback) |
+| ai-api (internal publisher) | `ai-stats` | `/events` | Push generation/ingest telemetry events | `X-API-Key` = `AI_ENGINE_STATS_API_KEY` (or `AI_ENGINE_BRIDGE_API_KEY` / `AI_ENGINE_API_KEY` fallback) |
+
+Notes:
+
+- `ai-stats` is the only public monitoring surface for backoffice consumption.
+- `ai-api` exposes only game generation and RAG ingestion as public business routes.
+- Cache endpoints are bridged by `ai-stats` to `ai-api` internal routes (`/internal/cache/*`) and are intentionally hidden from `ai-api` OpenAPI.
+
+Compose image/container names follow:
+
+- `<APP_NAME>_<SERVICE_NAME>_<AI_ENGINE_DISTRIBUTION>_<AI_ENGINE_RELEASE_VERSION>`
+
+Example default values:
+
+- `AxiomNode_ai_api_dev_v1`
+- `AxiomNode_ai_stats_dev_v1`
+- `AxiomNode_llama_server_cpu_dev_v1`
+
+Responsibility split:
+
+- `ai-stats` is the public monitoring surface for backoffice systems.
+- `ai-api` is focused on generation and ingestion workflows.
+- Cache monitoring/reset is exposed by `ai-stats` and internally bridged to
+  `ai-api` via `/internal/cache/*`.
 > **Tip:** Override the model file or port without editing `src/docker-compose.yml`
 > by setting variables in `src/.env` (see `src/distributions/examples/.env.example` for all options).
 
@@ -380,16 +430,16 @@ Examples:
 | `AI_ENGINE_MODELS_DIR` | `<project_root>/src/models/` | Path where GGUF model files are stored. Override to point to a shared network drive or Docker volume. |
 | `LLAMA_MODEL_FILE` | `Qwen2.5-3B-Instruct-Q4_K_M.gguf` | GGUF filename loaded by the `llama-server` compose service. |
 | `LLAMA_CTX_SIZE` | `4096` | Context window size (tokens) for the llama.cpp server. |
-| `LLAMA_PORT` | `8080` | Host port exposed by the `llama-server` service. |
+| `LLAMA_PORT` | `8080` | Legacy variable kept in env templates; the centralized compose currently publishes `7002:8080`. |
 | `LLAMA_CPUS` | `6.0` | CPU quota assigned to `llama-server` by Docker Compose. |
 | `LLAMA_MEMORY_LIMIT` | `12g` | Hard memory limit for `llama-server`. |
 | `LLAMA_MEMORY_RESERVATION` | `8g` | Soft memory reservation for `llama-server`. |
 | `LLAMA_SHM_SIZE` | `2g` | Shared memory available to `llama-server`. |
-| `STATS_PORT` | `8000` | Host port exposed by the `ai-stats` service. |
+| `STATS_PORT` | `8000` | Legacy variable kept in env templates; the centralized compose currently publishes `7000:8000`. |
 | `STATS_CPUS` | `1.0` | CPU quota assigned to `ai-stats`. |
 | `STATS_MEMORY_LIMIT` | `1g` | Hard memory limit for `ai-stats`. |
 | `STATS_MEMORY_RESERVATION` | `512m` | Soft memory reservation for `ai-stats`. |
-| `API_PORT` | `8001` | Host port exposed by the `ai-api` service. |
+| `API_PORT` | `8001` | Legacy variable kept in env templates; the centralized compose currently publishes `7001:8001`. |
 | `API_CPUS` | `4.0` | CPU quota assigned to `ai-api`. |
 | `API_MEMORY_LIMIT` | `8g` | Hard memory limit for `ai-api`. |
 | `API_MEMORY_RESERVATION` | `4g` | Soft memory reservation for `ai-api`. |
@@ -398,9 +448,19 @@ Examples:
 | `STATS_WORKERS` | `1` | Number of Uvicorn workers used by `ai-stats`. |
 | `AI_ENGINE_STATS_URL` | `http://ai-stats:8000` | Base URL used by `ai-api` to push observability events into `ai-stats` (`POST /events`). |
 | `AI_ENGINE_GAMES_API_KEY` | *(unset)* | API key required on generation routes (`/generate*`) for game microservices. |
-| `AI_ENGINE_BRIDGE_API_KEY` | *(unset)* | API key required on bridge-facing routes (`/ingest*`, `/stats*`, `/metrics`). |
+| `AI_ENGINE_BRIDGE_API_KEY` | *(unset)* | API key required on bridge-facing routes (`/ingest*`, `/stats*`, `/cache/*`, `/metrics`). |
 | `AI_ENGINE_STATS_API_KEY` | *(unset)* | API key used by `ai-api` to publish events to `ai-stats` (`POST /events`). |
+| `AI_ENGINE_GENERATION_API_URL` | `http://ai-api:8001` | Internal URL used by `ai-stats` to query cache monitoring/reset endpoints from `ai-api`. |
+| `AI_ENGINE_GENERATION_CACHE_BACKEND` | `redis` | Cache backend used by `ai-api` (`redis` recommended for persistent containerized deployments). |
+| `AI_ENGINE_GENERATION_CACHE_REDIS_URL` | `redis://ai-cache:6379/0` | Redis connection string used by `ai-api` cache layer. |
 | `AI_ENGINE_API_KEY` | *(unset)* | Global fallback API key kept for backward compatibility. |
+| `APP_NAME` | `AxiomNode` | Base application name used in image/container naming. |
+| `API_SERVICE_NAME` | `ai_api` | Service name segment for `ai-api` image/container naming. |
+| `STATS_SERVICE_NAME` | `ai_stats` | Service name segment for `ai-stats` image/container naming. |
+| `LLAMA_CPU_SERVICE_NAME` | `llama_server_cpu` | Service name segment for CPU llama service naming. |
+| `LLAMA_GPU_SERVICE_NAME` | `llama_server_gpu` | Service name segment for GPU llama service naming. |
+| `AI_ENGINE_DISTRIBUTION` | `dev` | Distribution suffix used in observability and image/container naming. |
+| `AI_ENGINE_RELEASE_VERSION` | `v1` | Release-version suffix used in observability and image/container naming. |
 
 ### Windows note: Docker Desktop resource ceiling
 
@@ -416,8 +476,8 @@ assigned to the Linux backend.
 After that, run:
 
 ```bash
-docker compose -f src/docker-compose.yml down
-docker compose -f src/docker-compose.yml up -d --build
+docker compose -f src/docker-compose.yml --profile cpu down
+docker compose -f src/docker-compose.yml --profile cpu up -d --build
 ```
 
 ---

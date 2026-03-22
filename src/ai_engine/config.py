@@ -20,6 +20,9 @@ Environment variables
     Name of the sentence-transformers model used for RAG embeddings.
     Defaults to ``"all-MiniLM-L6-v2"``.
 
+``AI_ENGINE_LLAMA_TIMEOUT_SECONDS``
+    Timeout (seconds) for upstream HTTP calls from ai-api to llama.cpp.
+
 ``AI_ENGINE_API_KEY``
     Shared secret propagated to ``X-API-Key`` header validation.  When
     absent, authentication is disabled.
@@ -39,6 +42,10 @@ Environment variables
 ``AI_ENGINE_STATS_URL``
     Base URL for the observability service receiving event ingestion
     from the main API (e.g. ``http://ai-stats:8000``).
+
+``AI_ENGINE_GENERATION_API_URL``
+    Base URL for the generation API used by the observability service
+    to query monitoring/cache runtime data (e.g. ``http://ai-api:8001``).
 
 ``AI_ENGINE_MODELS_DIR``
     Directory where GGUF model files are stored.  Defaults to the
@@ -107,11 +114,13 @@ class AIEngineSettings(BaseSettings):
         llama_url: HTTP base URL of a llama.cpp server.
         model_path: Path to a local GGUF model file.
         embedding_model: Sentence-transformers model name for RAG.
+        llama_timeout_seconds: Timeout for upstream llama HTTP calls.
         api_key: Shared secret for ``X-API-Key`` header auth.
         games_api_key: API key for game microservice generation routes.
         bridge_api_key: API key for bridge microservice routes.
         stats_api_key: API key for internal ai-api -> ai-stats events.
         stats_url: Base URL for observability event ingestion.
+        generation_api_url: Base URL for generation API monitoring queries.
         models_dir: Directory where GGUF model files are stored.
         generation_cache_path: Path to persistent generation cache file.
         generation_cache_backend: Persistent cache backend (tinydb/redis).
@@ -145,6 +154,12 @@ class AIEngineSettings(BaseSettings):
         alias="AI_ENGINE_EMBEDDING_MODEL",
         validation_alias="AI_ENGINE_EMBEDDING_MODEL",
     )
+    llama_timeout_seconds: float = Field(
+        default=180.0,
+        ge=1.0,
+        alias="AI_ENGINE_LLAMA_TIMEOUT_SECONDS",
+        validation_alias="AI_ENGINE_LLAMA_TIMEOUT_SECONDS",
+    )
     api_key: str | None = Field(
         default=None,
         alias="AI_ENGINE_API_KEY",
@@ -169,6 +184,11 @@ class AIEngineSettings(BaseSettings):
         default=None,
         alias="AI_ENGINE_STATS_URL",
         validation_alias="AI_ENGINE_STATS_URL",
+    )
+    generation_api_url: str = Field(
+        default="http://ai-api:8001",
+        alias="AI_ENGINE_GENERATION_API_URL",
+        validation_alias="AI_ENGINE_GENERATION_API_URL",
     )
     models_dir: str = Field(
         default=_DEFAULT_MODELS_DIR,

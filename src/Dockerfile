@@ -1,6 +1,11 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # Stage 1 – builder base: prepare source and metadata
 # ──────────────────────────────────────────────────────────────────────────────
+ARG APP_NAME=AxiomNode
+ARG SERVICE_NAME=ai_engine
+ARG DISTRIBUTION=dev
+ARG RELEASE_VERSION=v1
+
 FROM python:3.11-slim AS builder-base
 
 WORKDIR /build
@@ -23,7 +28,7 @@ FROM builder-base AS builder-api
 RUN pip install --no-cache-dir --prefix=/install \
     --index-url https://download.pytorch.org/whl/cpu \
     --extra-index-url https://pypi.org/simple \
-    ".[api,rag,kbd]"
+    ".[api,rag,kbd,redis]"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -43,7 +48,12 @@ RUN pip install --no-cache-dir --prefix=/install ".[api]"
 # ──────────────────────────────────────────────────────────────────────────────
 FROM python:3.11-slim AS runtime-base
 
-LABEL org.opencontainers.image.title="ai-engine"
+ARG APP_NAME
+ARG SERVICE_NAME
+ARG DISTRIBUTION
+ARG RELEASE_VERSION
+
+LABEL org.opencontainers.image.title="${APP_NAME}_${SERVICE_NAME}_${DISTRIBUTION}_${RELEASE_VERSION}"
 LABEL org.opencontainers.image.description="AxiomNode AI Engine – RAG, LLM inference and educational game generation"
 LABEL org.opencontainers.image.source="https://github.com/axiomnode/ai-engine"
 
@@ -62,7 +72,8 @@ USER appuser
 # Environment – can all be overridden in docker-compose / kubectl
 ENV AI_ENGINE_MODELS_DIR=/app/models \
     PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app/src
 
 # Both services expose different ports; docker-compose overrides the command
 # for each. Default CMD runs the observability/stats API on port 8000.

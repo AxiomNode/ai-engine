@@ -73,6 +73,7 @@ class LlamaClient:
         n_gpu_layers: int = 0,
         seed: int = -1,
         json_mode: bool = False,
+        request_timeout_seconds: float = 180.0,
     ) -> None:
         if api_url is None and model_path is None:
             raise ValueError("At least one of api_url or model_path must be provided")
@@ -87,6 +88,7 @@ class LlamaClient:
         self.n_gpu_layers = n_gpu_layers
         self.seed = seed
         self.json_mode = json_mode
+        self.request_timeout_seconds = max(1.0, float(request_timeout_seconds))
 
         # Lazy-loaded local model
         self._local_model: Any = None
@@ -152,7 +154,7 @@ class LlamaClient:
         response = requests.post(
             self.api_url,  # type: ignore[arg-type]
             json=payload,
-            timeout=180,
+            timeout=self.request_timeout_seconds,
         )
         response.raise_for_status()
         data = response.json()

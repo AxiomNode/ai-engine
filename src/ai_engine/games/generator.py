@@ -86,10 +86,10 @@ class GameGenerator:
         Args:
             query: Search query for RAG retrieval.
             topic: Educational topic for the game.
-            game_type: ``"quiz"``, ``"pasapalabra"``, or ``"true_false"``.
+            game_type: ``"quiz"``, ``"word-pass"``, or ``"true_false"``.
             language: Output language (defaults to ``self.default_language``).
             num_questions: Number of questions/statements.
-            letters: Comma-separated letters (used only by pasapalabra).
+            letters: Comma-separated letters (used only by word-pass).
             max_tokens: Override default token budget.
             top_k: Override RAG retrieval count.
 

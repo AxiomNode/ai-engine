@@ -2,14 +2,14 @@
 
 Provides data models, prompt templates, and a generator that uses the
 RAG pipeline + a local LLM to produce structured JSON definitions for
-educational games (quiz, pasapalabra, true/false, etc.).
+educational games (quiz, word-pass, true/false, etc.).
 """
 
 from ai_engine.games.generator import GameGenerator
 from ai_engine.games.schemas import (
     GameEnvelope,
-    PasapalabraGame,
-    PasapalabraWord,
+    WordPassGame,
+    WordPassWord,
     QuizGame,
     QuizQuestion,
     TrueFalseGame,
@@ -19,8 +19,8 @@ from ai_engine.games.schemas import (
 __all__ = [
     "QuizGame",
     "QuizQuestion",
-    "PasapalabraGame",
-    "PasapalabraWord",
+    "WordPassGame",
+    "WordPassWord",
     "TrueFalseGame",
     "TrueFalseStatement",
     "GameEnvelope",

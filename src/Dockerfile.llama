@@ -11,8 +11,13 @@
 # the ./models directory on the host and is mounted read-only at runtime.
 #
 # Build (handled automatically by docker compose up --build):
-#   docker build -f Dockerfile.llama -t ai-engine-llama .
+#   docker build -f Dockerfile.llama -t AxiomNode_llama_server_cpu_dev_v1 .
 # ──────────────────────────────────────────────────────────────────────────────
+
+ARG APP_NAME=AxiomNode
+ARG SERVICE_NAME=llama_server_cpu
+ARG DISTRIBUTION=dev
+ARG RELEASE_VERSION=v1
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Stage 1 – builder: compile llama-cpp-python native extensions
@@ -39,7 +44,12 @@ RUN pip install --no-cache-dir --prefix=/install \
 # ──────────────────────────────────────────────────────────────────────────────
 FROM python:3.11-slim AS runtime
 
-LABEL org.opencontainers.image.title="ai-engine – llama.cpp server"
+ARG APP_NAME
+ARG SERVICE_NAME
+ARG DISTRIBUTION
+ARG RELEASE_VERSION
+
+LABEL org.opencontainers.image.title="${APP_NAME}_${SERVICE_NAME}_${DISTRIBUTION}_${RELEASE_VERSION}"
 LABEL org.opencontainers.image.description="OpenAI-compatible llama.cpp HTTP inference server for AxiomNode"
 
 RUN apt-get update \

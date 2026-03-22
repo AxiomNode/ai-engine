@@ -147,6 +147,114 @@ class TestMetricsEndpoint:
         assert "ai_engine_distribution_version_info" in body
 
 
+class TestCacheMonitoringBridge:
+    """Tests for cache monitoring endpoints delegated to ai-api."""
+
+    def test_cache_stats_returns_payload_from_generation_api(self, monkeypatch) -> None:
+        """GET /cache/stats should proxy runtime cache payload from ai-api."""
+        from ai_engine.observability import api as obs_api
+
+        class _FakeResponse:
+            status_code = 200
+
+            @staticmethod
+            def raise_for_status() -> None:
+                return None
+
+            @staticmethod
+            def json() -> dict[str, object]:
+                return {
+                    "memory_entries": 2,
+                    "memory_max_entries": 10,
+                    "memory_saturation_ratio": 0.2,
+                    "persistent_entries": 5,
+                    "memory_enabled": True,
+                    "persistent_enabled": True,
+                    "persistent_backend": "tinydb",
+                    "cache_namespace": "dev-v1",
+                    "distribution_version": "dev-v1",
+                    "cache_ttl_seconds": 900,
+                    "persistent_backend_errors": {
+                        "read": 0,
+                        "write": 0,
+                        "delete": 0,
+                        "stats": 0,
+                    },
+                }
+
+        monkeypatch.setattr(obs_api.httpx, "get", lambda *args, **kwargs: _FakeResponse())
+
+        client, _ = _make_client()
+        resp = client.get("/cache/stats")
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["memory_entries"] == 2
+        assert payload["persistent_entries"] == 5
+
+    def test_cache_reset_proxies_to_generation_api(self, monkeypatch) -> None:
+        """POST /cache/reset should return reset counters from ai-api."""
+        from ai_engine.observability import api as obs_api
+
+        class _FakeResponse:
+            status_code = 200
+
+            @staticmethod
+            def raise_for_status() -> None:
+                return None
+
+            @staticmethod
+            def json() -> dict[str, int]:
+                return {"removed_memory": 3, "removed_persistent": 7}
+
+        monkeypatch.setattr(obs_api.httpx, "post", lambda *args, **kwargs: _FakeResponse())
+
+        client, _ = _make_client()
+        resp = client.post("/cache/reset")
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["removed_memory"] == 3
+        assert payload["removed_persistent"] == 7
+
+    def test_stats_includes_cache_runtime(self, monkeypatch) -> None:
+        """GET /stats should include cache_runtime object for backoffice dashboards."""
+        from ai_engine.observability import api as obs_api
+
+        class _FakeResponse:
+            status_code = 200
+
+            @staticmethod
+            def raise_for_status() -> None:
+                return None
+
+            @staticmethod
+            def json() -> dict[str, object]:
+                return {
+                    "memory_entries": 1,
+                    "memory_max_entries": 10,
+                    "memory_saturation_ratio": 0.1,
+                    "persistent_entries": 4,
+                    "memory_enabled": True,
+                    "persistent_enabled": True,
+                    "persistent_backend": "tinydb",
+                    "cache_namespace": "dev-v1",
+                    "distribution_version": "dev-v1",
+                    "cache_ttl_seconds": 900,
+                    "persistent_backend_errors": {
+                        "read": 0,
+                        "write": 0,
+                        "delete": 0,
+                        "stats": 0,
+                    },
+                }
+
+        monkeypatch.setattr(obs_api.httpx, "get", lambda *args, **kwargs: _FakeResponse())
+
+        client, _ = _make_client()
+        resp = client.get("/stats")
+        assert resp.status_code == 200
+        assert "cache_runtime" in resp.json()
+
+
 # ------------------------------------------------------------------
 # API Key authentication (observability API)
 # ------------------------------------------------------------------

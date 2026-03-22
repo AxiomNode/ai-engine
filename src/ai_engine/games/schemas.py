@@ -119,12 +119,12 @@ class QuizGame(BaseModel):
 
 
 # ------------------------------------------------------------------
-# Pasapalabra (rosco)
+# WordPass (rosco)
 # ------------------------------------------------------------------
 
 
-class PasapalabraWord(BaseModel):
-    """A single word entry for a Pasapalabra rosco.
+class WordPassWord(BaseModel):
+    """A single word entry for a WordPass rosco.
 
     Attributes:
         letter: The letter of the alphabet this entry covers (A–Z).
@@ -172,7 +172,7 @@ class PasapalabraWord(BaseModel):
         return self.model_dump()
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "PasapalabraWord":
+    def from_dict(cls, data: dict[str, Any]) -> "WordPassWord":
         """Deserialise from a plain dictionary.
 
         Compatibility alias for :meth:`model_validate`.
@@ -180,22 +180,22 @@ class PasapalabraWord(BaseModel):
         return cls.model_validate(data)
 
 
-class PasapalabraGame(BaseModel):
-    """A full Pasapalabra (rosco) game.
+class WordPassGame(BaseModel):
+    """A full WordPass (rosco) game.
 
     Attributes:
-        game_type: Always ``"pasapalabra"``; included in serialisation for
+        game_type: Always ``"word-pass"``; included in serialisation for
             type discrimination.
         title: Human-readable title.
         topic: The educational topic.
         words: List of word entries (ideally one per letter A-Z).
     """
 
-    game_type: Literal["pasapalabra"] = "pasapalabra"
+    game_type: Literal["word-pass"] = "word-pass"
     title: str
     topic: str
     difficulty_percentage: int = Field(default=50, ge=0, le=100)
-    words: list[PasapalabraWord] = Field(default_factory=list)
+    words: list[WordPassWord] = Field(default_factory=list)
 
     @field_validator("title")
     @classmethod
@@ -213,7 +213,7 @@ class PasapalabraGame(BaseModel):
         return self.model_dump()
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "PasapalabraGame":
+    def from_dict(cls, data: dict[str, Any]) -> "WordPassGame":
         """Deserialise from a plain dictionary.
 
         Compatibility alias for :meth:`model_validate`.
@@ -308,9 +308,9 @@ class TrueFalseGame(BaseModel):
 # Envelope (wraps any game type)
 # ------------------------------------------------------------------
 
-GAME_TYPE_REGISTRY: dict[str, type[Union[QuizGame, PasapalabraGame, TrueFalseGame]]] = {
+GAME_TYPE_REGISTRY: dict[str, type[Union[QuizGame, WordPassGame, TrueFalseGame]]] = {
     "quiz": QuizGame,
-    "pasapalabra": PasapalabraGame,
+    "word-pass": WordPassGame,
     "true_false": TrueFalseGame,
 }
 
@@ -319,12 +319,12 @@ class GameEnvelope(BaseModel):
     """Generic wrapper that holds any supported game type.
 
     Attributes:
-        game_type: One of ``"quiz"``, ``"pasapalabra"``, ``"true_false"``.
+        game_type: One of ``"quiz"``, ``"word-pass"``, ``"true_false"``.
         game: The concrete game instance.
     """
 
     game_type: str
-    game: Union[QuizGame, PasapalabraGame, TrueFalseGame]
+    game: Union[QuizGame, WordPassGame, TrueFalseGame]
 
     def to_dict(self) -> dict[str, Any]:
         """Serialise the wrapped game to a plain dictionary, including ``game_type``."""

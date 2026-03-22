@@ -4,7 +4,7 @@
 
 **AxiomNode** is a **social and educational platform** where learning happens
 through play. Users engage with each other via structured educational games —
-trivia quizzes, pasapalabra roscos, true/false challenges, and more — with all
+trivia quizzes, word-pass roscos, true/false challenges, and more — with all
 game content generated dynamically by local AI models.
 
 The result is a platform that is:
@@ -45,7 +45,7 @@ microservice calls to receive a validated, structured game definition
 └────┬──────────────────────┬────────────────────────┬────────────┘
      │                      │                        │
 ┌────▼────────┐   ┌─────────▼──────────┐   ┌────────▼───────────┐
-│   Trivia    │   │    Pasapalabra     │   │   True / False     │
+│   Trivia    │   │    WordPass     │   │   True / False     │
 │ Microservice│   │   Microservice     │   │   Microservice     │
 │             │   │                    │   │                    │
 │ (game rules,│   │ (rosco logic,      │   │ (statement eval,   │
@@ -100,7 +100,7 @@ User starts a game session in the App
      GameGenerator.generate(
          query   = "<topic keywords>",
          topic   = "<educational topic>",
-         game_type = "quiz" | "pasapalabra" | "true_false",
+         game_type = "quiz" | "word-pass" | "true_false",
          language  = "es" | "en" | ...,
          num_questions = N,
      )
@@ -115,7 +115,7 @@ User starts a game session in the App
            │         → local GGUF inference with JSON grammar constraint
            │
            └── GameEnvelope.from_dict(parsed_json)
-                     → validated dataclass (QuizGame / PasapalabraGame / TrueFalseGame)
+                     → validated dataclass (QuizGame / WordPassGame / TrueFalseGame)
            │
            ▼
    Microservice applies game rules (scoring, timing, letter tracking, etc.)
@@ -146,7 +146,7 @@ User starts a game session in the App
 - Composes responses from multiple microservices if needed (e.g. mixed game sessions).
 
 ### Game Microservices
-- One service per game type (trivia, pasapalabra, true/false, …).
+- One service per game type (trivia, word-pass, true/false, …).
 - Owns the **game rules and scoring logic** for that game type.
 - Requests content from the AI layer (`ai-engine`) via an internal API.
 - Returns a structured, ready-to-play session to the Orchestrator.
@@ -219,7 +219,7 @@ Game generation depends entirely on the model producing valid, schema-compliant
 JSON (constrained at the sampler level with GBNF grammar via llama.cpp).
 Qwen2.5-7B has been extensively benchmarked on structured output tasks and
 consistently fills nested JSON schemas without degenerating — critical for
-`QuizGame`, `PasapalabraGame`, and `TrueFalseGame` envelopes that the
+`QuizGame`, `WordPassGame`, and `TrueFalseGame` envelopes that the
 microservices consume directly.
 
 #### 3 — Factual accuracy for educational content

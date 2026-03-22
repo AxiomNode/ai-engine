@@ -18,15 +18,15 @@ class TestGetPrompt:
         assert "Python basics" in prompt
         assert "correct_index" in prompt
 
-    def test_pasapalabra_prompt_contains_letters(self):
+    def test_word_pass_prompt_contains_letters(self):
         prompt = get_prompt(
-            game_type="pasapalabra",
+            game_type="word-pass",
             context="Geography facts.",
             topic="Geography",
             letters="A,B,C",
         )
         assert "A,B,C" in prompt
-        assert "pasapalabra" in prompt.lower()
+        assert "word-pass" in prompt.lower()
 
     def test_true_false_prompt(self):
         prompt = get_prompt(
@@ -48,5 +48,5 @@ class TestGetPrompt:
 
     def test_all_templates_registered(self):
         assert "quiz" in TEMPLATES
-        assert "pasapalabra" in TEMPLATES
+        assert "word-pass" in TEMPLATES
         assert "true_false" in TEMPLATES

@@ -18,7 +18,7 @@ Full documentation is available in the [`docs/`](docs/) folder:
 **ai-engine** provides the fundamental building blocks for creating
 **Retrieval-Augmented Generation (RAG)** systems, a **Knowledge Base (KBD)**,
 integration with **local language models** (llama.cpp / GGUF), a
-**structured educational game generator** (quiz, pasapalabra, true/false),
+**structured educational game generator** (quiz, word-pass, true/false),
 and an **observability / stats API** (FastAPI) for monitoring model usage — all in Python.
 
 ## Project Structure
@@ -39,7 +39,7 @@ src/ai_engine/
 │   ├── llama_client.py           # llama.cpp client (HTTP API + local GGUF)
 │   └── model_manager.py          # GGUF model download and management
 ├── games/                        # Educational games module
-│   ├── schemas.py                # Data models (Quiz, Pasapalabra, T/F)
+│   ├── schemas.py                # Data models (Quiz, WordPass, T/F)
 │   ├── prompts.py                # Prompt templates per game type
 │   └── generator.py              # Orchestrator: RAG + LLM → structured game
 ├── observability/                # Stats & monitoring module
@@ -139,7 +139,7 @@ gen = GameGenerator(rag_pipeline=pipeline, llm_client=llm)
 game = gen.generate(
     query="water cycle",
     topic="Natural Sciences",
-    game_type="quiz",        # "quiz" | "pasapalabra" | "true_false"
+    game_type="quiz",        # "quiz" | "word-pass" | "true_false"
     num_questions=5,
     language="en",
 )

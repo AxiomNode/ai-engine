@@ -19,8 +19,8 @@ except ImportError:
 
 from ai_engine.games.schemas import (
     GameEnvelope,
-    PasapalabraGame,
-    PasapalabraWord,
+    WordPassGame,
+    WordPassWord,
     QuizGame,
     QuizQuestion,
 )
@@ -53,15 +53,15 @@ def _make_quiz_envelope() -> GameEnvelope:
     )
 
 
-def _make_pasapalabra_envelope() -> GameEnvelope:
-    """Return a minimal valid pasapalabra GameEnvelope for testing."""
+def _make_word_pass_envelope() -> GameEnvelope:
+    """Return a minimal valid word-pass GameEnvelope for testing."""
     return GameEnvelope(
-        game_type="pasapalabra",
-        game=PasapalabraGame(
+        game_type="word-pass",
+        game=WordPassGame(
             title="Test Rosco",
             topic="Science",
             words=[
-                PasapalabraWord(
+                WordPassWord(
                     letter="A", hint="First letter", answer="Atom", starts_with=True
                 )
             ],
@@ -183,15 +183,15 @@ class TestGenerate:
         assert call_kwargs["num_questions"] == 3
         assert call_kwargs["max_tokens"] == 512
 
-    def test_generate_pasapalabra(self) -> None:
-        """Pasapalabra game type is handled correctly."""
-        client, *_ = _make_client(envelope=_make_pasapalabra_envelope())
+    def test_generate_word_pass(self) -> None:
+        """WordPass game type is handled correctly."""
+        client, *_ = _make_client(envelope=_make_word_pass_envelope())
         resp = client.post(
             "/generate",
-            json={"query": "chemistry", "topic": "Science", "game_type": "pasapalabra"},
+            json={"query": "chemistry", "topic": "Science", "game_type": "word-pass"},
         )
         assert resp.status_code == 200
-        assert resp.json()["game_type"] == "pasapalabra"
+        assert resp.json()["game_type"] == "word-pass"
 
     def test_generate_missing_required_fields_returns_422(self) -> None:
         """Missing required fields returns HTTP 422 Unprocessable Entity."""
@@ -267,16 +267,16 @@ class TestGenerate:
         assert call_kwargs["language"] == "en"
         assert call_kwargs["difficulty_percentage"] == 65
 
-    def test_generate_pasapalabra_model_specific_endpoint(self) -> None:
-        """/generate/pasapalabra should pass letters and force pasapalabra game type."""
-        client, mock_gen, *_ = _make_client(envelope=_make_pasapalabra_envelope())
+    def test_generate_word_pass_model_specific_endpoint(self) -> None:
+        """/generate/word-pass should pass letters and force word-pass game type."""
+        client, mock_gen, *_ = _make_client(envelope=_make_word_pass_envelope())
         resp = client.post(
-            "/generate/pasapalabra",
+            "/generate/word-pass",
             params={"query": "chemistry", "topic": "Science", "letters": "A,B,C"},
         )
         assert resp.status_code == 200
         call_kwargs = mock_gen.generate_from_context.call_args.kwargs
-        assert call_kwargs["game_type"] == "pasapalabra"
+        assert call_kwargs["game_type"] == "word-pass"
         assert call_kwargs["letters"] == "A,B,C"
 
 

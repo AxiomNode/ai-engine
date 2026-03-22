@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This contract defines how game-specific microservices (quiz, pasapalabra, true-false) connect to ai-engine generation APIs.
+This contract defines how game-specific microservices (quiz, word-pass, true-false) connect to ai-engine generation APIs.
 
 Scope:
 - ai-engine generates content.
@@ -32,6 +32,9 @@ Recommended headers:
 
 ## Endpoints for Game Services
 
+Monitoring and cache-management endpoints are intentionally out of scope for
+game microservices and are provided by `ai-stats` for backoffice/operations.
+
 ### 1) Generic generation endpoint
 
 - Method: `POST`
@@ -43,7 +46,7 @@ Request body schema:
 {
   "query": "string",
   "topic": "string",
-  "game_type": "quiz|pasapalabra|true_false",
+  "game_type": "quiz|word-pass|true_false",
   "language": "es",
   "num_questions": 5,
   "difficulty_percentage": 50,
@@ -59,7 +62,7 @@ Request body schema:
 These routes reduce payload ambiguity and simplify client code.
 
 - Quiz: `POST /generate/quiz`
-- Pasapalabra: `POST /generate/pasapalabra`
+- WordPass: `POST /generate/word-pass`
 - True/False: `POST /generate/true-false`
 
 Common query parameters:
@@ -72,7 +75,7 @@ Common query parameters:
 Quiz/True-False additional query parameter:
 - `num_questions` (optional, range `1..50`, default `5`)
 
-Pasapalabra additional query parameter:
+WordPass additional query parameter:
 - `letters` (optional, default `A,B,C,D,E,F,G,H,I,J,L,M,N,O,P,R,S,T,V,Z`)
 
 ### Request example: quiz

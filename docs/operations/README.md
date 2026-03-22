@@ -27,3 +27,5 @@ cp src/distributions/examples/.env.example src/.env
 - Compose profiles are auto-selected by install scripts:
   - `windows` and `vps-cpu` map to `cpu`.
   - `vps-gpu` maps to `gpu`.
+- Built image/container names follow:
+  - `<APP_NAME>_<SERVICE_NAME>_<AI_ENGINE_DISTRIBUTION>_<AI_ENGINE_RELEASE_VERSION>`.
