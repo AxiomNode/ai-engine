@@ -21,6 +21,18 @@ integration with **local language models** (llama.cpp / GGUF), a
 **structured educational game generator** (quiz, word-pass, true/false),
 and an **observability / stats API** (FastAPI) for monitoring model usage — all in Python.
 
+## Integracion En Nueva Arquitectura
+
+`ai-engine` opera como servicio interno de capacidades AI para microservicios de dominio.
+
+- No se considera endpoint publico para clientes finales.
+- Consumidores esperados: `microservice-quizz`, `microservice-wordpass` y futuros servicios internos.
+- Exposicion recomendada: red privada con politicas de acceso por servicio.
+
+Contrato interno inicial publicado en:
+
+- `contracts-and-schemas/schemas/openapi/internal-ai-engine.v1.yaml`
+
 ## Project Structure
 
 ```

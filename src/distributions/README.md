@@ -49,6 +49,21 @@ Runtime systems expose the combined label as:
 
 - `distribution-version` = `<AI_ENGINE_DISTRIBUTION>-<AI_ENGINE_RELEASE_VERSION>`
 
+## Resource Tiers by Stage
+
+Distributions now follow a fixed capacity strategy:
+
+- `dev`: minimum resources for fast local validation and functional tests.
+- `stg`: medium resources, closer to production behavior without full cost.
+- `pro`: recommended resources for stable production workloads.
+
+Primary knobs adjusted per env file:
+
+- model profile (`LLAMA_MODEL_FILE`, `LLAMA_CTX_SIZE`, `LLAMA_BATCH`)
+- container capacity (`LLAMA_*`, `API_*`, `STATS_*` CPU/RAM)
+- processing headroom (`API_WORKERS`)
+- generation budget (`AI_ENGINE_LLAMA_TIMEOUT_SECONDS`)
+
 ## Docker Image and Container Naming
 
 Compose uses the naming pattern below for built images and container names:

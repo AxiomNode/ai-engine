@@ -52,4 +52,5 @@ chroma_db/
 
 # Environment variables – NEVER commit secrets
 .env
+src/.env.secrets
 coverage.json
