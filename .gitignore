@@ -54,3 +54,13 @@ chroma_db/
 .env
 src/.env.secrets
 coverage.json
+
+# Secrets policy (centralized in secrets repo)
+.env
+.env.*
+**/.env
+**/.env.*
+( ai-engine api-gateway bff-backoffice bff-mobile microservice-quizz microservice-users microservice-wordpass shared-sdk-client backoffice contracts-and-schemas docs observability-platform platform-infra )*/.env.example
+**/.env.secrets
+*.secrets.env
+runtime/**/*.env
