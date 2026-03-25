@@ -15,7 +15,7 @@ This document tracks the improvement history for the ai-engine project.
 
 #### Initialization
 
-- Improvement history created with a prioritized roadmap (P0, P1, P2).
+- Improvement history created with a prioritized plan (P0, P1, P2).
 
 #### P0-01 (Critical) - Protected Generation Regression and Compatibility
 
@@ -104,5 +104,6 @@ This document tracks the improvement history for the ai-engine project.
 
 ## Current Status
 
-- All planned improvements in the current roadmap are completed.
-- Next cycle should define a new roadmap section with new IDs and target outcomes.
+- All planned improvements in the documented cycle are completed.
+- This document is kept as a historical record of delivered work.
+- New initiatives must be tracked in a separate operational planning artifact.

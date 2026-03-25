@@ -26,7 +26,7 @@ and an **observability / stats API** (FastAPI) for monitoring model usage — al
 `ai-engine` opera como servicio interno de capacidades AI para microservicios de dominio.
 
 - No se considera endpoint publico para clientes finales.
-- Consumidores esperados: `microservice-quizz`, `microservice-wordpass` y futuros servicios internos.
+- Consumidores esperados: `microservice-quizz`, `microservice-wordpass` y otros microservicios internos autorizados.
 - Exposicion recomendada: red privada con politicas de acceso por servicio.
 
 Contrato interno inicial publicado en:

@@ -1,6 +1,6 @@
-# Improvement Checklist (Proposed)
+# Improvement Checklist (Completed Cycle)
 
-This document tracks the next improvement cycle for the ai-engine project.
+This document tracks a completed improvement cycle for the ai-engine project.
 
 ## How to use this checklist
 
@@ -101,9 +101,9 @@ This document tracks the next improvement cycle for the ai-engine project.
   - Acceptance criteria:
     - Runbook available in docs with step-by-step recovery procedures.
 
-## Progress Log
+## Progress Log (Final)
 
-- 2026-03-16: Proposed checklist created for the next cycle.
+- 2026-03-16: Checklist created for the improvement cycle.
 - 2026-03-16: N1-01 completed. Added Redis-path tests for read/write/reset behavior with fallback coverage.
 - 2026-03-16: N1-02 completed. Added cache namespace versioning and selective invalidation by namespace.
 - 2026-03-16: N1-03 completed. Added persistent backend resilience guards and fallback metadata/counters.
@@ -116,3 +116,8 @@ This document tracks the next improvement cycle for the ai-engine project.
 - 2026-03-16: N4-01 completed. Added ADR `../architecture/adr-0001-cache-strategy.md` defining backend choices, invalidation strategy, and trade-offs.
 - 2026-03-16: N4-02 completed. Added optional dependency CI matrix profiles (`core_api`, `rag_kbd`, `redis`) and introduced `redis` optional extra.
 - 2026-03-16: N4-03 completed. Published `incident-runbook.md` with cache corruption, backend outage, metrics-gap response, and rollback procedures.
+
+## Cycle Closure
+
+- All checklist items are complete.
+- This file is retained as an execution record and is not an active backlog.
