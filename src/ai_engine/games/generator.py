@@ -210,22 +210,60 @@ class GameGenerator:
     ) -> dict[str, Any]:
         """Normalize generated payload fields for downstream contracts."""
         normalized = dict(data)
-        normalized.setdefault("game_type", game_type)
+        normalized_game_type = str(normalized.get("game_type") or game_type or "quiz").strip().lower()
+        if normalized_game_type in {"educational-game", "educational_game"}:
+            normalized_game_type = "quiz"
+        elif normalized_game_type in {"wordpass", "word_pass"}:
+            normalized_game_type = "word-pass"
+        elif normalized_game_type in {"true-false", "truefalse"}:
+            normalized_game_type = "true_false"
+        normalized["game_type"] = normalized_game_type
         normalized.setdefault("topic", topic)
+        normalized.setdefault("title", str(topic or "Quiz"))
         normalized["difficulty_percentage"] = max(0, min(100, difficulty_percentage))
 
-        if normalized.get("game_type") == "quiz":
+        if normalized_game_type == "quiz":
             raw_questions = normalized.get("questions", [])
             if isinstance(raw_questions, list):
                 cleaned_questions: list[dict[str, Any]] = []
                 for item in raw_questions:
                     if not isinstance(item, dict):
                         continue
-                    question = str(item.get("question", ""))
+                    question = str(item.get("question", "")).strip()
                     item = dict(item)
                     item["question"] = self._clean_quiz_question_text(question)
+
+                    raw_options = item.get("options", [])
+                    options: list[str] = []
+                    if isinstance(raw_options, list):
+                        options = [str(option).strip() for option in raw_options if str(option).strip()]
+
+                    # Ensure minimum choices required by QuizQuestion schema.
+                    if len(options) < 2:
+                        fallback_a = "Opcion A"
+                        fallback_b = "Opcion B"
+                        if options:
+                            fallback_a = options[0]
+                        options = [fallback_a, fallback_b]
+                    item["options"] = options
+
+                    raw_correct_index = item.get("correct_index", 0)
+                    try:
+                        correct_index = int(raw_correct_index)
+                    except (TypeError, ValueError):
+                        correct_index = 0
+                    if correct_index < 0 or correct_index >= len(options):
+                        correct_index = 0
+                    item["correct_index"] = correct_index
+
+                    item["explanation"] = str(item.get("explanation", "") or "")
+
+                    if not item["question"]:
+                        item["question"] = f"Pregunta sobre {topic}".strip()
                     cleaned_questions.append(item)
                 normalized["questions"] = cleaned_questions
+
+            normalized["title"] = str(normalized.get("title") or topic or "Quiz").strip() or "Quiz"
         return normalized
 
     def _clean_quiz_question_text(self, question: str) -> str:

@@ -126,6 +126,24 @@ class _MockLLMRetryThenValid:
         return json.dumps(data)
 
 
+class _MockLLMMalformedQuizPayload:
+    """Mock LLM that returns incomplete quiz payload requiring normalization."""
+
+    def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
+        data = {
+            "game_type": "educational-game",
+            "topic": "Malformed Topic",
+            "questions": [
+                {
+                    "question": "",
+                    "options": [""],
+                    "correct_index": 9,
+                }
+            ],
+        }
+        return json.dumps(data)
+
+
 # ------------------------------------------------------------------
 # Fixtures
 # ------------------------------------------------------------------
@@ -234,3 +252,19 @@ class TestGameGeneratorErrorHandling:
 
         with pytest.raises(ValueError, match="after retry"):
             gen.generate(query="anything", topic="X")
+
+    def test_normalizes_malformed_quiz_payload(self, rag_pipeline):
+        gen = GameGenerator(
+            rag_pipeline=rag_pipeline,
+            llm_client=_MockLLMMalformedQuizPayload(),
+        )
+
+        result = gen.generate(query="x", topic="Normalization", game_type="quiz")
+
+        assert result.game_type == "quiz"
+        assert result.game.title
+        assert len(result.game.questions) == 1
+        question = result.game.questions[0]
+        assert question.question
+        assert len(question.options) >= 2
+        assert 0 <= question.correct_index < len(question.options)
