@@ -33,6 +33,12 @@ Contrato interno inicial publicado en:
 
 - `contracts-and-schemas/schemas/openapi/internal-ai-engine.v1.yaml`
 
+## Responsabilidad principal
+
+- ai-engine-api: API principal de generacion e ingesta AI con cache, RAG y control de dependencias.
+- ai-engine-stats: observabilidad AI para eventos, agregados operativos y metricas de cache/runtime.
+- llama-server: inferencia LLM base para el motor AI.
+
 ## Project Structure
 
 ```
