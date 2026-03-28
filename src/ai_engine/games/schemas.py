@@ -314,6 +314,20 @@ GAME_TYPE_REGISTRY: dict[str, type[Union[QuizGame, WordPassGame, TrueFalseGame]]
     "true_false": TrueFalseGame,
 }
 
+GAME_TYPE_ALIASES: dict[str, str] = {
+    "educational-game": "quiz",
+    "educational_game": "quiz",
+    "wordpass": "word-pass",
+    "word_pass": "word-pass",
+    "true-false": "true_false",
+    "truefalse": "true_false",
+}
+
+
+def _normalize_game_type(value: Any) -> str:
+    raw = str(value or "quiz").strip().lower()
+    return GAME_TYPE_ALIASES.get(raw, raw)
+
 
 class GameEnvelope(BaseModel):
     """Generic wrapper that holds any supported game type.
@@ -346,12 +360,14 @@ class GameEnvelope(BaseModel):
         Raises:
             ValueError: If ``game_type`` is not in the registry.
         """
-        game_type = data.get("game_type", "quiz")
+        game_type = _normalize_game_type(data.get("game_type", "quiz"))
         game_cls = GAME_TYPE_REGISTRY.get(game_type)
         if game_cls is None:
             raise ValueError(
                 f"Unknown game_type {game_type!r}. "
                 f"Supported: {list(GAME_TYPE_REGISTRY)}"
             )
-        game = game_cls.model_validate(data)
+        normalized_data = dict(data)
+        normalized_data["game_type"] = game_type
+        game = game_cls.model_validate(normalized_data)
         return cls(game_type=game_type, game=game)

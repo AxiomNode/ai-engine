@@ -260,6 +260,19 @@ class TestGameEnvelope:
         with pytest.raises(ValueError, match="Unknown game_type"):
             GameEnvelope.from_dict({"game_type": "bogus"})
 
+    def test_game_type_alias_is_normalized(self):
+        data = {
+            "game_type": "educational-game",
+            "title": "Q",
+            "topic": "T",
+            "questions": [
+                {"question": "Q?", "options": ["a", "b", "c", "d"], "correct_index": 1},
+            ],
+        }
+        env = GameEnvelope.from_dict(data)
+        assert env.game_type == "quiz"
+        assert isinstance(env.game, QuizGame)
+
     def test_to_dict_round_trip(self):
         data = {
             "game_type": "quiz",
