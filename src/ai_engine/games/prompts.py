@@ -2,7 +2,7 @@
 
 Each template instructs the LLM to produce strict JSON matching the
 schemas defined in :mod:`ai_engine.games.schemas`.  Templates use Python
-:meth:`str.format` placeholders: ``{context}``, ``{topic}``,
+:meth:`str.format` placeholders: ``{context}``,
 ``{num_questions}``, ``{language}``, and ``{letters}``.
 """
 
@@ -15,7 +15,16 @@ from __future__ import annotations
 _SYSTEM = (
     "You are an expert pedagogue specialising in educational game design. "
     "You MUST reply ONLY with valid, strict JSON — no markdown fences, no "
-    "commentary, no explanation before or after the JSON block."
+    "commentary, no explanation before or after the JSON block. "
+    "CRITICAL: Base ALL questions, answers, and explanations EXCLUSIVELY on "
+    "the provided context. Do NOT fabricate facts, names, dates, or data "
+    "that are not present in the context. If the context is insufficient "
+    "to generate the requested number of items, generate fewer items "
+    "rather than inventing content. "
+    "LANGUAGE RULE: You MUST write ALL text (title, questions, options, "
+    "explanations, hints, answers) in the language specified in the "
+    "requirements. Do NOT mix languages. If the requested language is "
+    "'es', write everything in Spanish. If 'en', write everything in English."
 )
 
 # ------------------------------------------------------------------
@@ -27,7 +36,6 @@ QUIZ_TEMPLATE = (
     "Using the following educational context, create a multiple-choice quiz.\n\n"
     "### Context\n{context}\n\n"
     "### Requirements\n"
-    "- Topic: {topic}\n"
     "- Language for all content: {language}\n"
     "- Difficulty percentage: {difficulty_percentage}% (0 easy, 100 hard)\n"
     "- Number of questions: {num_questions}\n"
@@ -37,7 +45,6 @@ QUIZ_TEMPLATE = (
     "{{\n"
     '  "game_type": "quiz",\n'
     '  "title": "<string>",\n'
-    '  "topic": "<string>",\n'
     '  "questions": [\n'
     "    {{\n"
     '      "question": "<string>",\n'
@@ -47,6 +54,8 @@ QUIZ_TEMPLATE = (
     "    }}\n"
     "  ]\n"
     "}}\n\n"
+    "IMPORTANT: Generate exactly {num_questions} questions. "
+    "Write ALL text in {language}. "
     "Generate the quiz now:"
 )
 
@@ -59,7 +68,6 @@ WORD_PASS_TEMPLATE = (
     "Using the following educational context, create a WordPass (rosco) game.\n\n"
     "### Context\n{context}\n\n"
     "### Requirements\n"
-    "- Topic: {topic}\n"
     "- Language for all content: {language}\n"
     "- Difficulty percentage: {difficulty_percentage}% (0 easy, 100 hard)\n"
     "- Cover these letters: {letters}\n"
@@ -69,7 +77,6 @@ WORD_PASS_TEMPLATE = (
     "{{\n"
     '  "game_type": "word-pass",\n'
     '  "title": "<string>",\n'
-    '  "topic": "<string>",\n'
     '  "words": [\n'
     "    {{\n"
     '      "letter": "<A-Z>",\n'
@@ -79,6 +86,8 @@ WORD_PASS_TEMPLATE = (
     "    }}\n"
     "  ]\n"
     "}}\n\n"
+    "IMPORTANT: Generate one word for EACH letter in the list. "
+    "Write ALL text in {language}. "
     "Generate the word-pass now:"
 )
 
@@ -91,7 +100,6 @@ TRUE_FALSE_TEMPLATE = (
     "Using the following educational context, create a true/false game.\n\n"
     "### Context\n{context}\n\n"
     "### Requirements\n"
-    "- Topic: {topic}\n"
     "- Language for all content: {language}\n"
     "- Difficulty percentage: {difficulty_percentage}% (0 easy, 100 hard)\n"
     "- Number of statements: {num_questions}\n"
@@ -101,7 +109,6 @@ TRUE_FALSE_TEMPLATE = (
     "{{\n"
     '  "game_type": "true_false",\n'
     '  "title": "<string>",\n'
-    '  "topic": "<string>",\n'
     '  "statements": [\n'
     "    {{\n"
     '      "statement": "<string>",\n'
@@ -127,7 +134,6 @@ TEMPLATES: dict[str, str] = {
 def get_prompt(
     game_type: str,
     context: str,
-    topic: str,
     language: str = "es",
     difficulty_percentage: int = 50,
     num_questions: int = 5,
@@ -138,7 +144,6 @@ def get_prompt(
     Args:
         game_type: One of ``"quiz"``, ``"word-pass"``, ``"true_false"``.
         context: RAG-retrieved context text.
-        topic: Educational topic.
         language: Target language code (default ``"es"`` = Spanish).
         num_questions: Number of questions/statements to generate.
         letters: Comma-separated letters for word-pass.
@@ -157,7 +162,6 @@ def get_prompt(
     return template.format(
         system=_SYSTEM,
         context=context,
-        topic=topic,
         language=language,
         difficulty_percentage=difficulty_percentage,
         num_questions=num_questions,

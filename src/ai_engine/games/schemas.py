@@ -84,15 +84,13 @@ class QuizGame(BaseModel):
         game_type: Always ``"quiz"``; included in serialisation for type
             discrimination.
         title: Human-readable title for the quiz.
-        topic: The educational topic covered.
         questions: Ordered list of quiz questions.
     """
 
     game_type: Literal["quiz"] = "quiz"
     title: str
-    topic: str
     difficulty_percentage: int = Field(default=50, ge=0, le=100)
-    questions: list[QuizQuestion] = Field(default_factory=list)
+    questions: list[QuizQuestion] = Field(default_factory=list, min_length=1)
 
     @field_validator("title")
     @classmethod
@@ -187,15 +185,13 @@ class WordPassGame(BaseModel):
         game_type: Always ``"word-pass"``; included in serialisation for
             type discrimination.
         title: Human-readable title.
-        topic: The educational topic.
         words: List of word entries (ideally one per letter A-Z).
     """
 
     game_type: Literal["word-pass"] = "word-pass"
     title: str
-    topic: str
     difficulty_percentage: int = Field(default=50, ge=0, le=100)
-    words: list[WordPassWord] = Field(default_factory=list)
+    words: list[WordPassWord] = Field(default_factory=list, min_length=1)
 
     @field_validator("title")
     @classmethod
@@ -270,15 +266,13 @@ class TrueFalseGame(BaseModel):
         game_type: Always ``"true_false"``; included in serialisation for
             type discrimination.
         title: Human-readable title.
-        topic: The educational topic.
         statements: Ordered list of true/false statements.
     """
 
     game_type: Literal["true_false"] = "true_false"
     title: str
-    topic: str
     difficulty_percentage: int = Field(default=50, ge=0, le=100)
-    statements: list[TrueFalseStatement] = Field(default_factory=list)
+    statements: list[TrueFalseStatement] = Field(default_factory=list, min_length=1)
 
     @field_validator("title")
     @classmethod

@@ -15,10 +15,11 @@ At least one of ``api_url`` or ``model_path`` must be provided.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
-import requests
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -65,9 +66,9 @@ class LlamaClient:
         self,
         api_url: str | None = None,
         model_path: str | None = None,
-        default_max_tokens: int = 256,
-        temperature: float = 0.7,
-        top_p: float = 0.95,
+        default_max_tokens: int = 512,
+        temperature: float = 0.15,
+        top_p: float = 0.9,
         repeat_penalty: float = 1.1,
         n_ctx: int = 4096,
         n_gpu_layers: int = 0,
@@ -93,21 +94,48 @@ class LlamaClient:
         # Lazy-loaded local model
         self._local_model: Any = None
 
+        # Reusable async HTTP client with connection pooling
+        self._http_client: httpx.AsyncClient | None = None
+
+    # ------------------------------------------------------------------
+    # Async HTTP client lifecycle
+    # ------------------------------------------------------------------
+
+    def _get_http_client(self) -> httpx.AsyncClient:
+        """Return a reusable async HTTP client (created lazily)."""
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(self.request_timeout_seconds, connect=10.0),
+                limits=httpx.Limits(
+                    max_connections=20,
+                    max_keepalive_connections=10,
+                    keepalive_expiry=30.0,
+                ),
+            )
+        return self._http_client
+
+    async def close(self) -> None:
+        """Close the underlying HTTP client (call on shutdown)."""
+        if self._http_client is not None and not self._http_client.is_closed:
+            await self._http_client.aclose()
+            self._http_client = None
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def generate(
+    async def generate(
         self,
         prompt: str,
         max_tokens: int | None = None,
         *,
         json_mode: bool | None = None,
     ) -> str:
-        """Generate a text completion for *prompt*.
+        """Generate a text completion for *prompt* (async).
 
         Uses the HTTP API backend when ``api_url`` is set, otherwise
-        falls back to the local GGUF model.
+        falls back to the local GGUF model (run in a thread to avoid
+        blocking the event loop).
 
         Args:
             prompt: The input prompt.
@@ -122,15 +150,32 @@ class LlamaClient:
         use_json = json_mode if json_mode is not None else self.json_mode
 
         if self.api_url is not None:
-            return self._generate_via_api(prompt, tokens, use_json)
+            return await self._generate_via_api(prompt, tokens, use_json)
+        return await asyncio.to_thread(self._generate_local, prompt, tokens, use_json)
+
+    def generate_sync(
+        self,
+        prompt: str,
+        max_tokens: int | None = None,
+        *,
+        json_mode: bool | None = None,
+    ) -> str:
+        """Synchronous wrapper kept for backward compatibility and tests."""
+        tokens = max_tokens or self.default_max_tokens
+        use_json = json_mode if json_mode is not None else self.json_mode
+
+        if self.api_url is not None:
+            return asyncio.get_event_loop().run_until_complete(
+                self._generate_via_api(prompt, tokens, use_json)
+            )
         return self._generate_local(prompt, tokens, use_json)
 
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _generate_via_api(self, prompt: str, max_tokens: int, json_mode: bool) -> str:
-        """Send a completion request to the llama.cpp HTTP server."""
+    async def _generate_via_api(self, prompt: str, max_tokens: int, json_mode: bool) -> str:
+        """Send a completion request to the llama.cpp HTTP server (async)."""
         api_url = (self.api_url or "").rstrip("/")
         is_openai_completions = api_url.endswith("/v1/completions")
 
@@ -151,10 +196,10 @@ class LlamaClient:
         if json_mode:
             payload["grammar"] = JSON_GRAMMAR
 
-        response = requests.post(
+        client = self._get_http_client()
+        response = await client.post(
             self.api_url,  # type: ignore[arg-type]
             json=payload,
-            timeout=self.request_timeout_seconds,
         )
         response.raise_for_status()
         data = response.json()

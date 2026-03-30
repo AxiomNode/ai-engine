@@ -1,5 +1,7 @@
 """Tests for ai_engine.llm.llama_client – LlamaClient."""
 
+import asyncio
+
 import pytest
 
 from ai_engine.llm.llama_client import JSON_GRAMMAR, LlamaClient
@@ -25,9 +27,9 @@ class TestLlamaClientInit:
 
     def test_default_generation_params(self):
         client = LlamaClient(api_url="http://localhost:8080/completion")
-        assert client.default_max_tokens == 256
+        assert client.default_max_tokens == 512
         assert client.temperature >= 0
-        assert client.top_p == 0.95
+        assert client.top_p == 0.9
         assert client.repeat_penalty == 1.1
 
     def test_json_mode_off_by_default(self):
@@ -40,173 +42,131 @@ class TestLlamaClientInit:
 
 
 class TestLlamaClientGenerateAPI:
-    """Tests for generate() via HTTP API using a monkeypatched requests."""
+    """Tests for generate() via HTTP API using a monkeypatched httpx.AsyncClient."""
 
-    def test_generate_calls_api(self, monkeypatch):
-        """Verify generate() sends a POST and returns the completion text."""
+    @staticmethod
+    def _make_mock_client(response_json, captured=None):
+        """Create a mock httpx.AsyncClient whose post() returns response_json."""
+        import httpx
 
-        class FakeResponse:
+        class _MockResponse:
             status_code = 200
 
             def json(self):
-                return {"content": "Hello from API"}
+                return response_json
 
             def raise_for_status(self):
                 pass
 
-        def fake_post(url, json=None, timeout=None):
-            return FakeResponse()
+        class _MockAsyncClient:
+            is_closed = False
 
+            async def post(self, url, *, json=None, **kw):
+                if captured is not None:
+                    captured.update(json or {})
+                return _MockResponse()
+
+            async def aclose(self):
+                self.is_closed = True
+
+        return _MockAsyncClient()
+
+    def test_generate_calls_api(self, monkeypatch):
+        """Verify generate() sends a POST and returns the completion text."""
         import ai_engine.llm.llama_client as mod
 
-        monkeypatch.setattr(mod.requests, "post", fake_post)
-
         client = LlamaClient(api_url="http://localhost:8080/completion")
-        result = client.generate("Say hi")
+        mock = self._make_mock_client({"content": "Hello from API"})
+        client._http_client = mock
+
+        result = asyncio.run(client.generate("Say hi"))
         assert result == "Hello from API"
 
     def test_generate_respects_max_tokens(self, monkeypatch):
         captured = {}
-
-        class FakeResponse:
-            status_code = 200
-
-            def json(self):
-                return {"content": "ok"}
-
-            def raise_for_status(self):
-                pass
-
-        def fake_post(url, json=None, timeout=None):
-            captured.update(json or {})
-            return FakeResponse()
-
-        import ai_engine.llm.llama_client as mod
-
-        monkeypatch.setattr(mod.requests, "post", fake_post)
-
         client = LlamaClient(api_url="http://localhost:8080/completion")
-        client.generate("Say hi", max_tokens=128)
+        mock = self._make_mock_client({"content": "ok"}, captured)
+        client._http_client = mock
+
+        asyncio.run(
+            client.generate("Say hi", max_tokens=128)
+        )
         assert captured.get("n_predict") == 128
 
     def test_generate_uses_openai_max_tokens_for_v1_completions(self, monkeypatch):
         captured = {}
-
-        class FakeResponse:
-            status_code = 200
-
-            def json(self):
-                return {"choices": [{"text": "ok"}]}
-
-            def raise_for_status(self):
-                pass
-
-        def fake_post(url, json=None, timeout=None):
-            captured.update(json or {})
-            return FakeResponse()
-
-        import ai_engine.llm.llama_client as mod
-
-        monkeypatch.setattr(mod.requests, "post", fake_post)
-
         client = LlamaClient(api_url="http://localhost:8080/v1/completions")
-        client.generate("Say hi", max_tokens=128)
+        mock = self._make_mock_client({"choices": [{"text": "ok"}]}, captured)
+        client._http_client = mock
+
+        asyncio.run(
+            client.generate("Say hi", max_tokens=128)
+        )
         assert captured.get("max_tokens") == 128
         assert "n_predict" not in captured
 
     def test_json_mode_sends_grammar(self, monkeypatch):
         """When json_mode=True, the grammar should be sent to the API."""
         captured = {}
+        client = LlamaClient(
+            api_url="http://localhost:8080/completion", json_mode=True
+        )
+        mock = self._make_mock_client({"content": '{"a":1}'}, captured)
+        client._http_client = mock
 
-        class FakeResponse:
-            status_code = 200
-
-            def json(self):
-                return {"content": '{"a":1}'}
-
-            def raise_for_status(self):
-                pass
-
-        def fake_post(url, json=None, timeout=None):
-            captured.update(json or {})
-            return FakeResponse()
-
-        import ai_engine.llm.llama_client as mod
-
-        monkeypatch.setattr(mod.requests, "post", fake_post)
-
-        client = LlamaClient(api_url="http://localhost:8080/completion", json_mode=True)
-        client.generate("Give me JSON")
+        asyncio.run(client.generate("Give me JSON"))
         assert "grammar" in captured
         assert "root" in captured["grammar"]
 
     def test_json_mode_override_per_call(self, monkeypatch):
         """json_mode can be overridden per generate() call."""
         captured = {}
-
-        class FakeResponse:
-            status_code = 200
-
-            def json(self):
-                return {"content": "ok"}
-
-            def raise_for_status(self):
-                pass
-
-        def fake_post(url, json=None, timeout=None):
-            captured.update(json or {})
-            return FakeResponse()
-
-        import ai_engine.llm.llama_client as mod
-
-        monkeypatch.setattr(mod.requests, "post", fake_post)
-
         client = LlamaClient(
             api_url="http://localhost:8080/completion", json_mode=False
         )
-        client.generate("Give me JSON", json_mode=True)
+        mock = self._make_mock_client({"content": "ok"}, captured)
+        client._http_client = mock
+
+        asyncio.run(
+            client.generate("Give me JSON", json_mode=True)
+        )
         assert "grammar" in captured
 
     def test_generate_raises_on_http_error(self, monkeypatch):
-        class FakeResponse:
+        import httpx
+
+        class _ErrorResponse:
             status_code = 500
 
             def raise_for_status(self):
-                raise Exception("Server Error")
+                raise httpx.HTTPStatusError(
+                    "Server Error",
+                    request=httpx.Request("POST", "http://x"),
+                    response=httpx.Response(500),
+                )
 
-        def fake_post(url, json=None, timeout=None):
-            return FakeResponse()
+        class _ErrorClient:
+            is_closed = False
 
-        import ai_engine.llm.llama_client as mod
+            async def post(self, url, *, json=None, **kw):
+                return _ErrorResponse()
 
-        monkeypatch.setattr(mod.requests, "post", fake_post)
+            async def aclose(self):
+                pass
 
         client = LlamaClient(api_url="http://localhost:8080/completion")
-        with pytest.raises(Exception, match="Server Error"):
-            client.generate("Say hi")
+        client._http_client = _ErrorClient()
+
+        with pytest.raises(httpx.HTTPStatusError):
+            asyncio.run(client.generate("Say hi"))
 
     def test_seed_sent_when_non_negative(self, monkeypatch):
         captured = {}
-
-        class FakeResponse:
-            status_code = 200
-
-            def json(self):
-                return {"content": "ok"}
-
-            def raise_for_status(self):
-                pass
-
-        def fake_post(url, json=None, timeout=None):
-            captured.update(json or {})
-            return FakeResponse()
-
-        import ai_engine.llm.llama_client as mod
-
-        monkeypatch.setattr(mod.requests, "post", fake_post)
-
         client = LlamaClient(api_url="http://x", seed=42)
-        client.generate("test")
+        mock = self._make_mock_client({"content": "ok"}, captured)
+        client._http_client = mock
+
+        asyncio.run(client.generate("test"))
         assert captured.get("seed") == 42
 
 
@@ -234,7 +194,7 @@ class TestLlamaClientGenerateLocal:
         client = LlamaClient(model_path="/fake/model.gguf")
         fake_model = self._fake_model("hello local")
         monkeypatch.setattr(client, "_get_or_load_model", lambda: fake_model)
-        result = client.generate("Say hello")
+        result = asyncio.run(client.generate("Say hello"))
         assert result == "hello local"
 
     def test_generate_local_passes_max_tokens(self, monkeypatch):
@@ -247,7 +207,7 @@ class TestLlamaClientGenerateLocal:
             return {"choices": [{"text": "ok"}]}
 
         monkeypatch.setattr(client, "_get_or_load_model", lambda: fake_model)
-        client.generate("test", max_tokens=64)
+        asyncio.run(client.generate("test", max_tokens=64))
         assert captured.get("max_tokens") == 64
 
     def test_generate_local_with_seed(self, monkeypatch):
@@ -260,7 +220,7 @@ class TestLlamaClientGenerateLocal:
             return {"choices": [{"text": "ok"}]}
 
         monkeypatch.setattr(client, "_get_or_load_model", lambda: fake_model)
-        client.generate("test")
+        asyncio.run(client.generate("test"))
         assert captured.get("seed") == 7
 
     def test_generate_local_json_mode_grammar_import_error(self, monkeypatch):
@@ -279,7 +239,7 @@ class TestLlamaClientGenerateLocal:
         monkeypatch.setattr(client, "_get_or_load_model", lambda: fake_model)
         monkeypatch.setattr(builtins, "__import__", _fail_llama_grammar)
 
-        result = client.generate("test")
+        result = asyncio.run(client.generate("test"))
         assert result == "{}"
 
     def test_get_or_load_model_raises_if_llama_cpp_missing(self, monkeypatch):
@@ -308,7 +268,7 @@ class TestLlamaClientGenerateLocal:
             return {"choices": []}
 
         monkeypatch.setattr(client, "_get_or_load_model", lambda: fake_model)
-        result = client.generate("test")
+        result = asyncio.run(client.generate("test"))
         assert result == ""
 
 
