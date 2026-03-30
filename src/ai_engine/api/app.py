@@ -37,6 +37,7 @@ Run standalone::
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 import time
@@ -166,6 +167,71 @@ def _build_from_env() -> tuple[Any, Any]:
     tracked = TrackedGameGenerator(raw_gen, collector)
 
     return tracked, pipeline
+
+
+# ── Cache warm-up ─────────────────────────────────────────────────────
+
+_WARMUP_CATEGORIES = [
+    ("9", "General Knowledge"),
+    ("17", "Science & Nature"),
+    ("21", "Sports"),
+    ("22", "Geography"),
+    ("23", "History"),
+    ("25", "Art"),
+    ("27", "Animals"),
+]
+
+_WARMUP_GAME_TYPES = ["quiz", "word-pass", "true_false"]
+_WARMUP_LANGUAGES = ["es", "en"]
+
+
+async def _warmup_cache(optimizer: GenerationOptimizationService) -> None:
+    """Pre-generate popular game combinations in the background.
+
+    Runs after the server is up so incoming requests are accepted
+    immediately.  Each combo that already exists in cache is skipped
+    (``use_cache=True``), so only cold entries trigger LLM calls.
+    """
+    from ai_engine.api.schemas import GenerateRequest
+
+    total = len(_WARMUP_GAME_TYPES) * len(_WARMUP_LANGUAGES) * len(_WARMUP_CATEGORIES)
+    logger.info("cache-warmup: starting %d combinations", total)
+    ok, skipped, failed = 0, 0, 0
+
+    for gt in _WARMUP_GAME_TYPES:
+        for lang in _WARMUP_LANGUAGES:
+            for cid, cname in _WARMUP_CATEGORIES:
+                req = GenerateRequest(
+                    query=cname,
+                    game_type=gt,
+                    language=lang,
+                    difficulty_percentage=50,
+                    use_cache=True,
+                )
+                try:
+                    result = await optimizer.generate(req, correlation_id="warmup")
+                    if result.metrics.get("cache_hit"):
+                        skipped += 1
+                    else:
+                        ok += 1
+                    logger.debug(
+                        "cache-warmup: %s|%s|%s → %s",
+                        gt, lang, cname,
+                        "hit" if result.metrics.get("cache_hit") else "generated",
+                    )
+                except Exception:
+                    failed += 1
+                    logger.warning(
+                        "cache-warmup: %s|%s|%s failed", gt, lang, cname,
+                        exc_info=True,
+                    )
+                # Small pause between LLM calls to avoid overloading.
+                await asyncio.sleep(0.5)
+
+    logger.info(
+        "cache-warmup: done — generated=%d cached=%d failed=%d",
+        ok, skipped, failed,
+    )
 
 
 def _get_generator(request: Request) -> Any:
@@ -652,6 +718,12 @@ def create_app(
             "ai-engine generation API started distribution_version=%s",
             distribution_version,
         )
+
+        # Launch cache warm-up as a background task so the server starts
+        # accepting requests immediately while popular games are pre-generated.
+        if settings.cache_warmup_enabled and app.state.optimizer is not None:
+            asyncio.create_task(_warmup_cache(app.state.optimizer))
+
         yield
         # Clean up async resources on shutdown
         raw_gen = _unwrap_generator(app.state.generator) if app.state.generator else None

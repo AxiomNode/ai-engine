@@ -211,7 +211,7 @@ services:
       # Point to the llama.cpp server – no local model needed in this container.
       AI_ENGINE_LLAMA_URL: "http://llama-server:8080/v1/completions"
       AI_ENGINE_EMBEDDING_MODEL: "${AI_ENGINE_EMBEDDING_MODEL:-all-MiniLM-L6-v2}"
-      AI_ENGINE_LLAMA_TIMEOUT_SECONDS: "${AI_ENGINE_LLAMA_TIMEOUT_SECONDS:-420}"
+      AI_ENGINE_LLAMA_TIMEOUT_SECONDS: "${AI_ENGINE_LLAMA_TIMEOUT_SECONDS:-600}"
       AI_ENGINE_MODELS_DIR: /app/models
       AI_ENGINE_GENERATION_CACHE_PATH: /app/data/generation_cache.json
       AI_ENGINE_GENERATION_CACHE_BACKEND: "${AI_ENGINE_GENERATION_CACHE_BACKEND:-redis}"

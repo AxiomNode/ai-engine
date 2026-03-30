@@ -65,6 +65,43 @@ PLACEHOLDER_PATTERNS = [
     r"\bFIXME\b",
 ]
 
+# Cross-language synonyms for category relevance detection.
+# Maps canonical English category keywords to equivalents in other languages.
+_CATEGORY_TRANSLATIONS: dict[str, list[str]] = {
+    "general": ["general", "cultura", "allgemein", "générale", "generale"],
+    "knowledge": ["conocimiento", "conocimientos", "cultura", "wissen", "connaissance", "conoscenza"],
+    "entertainment": ["entretenimiento", "ocio", "unterhaltung", "divertissement", "intrattenimento"],
+    "film": ["película", "películas", "cine", "cinema", "film", "kino"],
+    "music": ["música", "musica", "musik", "musique"],
+    "musicals": ["musicales", "musical", "musicals"],
+    "theatres": ["teatro", "teatros", "theater", "théâtre"],
+    "television": ["televisión", "televisor", "fernsehen", "télévision"],
+    "video": ["videojuegos", "videojuego", "video"],
+    "games": ["juegos", "juego", "spiele", "jeux", "giochi"],
+    "board": ["mesa", "tablero", "brett", "plateau", "tavolo"],
+    "books": ["libros", "libro", "lectura", "bücher", "livres", "libri"],
+    "science": ["ciencia", "ciencias", "científico", "wissenschaft", "science", "scienza"],
+    "nature": ["naturaleza", "natural", "natur", "natura"],
+    "computers": ["computadoras", "informática", "ordenador", "computación", "computer", "informatique"],
+    "mathematics": ["matemáticas", "matemática", "math", "mathematik", "mathématiques"],
+    "gadgets": ["gadgets", "dispositivos", "aparatos", "tecnología"],
+    "mythology": ["mitología", "mitológico", "mitos", "mythologie", "mitologia"],
+    "sports": ["deportes", "deporte", "deportivo", "sport", "sports"],
+    "geography": ["geografía", "geográfico", "geographie", "géographie", "geografia"],
+    "history": ["historia", "histórico", "geschichte", "histoire", "storia"],
+    "politics": ["política", "político", "politik", "politique", "politica"],
+    "art": ["arte", "artístico", "kunst", "arte"],
+    "celebrities": ["celebridades", "famosos", "berühmtheiten", "célébrités", "celebrità"],
+    "animals": ["animales", "animal", "fauna", "tiere", "animaux", "animali"],
+    "vehicles": ["vehículos", "vehículo", "coches", "fahrzeuge", "véhicules", "veicoli"],
+    "comics": ["cómics", "cómic", "comics", "comic"],
+    "japanese": ["japonés", "japonesa", "japón", "anime", "manga"],
+    "anime": ["anime", "animé"],
+    "manga": ["manga"],
+    "cartoon": ["dibujos", "caricaturas", "animación", "cartoon"],
+    "animations": ["animaciones", "animación", "animados"],
+}
+
 
 def _detect_language(text: str) -> str | None:
     words = set(re.findall(r"\b\w+\b", text.lower()))
@@ -228,11 +265,16 @@ def _evaluate(data: dict[str, Any], game_type: str, language: str, category_name
     detected = _detect_language(title + " " + all_text)
     result.language_match = detected == language
 
-    # Category relevance (loose: category name words appear in content)
-    cat_words = set(re.findall(r"\b\w{4,}\b", category_name.lower()))
-    content_words = set(re.findall(r"\b\w{4,}\b", (title + " " + all_text).lower()))
-    # At least 1 category keyword in the content, OR title references the topic
-    result.category_relevant = len(cat_words & content_words) > 0
+    # Category relevance — cross-language aware.
+    # Expand English category keywords to include translations so that
+    # e.g. "Sports" matches Spanish content containing "deportes".
+    cat_tokens = set(re.findall(r"\b\w{3,}\b", category_name.lower()))
+    expanded_cat: set[str] = set(cat_tokens)
+    for token in cat_tokens:
+        for synonyms in _CATEGORY_TRANSLATIONS.get(token, []):
+            expanded_cat.add(synonyms)
+    content_words = set(re.findall(r"\b\w{3,}\b", (title + " " + all_text).lower()))
+    result.category_relevant = len(expanded_cat & content_words) > 0
 
     # Placeholder detection
     result.no_placeholder = not _has_placeholder(title + " " + all_text)

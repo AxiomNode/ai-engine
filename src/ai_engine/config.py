@@ -95,6 +95,7 @@ Examples:
 
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
 
 from pydantic import Field
@@ -155,7 +156,7 @@ class AIEngineSettings(BaseSettings):
         validation_alias="AI_ENGINE_EMBEDDING_MODEL",
     )
     llama_timeout_seconds: float = Field(
-        default=180.0,
+        default=600.0,
         ge=1.0,
         alias="AI_ENGINE_LLAMA_TIMEOUT_SECONDS",
         validation_alias="AI_ENGINE_LLAMA_TIMEOUT_SECONDS",
@@ -237,6 +238,11 @@ class AIEngineSettings(BaseSettings):
         alias="AI_ENGINE_RATE_LIMIT_WINDOW_SECONDS",
         validation_alias="AI_ENGINE_RATE_LIMIT_WINDOW_SECONDS",
     )
+    cache_warmup_enabled: bool = Field(
+        default=True,
+        alias="AI_ENGINE_CACHE_WARMUP_ENABLED",
+        validation_alias="AI_ENGINE_CACHE_WARMUP_ENABLED",
+    )
     distribution: str = Field(
         default="dev",
         alias="AI_ENGINE_DISTRIBUTION",
@@ -256,12 +262,13 @@ class AIEngineSettings(BaseSettings):
         return f"{distribution}-{release_version}"
 
 
+@lru_cache(maxsize=1)
 def get_settings() -> AIEngineSettings:
-    """Create and return a fresh :class:`AIEngineSettings` instance.
+    """Return a cached :class:`AIEngineSettings` instance.
 
-    Each call reads the current process environment, so settings always
-    reflect the latest values.  For production use, you may cache the
-    result; for tests, a fresh call ensures isolation.
+    The settings are read once from the process environment and then
+    cached for the lifetime of the process.  This avoids the overhead of
+    re-parsing env vars and re-validating on every call.
 
     Returns:
         A fully-populated :class:`AIEngineSettings` object.

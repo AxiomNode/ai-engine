@@ -74,7 +74,7 @@ class LlamaClient:
         n_gpu_layers: int = 0,
         seed: int = -1,
         json_mode: bool = False,
-        request_timeout_seconds: float = 180.0,
+        request_timeout_seconds: float = 600.0,
     ) -> None:
         if api_url is None and model_path is None:
             raise ValueError("At least one of api_url or model_path must be provided")
