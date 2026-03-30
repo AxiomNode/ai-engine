@@ -625,6 +625,13 @@ def create_app(
             app.state.generator = _state["generator"]
             app.state.rag_pipeline = _state["rag_pipeline"]
 
+        # Seed the RAG vector store with curated examples and educational
+        # resources so the LLM always has high-quality few-shot context.
+        if app.state.rag_pipeline is not None:
+            from ai_engine.examples import ExampleInjector
+
+            ExampleInjector(app.state.rag_pipeline).inject_all()
+
         if (
             app.state.optimizer is None
             and app.state.generator is not None
