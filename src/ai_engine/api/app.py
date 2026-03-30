@@ -47,6 +47,7 @@ from typing import Any
 
 import httpx
 
+logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(name)s  %(message)s")
 logger = logging.getLogger(__name__)
 
 DEFAULT_WORD_PASS_LETTERS = "A,B,C,D,E,F,G,H,I,J,L,M,N,O,P,R,S,T,V,Z"
