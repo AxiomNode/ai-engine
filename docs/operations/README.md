@@ -5,6 +5,7 @@ This section groups operational runbooks and deployment-oriented references.
 ## Contents
 
 - [deployment.md](deployment.md) — Build and run the stack with Docker and distribution matrix.
+- [resource-allocation.md](resource-allocation.md) — CPU/RAM distribution per service for VPS 8c/32GB with justification.
 - [incident-runbook.md](incident-runbook.md) — Incident response and rollback playbooks.
 - [improvement-history.md](improvement-history.md) — Chronological history of completed improvements.
 - [improvement-checklist.md](improvement-checklist.md) — Next-cycle checklist by phase and priority.
