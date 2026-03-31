@@ -25,7 +25,10 @@ services:
   ai-cache:
     image: redis:7-alpine
     container_name: "${APP_NAME:-AxiomNode}_ai_cache_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
-    command: ["redis-server", "--appendonly", "yes"]
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    cpus: "${CACHE_CPUS:-0.25}"
+    mem_limit: "${CACHE_MEMORY_LIMIT:-256m}"
+    mem_reservation: "${CACHE_MEMORY_RESERVATION:-128m}"
     volumes:
       - ai_cache_data:/data
     healthcheck:
@@ -35,49 +38,57 @@ services:
       retries: 10
 
   # ---------------------------------------------------------------------------
-  # llama.cpp CPU profile (default for windows + vps-cpu).
+  # llama.cpp CPU profile — native C++ server (fastest CPU inference).
+  # Uses the official ghcr.io/ggerganov/llama.cpp:server image (no Python).
+  #
+  # Key tuning knobs (set via .env or env_file):
+  #   LLAMA_THREADS      – physical CPU cores dedicated to matrix ops
+  #   LLAMA_BATCH        – prompt-processing batch size (higher = faster prefill)
+  #   LLAMA_CTX_SIZE     – KV-cache context window (keep ≤ 2048 for games)
+  #   LLAMA_PARALLEL     – concurrent request slots (each uses ~ctx_size memory)
+  #   --mlock            – always on: pins model weights in RAM (no page faults)
   # ---------------------------------------------------------------------------
   llama-server-cpu:
     profiles: ["cpu"]
-    image: "${APP_NAME:-AxiomNode}_${LLAMA_CPU_SERVICE_NAME:-llama_server_cpu}_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
+    image: ghcr.io/ggerganov/llama.cpp:server
     container_name: "${APP_NAME:-AxiomNode}_${LLAMA_CPU_SERVICE_NAME:-llama_server_cpu}_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
-    build:
-      context: .
-      dockerfile: Dockerfile.llama
-      target: runtime
-      args:
-        APP_NAME: "${APP_NAME:-AxiomNode}"
-        SERVICE_NAME: "${LLAMA_CPU_SERVICE_NAME:-llama_server_cpu}"
-        DISTRIBUTION: "${AI_ENGINE_DISTRIBUTION:-dev}"
-        RELEASE_VERSION: "${AI_ENGINE_RELEASE_VERSION:-v1}"
     restart: unless-stopped
-    cpus: "${LLAMA_CPUS:-6.0}"
-    mem_limit: "${LLAMA_MEMORY_LIMIT:-12g}"
-    mem_reservation: "${LLAMA_MEMORY_RESERVATION:-8g}"
-    shm_size: "${LLAMA_SHM_SIZE:-2g}"
+    cpus: "${LLAMA_CPUS:-4.0}"
+    mem_limit: "${LLAMA_MEMORY_LIMIT:-10g}"
+    mem_reservation: "${LLAMA_MEMORY_RESERVATION:-6g}"
+    shm_size: "${LLAMA_SHM_SIZE:-1g}"
     ports:
       - "7002:8080"
     volumes:
-      - ./models:/app/models:ro
-    environment:
-      MODEL: "/app/models/${LLAMA_MODEL_FILE:-Qwen2.5-3B-Instruct-Q4_K_M.gguf}"
-      HOST: "0.0.0.0"
-      PORT: "8080"
-      N_CTX: "${LLAMA_CTX_SIZE:-4096}"
-      N_THREADS: "${LLAMA_THREADS:-6}"
-      N_BATCH: "${LLAMA_BATCH:-512}"
-      N_GPU_LAYERS: "0"
-      PYTHONUNBUFFERED: "1"
+      - ./models:/models:ro
+    command:
+      - --model
+      - /models/${LLAMA_MODEL_FILE:-Qwen2.5-3B-Instruct-Q4_K_M.gguf}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --ctx-size
+      - "${LLAMA_CTX_SIZE:-2048}"
+      - --threads
+      - "${LLAMA_THREADS:-4}"
+      - --batch-size
+      - "${LLAMA_BATCH:-512}"
+      - --n-gpu-layers
+      - "0"
+      - --parallel
+      - "${LLAMA_PARALLEL:-2}"
+      - --cont-batching
+      - --mlock
     networks:
       default:
         aliases:
           - llama-server
     healthcheck:
-      test: ["CMD", "python", "-c",
-            "import urllib.request; urllib.request.urlopen('http://localhost:8080/v1/models')"]
-      interval: 45s
-      timeout: 30s
-      start_period: 180s
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:8080/v1/models >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
       retries: 8
 
   # ---------------------------------------------------------------------------
@@ -98,7 +109,7 @@ services:
     volumes:
       - ./models:/models:ro
     command:
-      - -m
+      - --model
       - /models/${LLAMA_MODEL_FILE:-Qwen2.5-7B-Instruct-Q4_K_M.gguf}
       - --host
       - 0.0.0.0
@@ -109,9 +120,13 @@ services:
       - --threads
       - "${LLAMA_THREADS:-4}"
       - --batch-size
-      - "${LLAMA_BATCH:-512}"
+      - "${LLAMA_BATCH:-1024}"
       - --n-gpu-layers
       - "${LLAMA_N_GPU_LAYERS:-99}"
+      - --parallel
+      - "${LLAMA_PARALLEL:-2}"
+      - --cont-batching
+      - --mlock
     networks:
       default:
         aliases:
@@ -141,9 +156,9 @@ services:
         DISTRIBUTION: "${AI_ENGINE_DISTRIBUTION:-dev}"
         RELEASE_VERSION: "${AI_ENGINE_RELEASE_VERSION:-v1}"
     restart: unless-stopped
-    cpus: "${STATS_CPUS:-1.0}"
-    mem_limit: "${STATS_MEMORY_LIMIT:-1g}"
-    mem_reservation: "${STATS_MEMORY_RESERVATION:-512m}"
+    cpus: "${STATS_CPUS:-0.5}"
+    mem_limit: "${STATS_MEMORY_LIMIT:-512m}"
+    mem_reservation: "${STATS_MEMORY_RESERVATION:-256m}"
     ports:
       - "7000:8000"
     env_file:
@@ -199,10 +214,10 @@ services:
         DISTRIBUTION: "${AI_ENGINE_DISTRIBUTION:-dev}"
         RELEASE_VERSION: "${AI_ENGINE_RELEASE_VERSION:-v1}"
     restart: unless-stopped
-    cpus: "${API_CPUS:-4.0}"
-    mem_limit: "${API_MEMORY_LIMIT:-8g}"
-    mem_reservation: "${API_MEMORY_RESERVATION:-4g}"
-    shm_size: "${API_SHM_SIZE:-1g}"
+    cpus: "${API_CPUS:-1.5}"
+    mem_limit: "${API_MEMORY_LIMIT:-4g}"
+    mem_reservation: "${API_MEMORY_RESERVATION:-2g}"
+    shm_size: "${API_SHM_SIZE:-512m}"
     ports:
       - "7001:8001"
     env_file:
