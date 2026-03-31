@@ -53,11 +53,11 @@ logger = logging.getLogger(__name__)
 DEFAULT_WORD_PASS_LETTERS = "A,B,C,D,E,F,G,H,I,J,L,M,N,O,P,R,S,T,V,Z"
 
 SUPPORTED_LANGUAGES_CATALOG: list[dict[str, str]] = [
-    {"code": "es", "name": "espanol"},
-    {"code": "en", "name": "ingles"},
-    {"code": "fr", "name": "frances"},
-    {"code": "de", "name": "aleman"},
-    {"code": "it", "name": "italiano"},
+    {"code": "es", "name": "spanish"},
+    {"code": "en", "name": "english"},
+    {"code": "fr", "name": "french"},
+    {"code": "de", "name": "german"},
+    {"code": "it", "name": "italian"},
 ]
 
 GAME_CATEGORIES_CATALOG: list[dict[str, str]] = [

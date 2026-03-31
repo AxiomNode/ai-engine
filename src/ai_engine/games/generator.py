@@ -23,6 +23,12 @@ _JSON_RETRY_SUFFIX = (
     "requested schema. Do not include markdown, comments, or extra text."
 )
 
+# Keep retry bounded to avoid very long second attempts under constrained CPU inference.
+_JSON_RETRY_TOKEN_EXTRA_MIN = 128
+_JSON_RETRY_TOKEN_EXTRA_MAX = 256
+_JSON_RETRY_TOKEN_MULTIPLIER = 1.25
+_SKIP_JSON_RETRY_IF_FIRST_LLM_MS = 90_000.0
+
 _INLINE_OPTIONS_RE = re.compile(
     r"\s+[A-D][\)\.:\-]\s*[^\n]+(?:\s+[A-D][\)\.:\-]\s*[^\n]+)+",
     re.IGNORECASE,
@@ -63,10 +69,9 @@ class GameGenerator:
     # Public API
     # ------------------------------------------------------------------
 
-    def generate(
+    async def generate(
         self,
         query: str,
-        topic: str,
         game_type: str = "quiz",
         *,
         language: str | None = None,
@@ -85,7 +90,6 @@ class GameGenerator:
 
         Args:
             query: Search query for RAG retrieval.
-            topic: Educational topic for the game.
             game_type: ``"quiz"``, ``"word-pass"``, or ``"true_false"``.
             language: Output language (defaults to ``self.default_language``).
             num_questions: Number of questions/statements.
@@ -103,9 +107,8 @@ class GameGenerator:
         context = self.rag_pipeline.build_context(query, top_k=top_k)
         logger.debug("RAG context length: %d chars", len(context))
 
-        return self.generate_from_context(
+        return await self.generate_from_context(
             context=context,
-            topic=topic,
             game_type=game_type,
             language=language,
             difficulty_percentage=difficulty_percentage,
@@ -114,10 +117,9 @@ class GameGenerator:
             max_tokens=max_tokens,
         )
 
-    def generate_from_context(
+    async def generate_from_context(
         self,
         context: str,
-        topic: str,
         game_type: str = "quiz",
         *,
         language: str | None = None,
@@ -137,7 +139,6 @@ class GameGenerator:
         prompt = get_prompt(
             game_type=game_type,
             context=context,
-            topic=topic,
             language=lang,
             difficulty_percentage=difficulty_percentage,
             num_questions=num_questions,
@@ -145,24 +146,22 @@ class GameGenerator:
         )
         logger.debug("Prompt length: %d chars", len(prompt))
 
-        json_text, _, run_metrics = self._generate_json_with_retry(prompt, tokens)
+        json_text, _, run_metrics = await self._generate_json_with_retry(prompt, tokens)
         self.last_run_metrics = run_metrics
 
         data = json.loads(json_text)
         data = self._normalize_generated_payload(
             data=data,
             game_type=game_type,
-            topic=topic,
             difficulty_percentage=difficulty_percentage,
         )
         if "game_type" not in data:
             data["game_type"] = game_type
         return GameEnvelope.from_dict(data)
 
-    def generate_raw(
+    async def generate_raw(
         self,
         query: str,
-        topic: str,
         game_type: str = "quiz",
         *,
         language: str | None = None,
@@ -184,19 +183,17 @@ class GameGenerator:
         prompt = get_prompt(
             game_type=game_type,
             context=context,
-            topic=topic,
             language=lang,
             difficulty_percentage=difficulty_percentage,
             num_questions=num_questions,
             letters=letters,
         )
-        json_text, _, run_metrics = self._generate_json_with_retry(prompt, tokens)
+        json_text, _, run_metrics = await self._generate_json_with_retry(prompt, tokens)
         self.last_run_metrics = run_metrics
         data = json.loads(json_text)
         return self._normalize_generated_payload(
             data=data,
             game_type=game_type,
-            topic=topic,
             difficulty_percentage=difficulty_percentage,
         )
 
@@ -205,7 +202,6 @@ class GameGenerator:
         *,
         data: dict[str, Any],
         game_type: str,
-        topic: str,
         difficulty_percentage: int,
     ) -> dict[str, Any]:
         """Normalize generated payload fields for downstream contracts."""
@@ -218,8 +214,7 @@ class GameGenerator:
         elif normalized_game_type in {"true-false", "truefalse"}:
             normalized_game_type = "true_false"
         normalized["game_type"] = normalized_game_type
-        normalized.setdefault("topic", topic)
-        normalized.setdefault("title", str(topic or "Quiz"))
+        normalized.setdefault("title", "Quiz")
         normalized["difficulty_percentage"] = max(0, min(100, difficulty_percentage))
 
         if normalized_game_type == "quiz":
@@ -240,8 +235,8 @@ class GameGenerator:
 
                     # Ensure minimum choices required by QuizQuestion schema.
                     if len(options) < 2:
-                        fallback_a = "Opcion A"
-                        fallback_b = "Opcion B"
+                        fallback_a = "Option A"
+                        fallback_b = "Option B"
                         if options:
                             fallback_a = options[0]
                         options = [fallback_a, fallback_b]
@@ -259,11 +254,11 @@ class GameGenerator:
                     item["explanation"] = str(item.get("explanation", "") or "")
 
                     if not item["question"]:
-                        item["question"] = f"Pregunta sobre {topic}".strip()
+                        item["question"] = "Multiple choice question"
                     cleaned_questions.append(item)
                 normalized["questions"] = cleaned_questions
 
-            normalized["title"] = str(normalized.get("title") or topic or "Quiz").strip() or "Quiz"
+            normalized["title"] = str(normalized.get("title") or "Quiz").strip() or "Quiz"
         return normalized
 
     def _clean_quiz_question_text(self, question: str) -> str:
@@ -281,7 +276,7 @@ class GameGenerator:
         # Fallback: when parser removed all text, keep first line untouched.
         return sanitized or first_line
 
-    def _generate_json_with_retry(
+    async def _generate_json_with_retry(
         self,
         prompt: str,
         max_tokens: int,
@@ -292,7 +287,7 @@ class GameGenerator:
         token budget, which helps when the first answer is truncated.
         """
         llm_start = time.perf_counter()
-        raw_output = self.llm_client.generate(prompt, max_tokens=max_tokens)
+        raw_output = await self.llm_client.generate(prompt, max_tokens=max_tokens)
         llm_first_ms = (time.perf_counter() - llm_start) * 1000
         logger.debug("Raw LLM output length: %d chars", len(raw_output))
 
@@ -314,7 +309,18 @@ class GameGenerator:
                 },
             )
 
-        retry_tokens = max(max_tokens + 512, int(max_tokens * 1.5))
+        # Avoid triggering a second long-running upstream call when the first
+        # attempt already consumed most of the end-to-end timeout budget.
+        if llm_first_ms >= _SKIP_JSON_RETRY_IF_FIRST_LLM_MS:
+            raise ValueError(
+                "Failed to extract JSON from LLM output: first attempt exceeded retry "
+                f"latency budget ({round(llm_first_ms, 2)}ms)."
+            )
+
+        retry_tokens = min(
+            max(max_tokens + _JSON_RETRY_TOKEN_EXTRA_MIN, int(max_tokens * _JSON_RETRY_TOKEN_MULTIPLIER)),
+            max_tokens + _JSON_RETRY_TOKEN_EXTRA_MAX,
+        )
         retry_prompt = prompt + _JSON_RETRY_SUFFIX
         logger.warning(
             "Could not extract JSON from first LLM output; retrying with stricter prompt "
@@ -322,7 +328,7 @@ class GameGenerator:
             retry_tokens,
         )
         llm_retry_start = time.perf_counter()
-        retry_output = self.llm_client.generate(retry_prompt, max_tokens=retry_tokens)
+        retry_output = await self.llm_client.generate(retry_prompt, max_tokens=retry_tokens)
         llm_retry_ms = (time.perf_counter() - llm_retry_start) * 1000
         logger.debug("Retry LLM output length: %d chars", len(retry_output))
 

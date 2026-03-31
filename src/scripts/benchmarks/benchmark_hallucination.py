@@ -18,7 +18,7 @@ Metrics collected per sample:
   - language_match:    Title/content appears to be in the requested language
   - category_relevant: Title/content has some relation to the category
   - min_items_met:     >= N questions/words generated (quiz=3, wordpass=10)
-  - no_placeholder:    No obvious filler like "Pregunta de opcion multiple"
+  - no_placeholder:    No obvious filler like "Multiple choice question"
   - latency_ms:        Round-trip time (0 for offline)
 """
 
@@ -57,7 +57,9 @@ _LANG_MARKERS: dict[str, list[str]] = {
 
 PLACEHOLDER_PATTERNS = [
     r"pregunta de opci[oó]n m[uú]ltiple",
+    r"multiple choice question",
     r"opcion [A-D]",
+    r"option [A-D]",
     r"placeholder",
     r"example question",
     r"sample answer",
