@@ -24,13 +24,13 @@ services:
   # ---------------------------------------------------------------------------
   ai-cache:
     image: redis:7-alpine
-    container_name: "${APP_NAME:-AxiomNode}_ai_cache_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
+    container_name: "ai_engine_cache_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
     command: ["redis-server", "--appendonly", "yes", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
     cpus: "${CACHE_CPUS:-0.25}"
     mem_limit: "${CACHE_MEMORY_LIMIT:-256m}"
     mem_reservation: "${CACHE_MEMORY_RESERVATION:-128m}"
     volumes:
-      - ai_cache_data:/data
+      - ai_engine_cache_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -51,7 +51,7 @@ services:
   llama-server-cpu:
     profiles: ["cpu"]
     image: ghcr.io/ggerganov/llama.cpp:server
-    container_name: "${APP_NAME:-AxiomNode}_${LLAMA_CPU_SERVICE_NAME:-llama_server_cpu}_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
+    container_name: "ai_engine_llama_cpu_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
     restart: unless-stopped
     cpus: "${LLAMA_CPUS:-4.0}"
     mem_limit: "${LLAMA_MEMORY_LIMIT:-10g}"
@@ -97,7 +97,7 @@ services:
   llama-server-gpu:
     profiles: ["gpu"]
     image: ghcr.io/ggerganov/llama.cpp:server-cuda
-    container_name: "${APP_NAME:-AxiomNode}_${LLAMA_GPU_SERVICE_NAME:-llama_server_gpu}_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
+    container_name: "ai_engine_llama_gpu_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
     restart: unless-stopped
     gpus: all
     cpus: "${LLAMA_CPUS:-4.0}"
@@ -144,15 +144,14 @@ services:
   #          GET /cache/stats  POST /cache/reset  GET /metrics
   # ---------------------------------------------------------------------------
   ai-stats:
-    image: "${APP_NAME:-AxiomNode}_${STATS_SERVICE_NAME:-ai_stats}_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
-    container_name: "${APP_NAME:-AxiomNode}_${STATS_SERVICE_NAME:-ai_stats}_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
+    image: "ai_engine_stats_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
+    container_name: "ai_engine_stats_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
     build:
       context: .
       dockerfile: Dockerfile
       target: runtime-stats
       args:
-        APP_NAME: "${APP_NAME:-AxiomNode}"
-        SERVICE_NAME: "${STATS_SERVICE_NAME:-ai_stats}"
+        SERVICE_NAME: stats
         DISTRIBUTION: "${AI_ENGINE_DISTRIBUTION:-dev}"
         RELEASE_VERSION: "${AI_ENGINE_RELEASE_VERSION:-v1}"
     restart: unless-stopped
@@ -202,15 +201,14 @@ services:
   #          GET /internal/cache/stats  POST /internal/cache/reset
   # ---------------------------------------------------------------------------
   ai-api:
-    image: "${APP_NAME:-AxiomNode}_${API_SERVICE_NAME:-ai_api}_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
-    container_name: "${APP_NAME:-AxiomNode}_${API_SERVICE_NAME:-ai_api}_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
+    image: "ai_engine_api_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
+    container_name: "ai_engine_api_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
     build:
       context: .
       dockerfile: Dockerfile
       target: runtime-api
       args:
-        APP_NAME: "${APP_NAME:-AxiomNode}"
-        SERVICE_NAME: "${API_SERVICE_NAME:-ai_api}"
+        SERVICE_NAME: api
         DISTRIBUTION: "${AI_ENGINE_DISTRIBUTION:-dev}"
         RELEASE_VERSION: "${AI_ENGINE_RELEASE_VERSION:-v1}"
     restart: unless-stopped
@@ -270,4 +268,5 @@ services:
       retries: 3
 
 volumes:
-  ai_cache_data:
+  ai_engine_cache_data:
+    name: "ai_engine_cache_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}_data"
