@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import threading
@@ -179,7 +180,7 @@ class GenerationOptimizationService:
                     )
                 )
 
-    def generate(
+    async def generate(
         self,
         req: GenerateRequest,
         *,
@@ -237,7 +238,9 @@ class GenerationOptimizationService:
                 )
 
             metrics["cache_reads"] = 2
-            db_cached = self._read_persistent_cache(key, metrics=metrics)
+            db_cached = await asyncio.to_thread(
+                self._read_persistent_cache, key, metrics=metrics
+            )
             metrics["db_reads"] += 1
             if db_cached is not None:
                 if self._memory_cache is not None:
@@ -255,24 +258,30 @@ class GenerationOptimizationService:
 
         rag_start = time.perf_counter()
         if self._db_cache is not None:
-            with self._persistent_lock:
-                kbd_hits = self._db_cache.search_by_keyword(req.query)
+            kbd_hits = await asyncio.to_thread(self._kbd_search_sync, req.query)
         else:
             kbd_hits = []
         metrics["kbd_hits"] = len(kbd_hits)
         if kbd_hits:
             req = req.model_copy(update={"query": f"{req.query} {kbd_hits[0].title}"})
 
-        docs = self._rag_pipeline.retrieve(req.query)
+        docs = await asyncio.to_thread(self._rag_pipeline.retrieve, req.query)
         metrics["rag_docs_retrieved"] = len(docs)
+        retriever = getattr(self._rag_pipeline, "retriever", None)
+        last_scores = getattr(retriever, "last_scores", None) if retriever else None
+        last_scores = list(last_scores) if last_scores else []
+        metrics["rag_similarity_scores"] = [round(s, 4) for s in last_scores]
+        metrics["avg_rag_similarity"] = (
+            round(sum(last_scores) / len(last_scores), 4) if last_scores else 0.0
+        )
         context = "\n\n".join(doc.content for doc in docs)
+        metrics["rag_context_length_chars"] = len(context)
         metrics["rag_latency_ms"] = round((time.perf_counter() - rag_start) * 1000, 2)
 
         gen_start = time.perf_counter()
         if hasattr(self._generator, "generate_from_context"):
-            envelope = self._generator.generate_from_context(
+            envelope = await self._generator.generate_from_context(
                 context=context,
-                topic=req.topic,
                 game_type=req.game_type,
                 language=req.language,
                 difficulty_percentage=req.difficulty_percentage,
@@ -282,9 +291,8 @@ class GenerationOptimizationService:
             )
         else:
             # Backward compatibility for wrapped/mocked generators that still expose only generate(...).
-            envelope = self._generator.generate(
+            envelope = await self._generator.generate(
                 query=req.query,
-                topic=req.topic,
                 game_type=req.game_type,
                 language=req.language,
                 difficulty_percentage=req.difficulty_percentage,
@@ -317,7 +325,8 @@ class GenerationOptimizationService:
             if self._memory_cache is not None:
                 self._memory_cache.set(key, cached_value)
             metrics["cache_writes"] = 1
-            wrote_persistent = self._write_persistent_cache(
+            wrote_persistent = await asyncio.to_thread(
+                self._write_persistent_cache,
                 key,
                 cached_value,
                 metrics=metrics,
@@ -450,9 +459,9 @@ class GenerationOptimizationService:
             {
                 "namespace": self._cache_namespace,
                 "query": req.query.strip().lower(),
-                "topic": req.topic.strip().lower(),
                 "game_type": req.game_type,
                 "language": req.language,
+                "difficulty_percentage": req.difficulty_percentage,
                 "num_questions": req.num_questions,
                 "letters": req.letters,
             },
@@ -460,6 +469,11 @@ class GenerationOptimizationService:
             ensure_ascii=True,
         )
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    def _kbd_search_sync(self, query: str) -> list[Any]:
+        """Run KBD keyword search under lock (sync, meant for to_thread)."""
+        with self._persistent_lock:
+            return self._db_cache.search_by_keyword(query)  # type: ignore[union-attr]
 
     def _read_persistent_cache(
         self,

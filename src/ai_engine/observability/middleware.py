@@ -49,7 +49,7 @@ class TrackedLlamaClient:
         self._client = client
         self._collector = collector
 
-    def generate(
+    async def generate(
         self,
         prompt: str,
         max_tokens: int | None = None,
@@ -78,7 +78,7 @@ class TrackedLlamaClient:
 
         start = time.perf_counter()
         try:
-            response = self._client.generate(prompt, max_tokens=max_tokens, **kwargs)
+            response = await self._client.generate(prompt, max_tokens=max_tokens, **kwargs)
             elapsed_ms = (time.perf_counter() - start) * 1000
             self._collector.record_call(
                 prompt=prompt,
@@ -123,7 +123,7 @@ class TrackedGameGenerator:
         self._generator = generator
         self._collector = collector
 
-    def generate(self, *args: Any, **kwargs: Any) -> Any:
+    async def generate(self, *args: Any, **kwargs: Any) -> Any:
         """Wrap :meth:`GameGenerator.generate` with event recording.
 
         Args:
@@ -145,7 +145,7 @@ class TrackedGameGenerator:
 
         start = time.perf_counter()
         try:
-            result = self._generator.generate(*args, **kwargs)
+            result = await self._generator.generate(*args, **kwargs)
             elapsed_ms = (time.perf_counter() - start) * 1000
             self._collector.record_call(
                 prompt=str(query),
@@ -171,7 +171,42 @@ class TrackedGameGenerator:
             )
             raise
 
-    def generate_raw(self, *args: Any, **kwargs: Any) -> Any:
+    async def generate_from_context(self, *args: Any, **kwargs: Any) -> Any:
+        """Wrap :meth:`GameGenerator.generate_from_context` with event recording."""
+        game_type = kwargs.get("game_type", "quiz")
+        tokens: int = int(
+            kwargs.get("max_tokens") or self._generator.default_max_tokens
+        )
+
+        start = time.perf_counter()
+        try:
+            result = await self._generator.generate_from_context(*args, **kwargs)
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            self._collector.record_call(
+                prompt="generate_from_context",
+                response=str(result),
+                latency_ms=elapsed_ms,
+                max_tokens=tokens,
+                json_mode=True,
+                success=True,
+                game_type=game_type,
+            )
+            return result
+        except Exception as exc:
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            self._collector.record_call(
+                prompt="generate_from_context",
+                response="",
+                latency_ms=elapsed_ms,
+                max_tokens=tokens,
+                json_mode=True,
+                success=False,
+                game_type=game_type,
+                error=str(exc),
+            )
+            raise
+
+    async def generate_raw(self, *args: Any, **kwargs: Any) -> Any:
         """Wrap :meth:`GameGenerator.generate_raw` with event recording.
 
         Args:
@@ -193,7 +228,7 @@ class TrackedGameGenerator:
 
         start = time.perf_counter()
         try:
-            result = self._generator.generate_raw(*args, **kwargs)
+            result = await self._generator.generate_raw(*args, **kwargs)
             elapsed_ms = (time.perf_counter() - start) * 1000
             self._collector.record_call(
                 prompt=str(query),

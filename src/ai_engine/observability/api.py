@@ -89,10 +89,10 @@ def _get_distribution_version(request: Request) -> str:
     return "unknown-v0"
 
 
-def _summary_with_distribution(request: Request) -> dict[str, Any]:
+async def _summary_with_distribution(request: Request) -> dict[str, Any]:
     """Return collector summary enriched with distribution-version tag."""
     summary = _get_collector(request).summary()
-    summary["cache_runtime"] = _fetch_generation_cache_stats(request)
+    summary["cache_runtime"] = await _fetch_generation_cache_stats(request)
     summary["distribution_version"] = _get_distribution_version(request)
     return summary
 
@@ -136,7 +136,7 @@ def _empty_cache_runtime(request: Request) -> dict[str, Any]:
     }
 
 
-def _fetch_generation_cache_stats(request: Request) -> dict[str, Any]:
+async def _fetch_generation_cache_stats(request: Request) -> dict[str, Any]:
     """Fetch cache stats from ai-api internal monitoring endpoint."""
     base_url = _get_generation_api_url(request)
     if not base_url:
@@ -144,11 +144,11 @@ def _fetch_generation_cache_stats(request: Request) -> dict[str, Any]:
 
     endpoint = f"{base_url.rstrip('/')}/internal/cache/stats"
     try:
-        response = httpx.get(
-            endpoint,
-            headers=_build_generation_api_headers(request),
-            timeout=2.0,
-        )
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            response = await client.get(
+                endpoint,
+                headers=_build_generation_api_headers(request),
+            )
         response.raise_for_status()
         payload = response.json()
         if isinstance(payload, dict):
@@ -159,7 +159,7 @@ def _fetch_generation_cache_stats(request: Request) -> dict[str, Any]:
     return _empty_cache_runtime(request)
 
 
-def _reset_generation_cache(
+async def _reset_generation_cache(
     request: Request,
     *,
     namespace: str | None,
@@ -175,15 +175,15 @@ def _reset_generation_cache(
 
     endpoint = f"{base_url.rstrip('/')}/internal/cache/reset"
     try:
-        response = httpx.post(
-            endpoint,
-            headers=_build_generation_api_headers(request),
-            params={
-                "namespace": namespace,
-                "all_namespaces": str(all_namespaces).lower(),
-            },
-            timeout=5.0,
-        )
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.post(
+                endpoint,
+                headers=_build_generation_api_headers(request),
+                params={
+                    "namespace": namespace,
+                    "all_namespaces": str(all_namespaces).lower(),
+                },
+            )
         response.raise_for_status()
         payload = response.json()
         if isinstance(payload, dict):
@@ -349,14 +349,14 @@ def create_app(collector: StatsCollector | None = None) -> FastAPI:
         }
 
     @app.get("/stats", tags=["monitoring"])
-    def get_stats(request: Request) -> dict[str, Any]:
+    async def get_stats(request: Request) -> dict[str, Any]:
         """Return aggregate statistics over all recorded events.
 
         Returns:
             A summary dictionary produced by
             :meth:`StatsCollector.summary`.
         """
-        return _summary_with_distribution(request)
+        return await _summary_with_distribution(request)
 
     @app.post("/events", tags=["ingestion"])
     def ingest_event(request: Request, payload: EventIngestRequest) -> dict[str, str]:
@@ -405,27 +405,27 @@ def create_app(collector: StatsCollector | None = None) -> FastAPI:
         return {"message": "Stats cleared."}
 
     @app.get("/cache/stats", tags=["monitoring"])
-    def get_cache_stats(request: Request) -> dict[str, Any]:
+    async def get_cache_stats(request: Request) -> dict[str, Any]:
         """Return runtime cache counters retrieved from generation API."""
-        return _fetch_generation_cache_stats(request)
+        return await _fetch_generation_cache_stats(request)
 
     @app.post("/cache/reset", tags=["monitoring"])
-    def reset_cache(
+    async def reset_cache(
         request: Request,
         namespace: str | None = Query(default=None),
         all_namespaces: bool = Query(default=False),
     ) -> dict[str, int]:
         """Reset generation cache via ai-api internal monitoring endpoint."""
-        return _reset_generation_cache(
+        return await _reset_generation_cache(
             request,
             namespace=namespace,
             all_namespaces=all_namespaces,
         )
 
     @app.get("/metrics", tags=["monitoring"], response_class=PlainTextResponse)
-    def metrics(request: Request) -> str:
+    async def metrics(request: Request) -> str:
         """Return Prometheus scrape-compatible metrics text."""
-        return summary_to_prometheus(_summary_with_distribution(request))
+        return summary_to_prometheus(await _summary_with_distribution(request))
 
     _install_api_key_openapi(
         app,

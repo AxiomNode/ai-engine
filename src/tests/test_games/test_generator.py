@@ -1,5 +1,6 @@
 """Tests for ai_engine.games.generator – GameGenerator with mock LLM."""
 
+import asyncio
 import json
 
 import pytest
@@ -21,6 +22,11 @@ from ai_engine.rag.vector_store import InMemoryVectorStore
 # ------------------------------------------------------------------
 
 
+def _run(coro):
+    """Run a coroutine synchronously for test convenience."""
+    return asyncio.run(coro)
+
+
 class _FixedEmbedder(Embedder):
     """Embedder that returns a fixed vector for deterministic tests."""
 
@@ -31,11 +37,10 @@ class _FixedEmbedder(Embedder):
 class _MockLLMQuiz:
     """Mock LLM that returns a valid quiz JSON."""
 
-    def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
+    async def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
         data = {
             "game_type": "quiz",
             "title": "Mock Quiz",
-            "topic": "Testing",
             "questions": [
                 {
                     "question": "What is 1+1?",
@@ -51,11 +56,10 @@ class _MockLLMQuiz:
 class _MockLLMWordPass:
     """Mock LLM that returns a valid word-pass JSON."""
 
-    def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
+    async def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
         data = {
             "game_type": "word-pass",
             "title": "Mock Rosco",
-            "topic": "Testing",
             "words": [
                 {
                     "letter": "A",
@@ -77,11 +81,10 @@ class _MockLLMWordPass:
 class _MockLLMTrueFalse:
     """Mock LLM that returns a valid true/false JSON."""
 
-    def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
+    async def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
         data = {
             "game_type": "true_false",
             "title": "Mock T/F",
-            "topic": "Testing",
             "statements": [
                 {
                     "statement": "The sky is blue",
@@ -96,7 +99,7 @@ class _MockLLMTrueFalse:
 class _MockLLMBadOutput:
     """Mock LLM that returns non-JSON garbage."""
 
-    def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
+    async def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
         return "I cannot help you with that. Sorry!"
 
 
@@ -106,14 +109,13 @@ class _MockLLMRetryThenValid:
     def __init__(self) -> None:
         self.calls: list[tuple[str, int]] = []
 
-    def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
+    async def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
         self.calls.append((prompt, max_tokens))
         if len(self.calls) == 1:
             return '{"game_type":"quiz","title":"Broken"'
         data = {
             "game_type": "quiz",
             "title": "Recovered Quiz",
-            "topic": "Testing",
             "questions": [
                 {
                     "question": "What is 2+2?",
@@ -129,10 +131,9 @@ class _MockLLMRetryThenValid:
 class _MockLLMMalformedQuizPayload:
     """Mock LLM that returns incomplete quiz payload requiring normalization."""
 
-    def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
+    async def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
         data = {
             "game_type": "educational-game",
-            "topic": "Malformed Topic",
             "questions": [
                 {
                     "question": "",
@@ -183,7 +184,7 @@ class TestGameGeneratorQuiz:
 
     def test_generate_quiz(self, rag_pipeline):
         gen = GameGenerator(rag_pipeline=rag_pipeline, llm_client=_MockLLMQuiz())
-        result = gen.generate(query="Python", topic="Programming", game_type="quiz")
+        result = _run(gen.generate(query="Python", game_type="quiz"))
 
         assert isinstance(result, GameEnvelope)
         assert result.game_type == "quiz"
@@ -194,7 +195,7 @@ class TestGameGeneratorQuiz:
 
     def test_generate_raw_returns_dict(self, rag_pipeline):
         gen = GameGenerator(rag_pipeline=rag_pipeline, llm_client=_MockLLMQuiz())
-        result = gen.generate_raw(query="Python", topic="Programming")
+        result = _run(gen.generate_raw(query="Python"))
         assert isinstance(result, dict)
         assert result["game_type"] == "quiz"
 
@@ -203,9 +204,7 @@ class TestGameGeneratorWordPass:
 
     def test_generate_word_pass(self, rag_pipeline):
         gen = GameGenerator(rag_pipeline=rag_pipeline, llm_client=_MockLLMWordPass())
-        result = gen.generate(
-            query="letters", topic="Alphabet", game_type="word-pass"
-        )
+        result = _run(gen.generate(query="letters", game_type="word-pass"))
 
         assert isinstance(result, GameEnvelope)
         assert result.game_type == "word-pass"
@@ -217,7 +216,7 @@ class TestGameGeneratorTrueFalse:
 
     def test_generate_true_false(self, rag_pipeline):
         gen = GameGenerator(rag_pipeline=rag_pipeline, llm_client=_MockLLMTrueFalse())
-        result = gen.generate(query="sky", topic="Science", game_type="true_false")
+        result = _run(gen.generate(query="sky", game_type="true_false"))
 
         assert isinstance(result, GameEnvelope)
         assert result.game_type == "true_false"
@@ -230,13 +229,13 @@ class TestGameGeneratorErrorHandling:
     def test_bad_llm_output_raises_value_error(self, rag_pipeline):
         gen = GameGenerator(rag_pipeline=rag_pipeline, llm_client=_MockLLMBadOutput())
         with pytest.raises(ValueError, match="Failed to extract JSON"):
-            gen.generate(query="anything", topic="X")
+            _run(gen.generate(query="anything"))
 
     def test_retries_once_and_recovers_when_first_output_is_invalid(self, rag_pipeline):
         llm = _MockLLMRetryThenValid()
         gen = GameGenerator(rag_pipeline=rag_pipeline, llm_client=llm)
 
-        envelope = gen.generate(query="math", topic="Arithmetic", game_type="quiz")
+        envelope = _run(gen.generate(query="math", game_type="quiz"))
 
         assert envelope.game_type == "quiz"
         assert envelope.game.title == "Recovered Quiz"
@@ -251,7 +250,7 @@ class TestGameGeneratorErrorHandling:
         gen = GameGenerator(rag_pipeline=rag_pipeline, llm_client=_MockLLMBadOutput())
 
         with pytest.raises(ValueError, match="after retry"):
-            gen.generate(query="anything", topic="X")
+            _run(gen.generate(query="anything"))
 
     def test_normalizes_malformed_quiz_payload(self, rag_pipeline):
         gen = GameGenerator(
@@ -259,7 +258,7 @@ class TestGameGeneratorErrorHandling:
             llm_client=_MockLLMMalformedQuizPayload(),
         )
 
-        result = gen.generate(query="x", topic="Normalization", game_type="quiz")
+        result = _run(gen.generate(query="x", game_type="quiz"))
 
         assert result.game_type == "quiz"
         assert result.game.title

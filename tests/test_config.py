@@ -235,12 +235,12 @@ class TestGetSettings:
         result = cfg.get_settings()
         assert isinstance(result, cfg.AIEngineSettings)
 
-    def test_returns_fresh_instance_each_call(self, monkeypatch):
+    def test_returns_cached_instance_on_repeated_calls(self, monkeypatch):
         cfg = _reload_config(monkeypatch)
         s1 = cfg.get_settings()
         s2 = cfg.get_settings()
-        # Each call returns a new instance (not a stale cache)
-        assert s1 is not s2
+        # lru_cache returns the same instance on repeated calls
+        assert s1 is s2
 
     def test_get_settings_respects_env(self, monkeypatch):
         monkeypatch.setenv("AI_ENGINE_API_KEY", "test-key")

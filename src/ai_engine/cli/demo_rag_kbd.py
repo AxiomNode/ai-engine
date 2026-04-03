@@ -171,7 +171,6 @@ def run_game_demo(model_path: str, pipeline: Any) -> None:
     try:
         envelope = generator.generate(
             query="fotosintesis plantas cloroplastos glucosa",
-            topic="Fotosintesis",
             game_type="quiz",
             num_questions=3,
         )
@@ -184,7 +183,6 @@ def run_game_demo(model_path: str, pipeline: Any) -> None:
 
     print("\n[GAME] Result:")
     print(f"  Type     : {envelope.game_type}")
-    print(f"  Topic    : {envelope.game.topic}")
     print("  Language : es")
     print("  Questions:")
     game = envelope.game

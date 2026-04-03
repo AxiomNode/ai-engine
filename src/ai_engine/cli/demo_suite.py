@@ -8,6 +8,7 @@ real downloaded LLM model.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import sys
@@ -91,7 +92,7 @@ class FakeLlamaClient:
         self.default_max_tokens = 256
         self.json_mode = True
 
-    def generate(
+    async def generate(
         self,
         prompt: str,
         max_tokens: int | None = None,
@@ -104,7 +105,6 @@ class FakeLlamaClient:
         payload = {
             "game_type": "quiz",
             "title": "Demo Quiz",
-            "topic": "Water Cycle",
             "questions": [
                 {
                     "question": "What process turns liquid water into vapor?",
@@ -127,12 +127,12 @@ class FakeGenerator:
 
     default_max_tokens = 128
 
-    def generate(self, *args: object, **kwargs: object) -> dict[str, object]:
+    async def generate(self, *args: object, **kwargs: object) -> dict[str, object]:
         _ = args
         _ = kwargs
         return {"ok": True}
 
-    def generate_raw(self, *args: object, **kwargs: object) -> dict[str, object]:
+    async def generate_raw(self, *args: object, **kwargs: object) -> dict[str, object]:
         _ = args
         _ = kwargs
         return {"raw": True}
@@ -225,13 +225,12 @@ def demo_games_with_rag_llm() -> str:
         rag_pipeline=pipeline,
         llm_client=cast(Any, FakeLlamaClient()),
     )
-    envelope = generator.generate(
+    envelope = asyncio.run(generator.generate(
         query="water cycle",
-        topic="Water Cycle",
         game_type="quiz",
         num_questions=1,
         language="en",
-    )
+    ))
     if envelope.game_type != "quiz":
         raise ValueError("Expected quiz output")
     game = envelope.game
@@ -245,10 +244,10 @@ def demo_observability() -> str:
     collector = StatsCollector()
 
     tracked_llm = TrackedLlamaClient(FakeLlamaClient(), collector)
-    tracked_llm.generate("Return JSON")
+    asyncio.run(tracked_llm.generate("Return JSON"))
 
     tracked_gen = TrackedGameGenerator(FakeGenerator(), collector)
-    tracked_gen.generate(query="x", topic="y", game_type="quiz")
+    asyncio.run(tracked_gen.generate(query="x", game_type="quiz"))
 
     summary = collector.summary()
     if summary["total_calls"] < 2:
@@ -264,7 +263,6 @@ def demo_api_schemas() -> str:
     """Exercise API request schema validation with concrete payloads."""
     generate_req = GenerateRequest(
         query="water",
-        topic="Water Cycle",
         game_type="quiz",
         language="en",
         num_questions=3,
@@ -316,13 +314,12 @@ def demo_full_integration() -> str:
     )
     tracked_generator = TrackedGameGenerator(generator, collector)
 
-    envelope = tracked_generator.generate(
+    envelope = asyncio.run(tracked_generator.generate(
         query="water cycle",
-        topic="Water Cycle",
         game_type="quiz",
         num_questions=1,
         language="en",
-    )
+    ))
     if envelope.game_type != "quiz":
         raise ValueError("Full integration did not produce quiz output")
 

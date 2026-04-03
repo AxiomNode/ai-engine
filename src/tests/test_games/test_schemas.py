@@ -64,18 +64,17 @@ class TestQuizQuestion:
 class TestQuizGame:
 
     def test_valid_creation(self):
-        game = QuizGame(title="My Quiz", topic="Math")
+        game = QuizGame(title="My Quiz")
         assert game.title == "My Quiz"
         assert game.questions == []
 
     def test_empty_title_raises(self):
         with pytest.raises(ValidationError, match="title must not be empty"):
-            QuizGame(title="", topic="Math")
+            QuizGame(title="")
 
     def test_to_dict_includes_game_type(self):
         game = QuizGame(
             title="T",
-            topic="X",
             questions=[
                 QuizQuestion(question="Q?", options=["a", "b"], correct_index=0),
             ],
@@ -87,7 +86,6 @@ class TestQuizGame:
     def test_from_dict_round_trip(self):
         game = QuizGame(
             title="T",
-            topic="X",
             questions=[
                 QuizQuestion(
                     question="Q?",
@@ -148,13 +146,12 @@ class TestWordPassWord:
 class TestWordPassGame:
 
     def test_valid_creation(self):
-        game = WordPassGame(title="Rosco", topic="Geography")
+        game = WordPassGame(title="Rosco")
         assert game.words == []
 
     def test_to_dict_game_type(self):
         game = WordPassGame(
             title="R",
-            topic="G",
             words=[
                 WordPassWord(
                     letter="A", hint="Capital of France \u2013 not!", answer="Amsterdam"
@@ -196,13 +193,12 @@ class TestTrueFalseStatement:
 class TestTrueFalseGame:
 
     def test_valid_creation(self):
-        game = TrueFalseGame(title="T/F", topic="Science")
+        game = TrueFalseGame(title="T/F")
         assert game.statements == []
 
     def test_to_dict_game_type(self):
         d = TrueFalseGame(
             title="T",
-            topic="S",
             statements=[
                 TrueFalseStatement(statement="The sun is a star", is_true=True),
             ],
@@ -221,7 +217,6 @@ class TestGameEnvelope:
         data = {
             "game_type": "quiz",
             "title": "Q",
-            "topic": "T",
             "questions": [
                 {"question": "Q?", "options": ["a", "b"], "correct_index": 0},
             ],
@@ -234,7 +229,6 @@ class TestGameEnvelope:
         data = {
             "game_type": "word-pass",
             "title": "P",
-            "topic": "T",
             "words": [
                 {"letter": "A", "hint": "H", "answer": "Ans"},
             ],
@@ -247,7 +241,6 @@ class TestGameEnvelope:
         data = {
             "game_type": "true_false",
             "title": "TF",
-            "topic": "T",
             "statements": [
                 {"statement": "S", "is_true": True},
             ],
@@ -264,7 +257,6 @@ class TestGameEnvelope:
         data = {
             "game_type": "educational-game",
             "title": "Q",
-            "topic": "T",
             "questions": [
                 {"question": "Q?", "options": ["a", "b", "c", "d"], "correct_index": 1},
             ],
@@ -277,7 +269,6 @@ class TestGameEnvelope:
         data = {
             "game_type": "quiz",
             "title": "Q",
-            "topic": "T",
             "questions": [
                 {"question": "Q?", "options": ["a", "b", "c", "d"], "correct_index": 2},
             ],

@@ -65,6 +65,10 @@ class StatsCollector:
     max_history: int = 10_000
     _events: list[GenerationEvent] = field(default_factory=list, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    _summary_cache: dict[str, Any] | None = field(default=None, repr=False)
+    _summary_cache_event_count: int = field(default=0, repr=False)
+    _summary_cache_ts: float = field(default=0.0, repr=False)
+    _summary_cache_ttl: float = 5.0
 
     # ------------------------------------------------------------------
     # Recording
@@ -82,6 +86,7 @@ class StatsCollector:
             self._events.append(event)
             if len(self._events) > self.max_history:
                 self._events = self._events[-self.max_history :]
+            self._summary_cache = None
 
     # ------------------------------------------------------------------
     # Convenience builder
@@ -161,6 +166,13 @@ class StatsCollector:
             when no events have been recorded.
         """
         with self._lock:
+            now = time.time()
+            if (
+                self._summary_cache is not None
+                and self._summary_cache_event_count == len(self._events)
+                and (now - self._summary_cache_ts) < self._summary_cache_ttl
+            ):
+                return self._summary_cache
             events = list(self._events)
 
         if not events:
@@ -192,6 +204,10 @@ class StatsCollector:
                 "kbd_hits_total": 0,
                 "db_reads_total": 0,
                 "db_writes_total": 0,
+                "retry_used_count": 0,
+                "retry_rate": 0.0,
+                "avg_rag_similarity": 0.0,
+                "avg_rag_context_length_chars": 0.0,
                 "language_counts": {},
                 "generation_outcome_by_game_type": {},
                 "generation_outcome_by_language": {},
@@ -218,6 +234,10 @@ class StatsCollector:
         kbd_hits_total = 0
         db_reads_total = 0
         db_writes_total = 0
+        retry_used_count = 0
+        generation_count = 0
+        rag_similarity_scores: list[float] = []
+        rag_context_lengths: list[int] = []
         language_counts: dict[str, int] = {}
         generation_outcome_by_game_type: dict[str, dict[str, int]] = {}
         generation_outcome_by_language: dict[str, dict[str, int]] = {}
@@ -290,6 +310,18 @@ class StatsCollector:
                         distribution_version_counts.get(distribution_version, 0) + 1
                     )
 
+                generation_count += 1
+                if bool(meta.get("retry_used", False)):
+                    retry_used_count += 1
+
+                avg_sim = meta.get("avg_rag_similarity")
+                if isinstance(avg_sim, (int, float)) and avg_sim > 0:
+                    rag_similarity_scores.append(float(avg_sim))
+
+                ctx_len = meta.get("rag_context_length_chars")
+                if isinstance(ctx_len, (int, float)):
+                    rag_context_lengths.append(int(ctx_len))
+
             rag_ms = meta.get("rag_latency_ms")
             if isinstance(rag_ms, (int, float)):
                 rag_latencies.append(float(rag_ms))
@@ -313,7 +345,7 @@ class StatsCollector:
             language = str(meta.get("language", "unknown"))
             language_counts[language] = language_counts.get(language, 0) + 1
 
-        return {
+        result = {
             "total_calls": total,
             "successful_calls": successes,
             "failed_calls": total - successes,
@@ -357,6 +389,22 @@ class StatsCollector:
             "kbd_hits_total": kbd_hits_total,
             "db_reads_total": db_reads_total,
             "db_writes_total": db_writes_total,
+            "retry_used_count": retry_used_count,
+            "retry_rate": (
+                round(retry_used_count / generation_count, 4)
+                if generation_count > 0
+                else 0.0
+            ),
+            "avg_rag_similarity": (
+                round(statistics.mean(rag_similarity_scores), 4)
+                if rag_similarity_scores
+                else 0.0
+            ),
+            "avg_rag_context_length_chars": (
+                round(statistics.mean(rag_context_lengths), 2)
+                if rag_context_lengths
+                else 0.0
+            ),
             "language_counts": language_counts,
             "generation_outcome_by_game_type": generation_outcome_by_game_type,
             "generation_outcome_by_language": generation_outcome_by_language,
@@ -367,10 +415,18 @@ class StatsCollector:
             "distribution_version_counts": distribution_version_counts,
         }
 
+        with self._lock:
+            self._summary_cache = result
+            self._summary_cache_event_count = len(self._events)
+            self._summary_cache_ts = time.time()
+
+        return result
+
     def reset(self) -> None:
         """Remove all recorded events."""
         with self._lock:
             self._events.clear()
+            self._summary_cache = None
 
     def __len__(self) -> int:
         """Return the number of recorded events."""
@@ -450,6 +506,21 @@ def summary_to_prometheus(summary: dict[str, Any]) -> str:
         "# HELP ai_engine_db_writes_total Total DB writes.",
         "# TYPE ai_engine_db_writes_total counter",
         _metric("db_writes_total", int(summary.get("db_writes_total", 0))),
+        "# HELP ai_engine_retry_used_count Generations that needed JSON retry.",
+        "# TYPE ai_engine_retry_used_count counter",
+        _metric("retry_used_count", int(summary.get("retry_used_count", 0))),
+        "# HELP ai_engine_retry_rate Ratio of generations requiring retry.",
+        "# TYPE ai_engine_retry_rate gauge",
+        _metric("retry_rate", float(summary.get("retry_rate", 0.0))),
+        "# HELP ai_engine_avg_rag_similarity Average RAG retrieval similarity score.",
+        "# TYPE ai_engine_avg_rag_similarity gauge",
+        _metric("avg_rag_similarity", float(summary.get("avg_rag_similarity", 0.0))),
+        "# HELP ai_engine_avg_rag_context_length_chars Average RAG context length.",
+        "# TYPE ai_engine_avg_rag_context_length_chars gauge",
+        _metric(
+            "avg_rag_context_length_chars",
+            float(summary.get("avg_rag_context_length_chars", 0.0)),
+        ),
     ]
 
     for label, count in sorted((summary.get("game_type_counts") or {}).items()):

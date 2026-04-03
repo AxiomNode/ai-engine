@@ -78,7 +78,7 @@ run_case() {
 
 echo "Running ai-engine smoke tests..."
 
-authless_generate_body='{"query":"agua","topic":"ciencias"}'
+authless_generate_body='{"query":"agua"}'
 ingest_empty_body='{"documents":[]}'
 empty_event_body='{}'
 

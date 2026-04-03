@@ -79,9 +79,7 @@ class TinyDBKnowledgeBase:
         Args:
             entry: The :class:`~ai_engine.kbd.entry.KnowledgeEntry` to store.
         """
-        # TinyDB does not support true upsert natively; remove then insert.
-        self._table.remove(where("entry_id") == entry.entry_id)
-        self._table.insert(entry.to_dict())
+        self._table.upsert(entry.to_dict(), where("entry_id") == entry.entry_id)
 
     def get(self, entry_id: str) -> KnowledgeEntry | None:
         """Return the entry with *entry_id*, or ``None`` if not found.

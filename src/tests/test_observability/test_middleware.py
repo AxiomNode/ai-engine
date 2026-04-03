@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from ai_engine.observability.collector import StatsCollector
 from ai_engine.observability.middleware import TrackedGameGenerator, TrackedLlamaClient
 
 # ------------------------------------------------------------------
-# Fakes
+# Fakes (async to match the async middleware)
 # ------------------------------------------------------------------
 
 
@@ -21,7 +23,7 @@ class FakeLLM:
         self.fail = fail
         self.calls: list[tuple[str, int | None]] = []
 
-    def generate(
+    async def generate(
         self, prompt: str, max_tokens: int | None = None, **kwargs: object
     ) -> str:
         """Return a canned response or raise."""
@@ -40,17 +42,28 @@ class FakeGenerator:
         self.result = result or {"game_type": "quiz", "game": {}}
         self.fail = fail
 
-    def generate(self, *args: object, **kwargs: object) -> object:
+    async def generate(self, *args: object, **kwargs: object) -> object:
         """Return a canned result or raise."""
         if self.fail:
             raise ValueError("bad json")
         return self.result
 
-    def generate_raw(self, *args: object, **kwargs: object) -> object:
+    async def generate_from_context(self, *args: object, **kwargs: object) -> object:
+        """Return a canned result or raise."""
+        if self.fail:
+            raise ValueError("bad json from_context")
+        return self.result
+
+    async def generate_raw(self, *args: object, **kwargs: object) -> object:
         """Return a raw dict or raise."""
         if self.fail:
             raise ValueError("bad json raw")
         return self.result
+
+
+def _run(coro):
+    """Helper to run a coroutine synchronously in tests."""
+    return asyncio.run(coro)
 
 
 # ------------------------------------------------------------------
@@ -67,7 +80,7 @@ class TestTrackedLlamaClient:
         llm = FakeLLM(response="hello world")
         tracked = TrackedLlamaClient(llm, collector)
 
-        result = tracked.generate("prompt", max_tokens=64)
+        result = _run(tracked.generate("prompt", max_tokens=64))
 
         assert result == "hello world"
         assert len(collector) == 1
@@ -81,7 +94,7 @@ class TestTrackedLlamaClient:
         tracked = TrackedLlamaClient(llm, collector)
 
         try:
-            tracked.generate("prompt")
+            _run(tracked.generate("prompt"))
             assert False, "Should raise"
         except RuntimeError:
             pass
@@ -104,7 +117,7 @@ class TestTrackedLlamaClient:
         llm.json_mode = True
         tracked = TrackedLlamaClient(llm, collector)
 
-        tracked.generate("p")
+        _run(tracked.generate("p"))
         h = collector.history()
         assert h[0]["json_mode"] is True
 
@@ -123,7 +136,7 @@ class TestTrackedGameGenerator:
         gen = FakeGenerator(result="envelope")
         tracked = TrackedGameGenerator(gen, collector)
 
-        result = tracked.generate("water cycle", topic="Science", game_type="quiz")
+        result = _run(tracked.generate("water cycle", game_type="quiz"))
         assert result == "envelope"
         assert len(collector) == 1
         h = collector.history()
@@ -136,7 +149,7 @@ class TestTrackedGameGenerator:
         tracked = TrackedGameGenerator(gen, collector)
 
         try:
-            tracked.generate("q", topic="t", game_type="quiz")
+            _run(tracked.generate("q", game_type="quiz"))
             assert False, "Should raise"
         except ValueError:
             pass
@@ -151,7 +164,7 @@ class TestTrackedGameGenerator:
         gen = FakeGenerator(result={"data": 1})
         tracked = TrackedGameGenerator(gen, collector)
 
-        result = tracked.generate_raw("q", topic="t", game_type="true_false")
+        result = _run(tracked.generate_raw("q", game_type="true_false"))
         assert result == {"data": 1}
         h = collector.history()
         assert h[0]["game_type"] == "true_false"

@@ -51,7 +51,6 @@ class _StubGenerator:
     def generate_from_context(
         self,
         context: str,
-        topic: str,
         game_type: str = "quiz",
         *,
         language: str | None = None,
@@ -59,12 +58,11 @@ class _StubGenerator:
         letters: str = "A,B,C",
         max_tokens: int | None = None,
     ) -> GameEnvelope:
-        _ = (context, topic, game_type, language, num_questions, letters, max_tokens)
+        _ = (context, game_type, language, num_questions, letters, max_tokens)
         return GameEnvelope(
             game_type="quiz",
             game=QuizGame(
                 title="Benchmark Quiz",
-                topic="Science",
                 questions=[
                     QuizQuestion(
                         question="What is H2O?",
@@ -148,7 +146,7 @@ def _summarize(values: list[float]) -> dict[str, float]:
 
 
 def main() -> int:
-    req = GenerateRequest(query="water", topic="Science")
+    req = GenerateRequest(query="water")
 
     # Scenario 1: cache miss
     miss_service = GenerationOptimizationService(

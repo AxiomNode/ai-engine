@@ -14,7 +14,7 @@ class KnowledgeEntry:
         entry_id: Unique identifier for this entry.
         title: Short human-readable title.
         content: Full text content of the entry.
-        tags: List of topic tags for filtering.
+        tags: List of tags for filtering.
         metadata: Arbitrary extra metadata.
     """
 

@@ -33,11 +33,18 @@ class SentenceTransformersEmbedder(Embedder):
             ) from exc
 
         self.model_name = model_name
-        self._model = SentenceTransformer(model_name)
+        self._st_class = SentenceTransformer
+        self._model: SentenceTransformer | None = None
+
+    def _get_model(self):
+        """Lazy-load the model on first use."""
+        if self._model is None:
+            self._model = self._st_class(self.model_name)
+        return self._model
 
     def embed_text(self, text: str) -> list[float]:
         """Return a vector embedding for a single text string."""
-        embedding = self._model.encode(text, convert_to_numpy=True)
+        embedding = self._get_model().encode(text, convert_to_numpy=True)
         return embedding.tolist()
 
     def embed_documents(self, documents: list[Document]) -> list[list[float]]:
@@ -47,5 +54,5 @@ class SentenceTransformersEmbedder(Embedder):
         sentence-transformers can batch-encode.
         """
         texts = [doc.content for doc in documents]
-        embeddings = self._model.encode(texts, convert_to_numpy=True)
+        embeddings = self._get_model().encode(texts, convert_to_numpy=True)
         return [emb.tolist() for emb in embeddings]

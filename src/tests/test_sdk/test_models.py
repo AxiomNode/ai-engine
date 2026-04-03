@@ -15,7 +15,6 @@ def test_parse_quiz_payload_to_generated_quiz() -> None:
         "game": {
             "game_type": "quiz",
             "title": "Physics Basics",
-            "topic": "Science",
             "questions": [
                 {
                     "question": "What is gravity?",
@@ -41,7 +40,6 @@ def test_parse_true_false_payload_to_generated_quiz_variant() -> None:
         "game": {
             "game_type": "true_false",
             "title": "Earth Facts",
-            "topic": "Science",
             "statements": [
                 {
                     "statement": "The Earth is round.",
@@ -65,7 +63,6 @@ def test_parse_word_pass_payload() -> None:
         "game": {
             "game_type": "word-pass",
             "title": "Science Rosco",
-            "topic": "Science",
             "words": [
                 {
                     "letter": "A",

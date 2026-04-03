@@ -10,3 +10,4 @@
 #
 # See pyproject.toml [project.optional-dependencies] for the full list.
 requests>=2.30
+numpy>=1.24

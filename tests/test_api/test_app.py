@@ -6,7 +6,7 @@ embedding model is required during testing.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -29,6 +29,27 @@ from ai_engine.observability.collector import StatsCollector
 pytestmark = pytest.mark.skipif(not _HAS_FASTAPI, reason="fastapi not installed")
 
 
+def _clear_all_settings_caches() -> None:
+    """Clear **all** get_settings LRU caches across duplicate module imports."""
+    import sys
+
+    seen_ids: set[int] = set()
+    for _name, mod in list(sys.modules.items()):
+        try:
+            gs = getattr(mod, "get_settings", None)
+        except Exception:
+            continue
+        if gs is None:
+            continue
+        try:
+            has_clear = hasattr(gs, "cache_clear")
+        except Exception:
+            continue
+        if has_clear and id(gs) not in seen_ids:
+            seen_ids.add(id(gs))
+            gs.cache_clear()
+
+
 # ------------------------------------------------------------------
 # Helpers / Fixtures
 # ------------------------------------------------------------------
@@ -40,7 +61,6 @@ def _make_quiz_envelope() -> GameEnvelope:
         game_type="quiz",
         game=QuizGame(
             title="Test Quiz",
-            topic="Science",
             questions=[
                 QuizQuestion(
                     question="What is H2O?",
@@ -59,7 +79,6 @@ def _make_word_pass_envelope() -> GameEnvelope:
         game_type="word-pass",
         game=WordPassGame(
             title="Test Rosco",
-            topic="Science",
             words=[
                 WordPassWord(
                     letter="A", hint="First letter", answer="Atom", starts_with=True
@@ -86,11 +105,11 @@ def _make_client(
 
     mock_gen = MagicMock()
     if gen_side_effect is not None:
-        mock_gen.generate.side_effect = gen_side_effect
-        mock_gen.generate_from_context.side_effect = gen_side_effect
+        mock_gen.generate = AsyncMock(side_effect=gen_side_effect)
+        mock_gen.generate_from_context = AsyncMock(side_effect=gen_side_effect)
     else:
-        mock_gen.generate.return_value = envelope or _make_quiz_envelope()
-        mock_gen.generate_from_context.return_value = envelope or _make_quiz_envelope()
+        mock_gen.generate = AsyncMock(return_value=envelope or _make_quiz_envelope())
+        mock_gen.generate_from_context = AsyncMock(return_value=envelope or _make_quiz_envelope())
 
     mock_pipeline = MagicMock()
     collector = StatsCollector()
@@ -152,7 +171,7 @@ class TestGenerate:
         client, mock_gen, *_ = _make_client()
         resp = client.post(
             "/generate",
-            json={"query": "water cycle", "topic": "Science"},
+            json={"query": "water cycle"},
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -167,7 +186,6 @@ class TestGenerate:
             "/generate",
             json={
                 "query": "photosynthesis",
-                "topic": "Biology",
                 "game_type": "true_false",
                 "language": "en",
                 "num_questions": 3,
@@ -177,7 +195,6 @@ class TestGenerate:
         call_kwargs = mock_gen.generate_from_context.call_args.kwargs
         assert "context" in call_kwargs
         assert isinstance(call_kwargs["context"], str)
-        assert call_kwargs["topic"] == "Biology"
         assert call_kwargs["game_type"] == "true_false"
         assert call_kwargs["language"] == "en"
         assert call_kwargs["num_questions"] == 3
@@ -188,7 +205,7 @@ class TestGenerate:
         client, *_ = _make_client(envelope=_make_word_pass_envelope())
         resp = client.post(
             "/generate",
-            json={"query": "chemistry", "topic": "Science", "game_type": "word-pass"},
+            json={"query": "chemistry", "game_type": "word-pass"},
         )
         assert resp.status_code == 200
         assert resp.json()["game_type"] == "word-pass"
@@ -196,8 +213,8 @@ class TestGenerate:
     def test_generate_missing_required_fields_returns_422(self) -> None:
         """Missing required fields returns HTTP 422 Unprocessable Entity."""
         client, *_ = _make_client()
-        # Missing 'topic'
-        resp = client.post("/generate", json={"query": "water"})
+        # Missing 'query'
+        resp = client.post("/generate", json={"game_type": "quiz"})
         assert resp.status_code == 422
 
     def test_generate_invalid_num_questions_returns_422(self) -> None:
@@ -205,21 +222,21 @@ class TestGenerate:
         client, *_ = _make_client()
         resp = client.post(
             "/generate",
-            json={"query": "water", "topic": "Science", "num_questions": 100},
+            json={"query": "water", "num_questions": 100},
         )
         assert resp.status_code == 422
 
     def test_generate_llm_value_error_returns_422(self) -> None:
         """ValueError from the generator (bad LLM output) maps to HTTP 422."""
         client, *_ = _make_client(gen_side_effect=ValueError("Failed to extract JSON"))
-        resp = client.post("/generate", json={"query": "water", "topic": "Science"})
+        resp = client.post("/generate", json={"query": "water"})
         assert resp.status_code == 422
         assert "Failed to extract JSON" in resp.json()["detail"]
 
     def test_generate_uses_default_language_es(self) -> None:
         """Default language is Spanish when not specified."""
         client, mock_gen, *_ = _make_client()
-        client.post("/generate", json={"query": "w", "topic": "Science"})
+        client.post("/generate", json={"query": "w"})
         assert mock_gen.generate_from_context.call_args.kwargs["language"] == "es"
 
     def test_generate_sdk_returns_typed_payload(self) -> None:
@@ -227,7 +244,7 @@ class TestGenerate:
         client, *_ = _make_client()
         resp = client.post(
             "/generate/sdk",
-            json={"query": "water cycle", "topic": "Science", "language": "en"},
+            json={"query": "water cycle", "language": "en"},
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -241,7 +258,7 @@ class TestGenerate:
         client, mock_gen, *_ = _make_client()
         resp = client.post(
             "/generate",
-            json={"query": "water cycle", "topic": "Science", "language": "es"},
+            json={"query": "water cycle", "language": "es"},
             headers={
                 "X-Game-Language": "en",
                 "X-Difficulty-Percentage": "80",
@@ -257,7 +274,7 @@ class TestGenerate:
         client, mock_gen, *_ = _make_client()
         resp = client.post(
             "/generate/quiz",
-            params={"query": "water cycle", "topic": "Science", "num_questions": 4},
+            params={"query": "water cycle", "num_questions": 4},
             headers={"X-Game-Language": "en", "X-Difficulty-Percentage": "65"},
         )
         assert resp.status_code == 200
@@ -272,7 +289,7 @@ class TestGenerate:
         client, mock_gen, *_ = _make_client(envelope=_make_word_pass_envelope())
         resp = client.post(
             "/generate/word-pass",
-            params={"query": "chemistry", "topic": "Science", "letters": "A,B,C"},
+            params={"query": "chemistry", "letters": "A,B,C"},
         )
         assert resp.status_code == 200
         call_kwargs = mock_gen.generate_from_context.call_args.kwargs
@@ -413,7 +430,7 @@ class TestMonitoringOwnership:
 
         resp = client.post(
             "/generate",
-            json={"query": "water", "topic": "Science"},
+            json={"query": "water"},
             headers={"X-Correlation-ID": correlation_id},
         )
         assert resp.status_code == 200
@@ -443,21 +460,26 @@ class TestAPIKeyAuth:
         from ai_engine.api.app import create_app
 
         mock_gen = MagicMock()
-        mock_gen.generate.return_value = _make_quiz_envelope()
-        mock_gen.generate_from_context.return_value = _make_quiz_envelope()
+        mock_gen.generate = AsyncMock(return_value=_make_quiz_envelope())
+        mock_gen.generate_from_context = AsyncMock(return_value=_make_quiz_envelope())
         mock_pipeline = MagicMock()
 
         os.environ["AI_ENGINE_GAMES_API_KEY"] = games_api_key
         os.environ["AI_ENGINE_BRIDGE_API_KEY"] = bridge_api_key
+        os.environ["AI_ENGINE_GENERATION_API_URL"] = ""
+        _clear_all_settings_caches()
         try:
             app = create_app(
                 generator=mock_gen,
                 rag_pipeline=mock_pipeline,
                 collector=StatsCollector(),
             )
+            app.state.generation_api_url = ""
         finally:
             del os.environ["AI_ENGINE_GAMES_API_KEY"]
             del os.environ["AI_ENGINE_BRIDGE_API_KEY"]
+            del os.environ["AI_ENGINE_GENERATION_API_URL"]
+            _clear_all_settings_caches()
 
         return TestClient(app, raise_server_exceptions=False), mock_gen
 
@@ -478,7 +500,7 @@ class TestAPIKeyAuth:
         client, _ = self._make_secured_client()
         resp = client.post(
             "/generate",
-            json={"query": "water", "topic": "Science"},
+            json={"query": "water"},
             headers={"X-API-Key": "wrong-key"},
         )
         assert resp.status_code == 403
@@ -488,7 +510,7 @@ class TestAPIKeyAuth:
         client, _ = self._make_secured_client(games_api_key="games-key")
         resp = client.post(
             "/generate",
-            json={"query": "water", "topic": "Science"},
+            json={"query": "water"},
             headers={"X-API-Key": "games-key"},
         )
         assert resp.status_code == 200
@@ -496,7 +518,7 @@ class TestAPIKeyAuth:
     def test_generate_protected_without_key(self) -> None:
         """POST /generate is blocked when the API key is missing."""
         client, _ = self._make_secured_client()
-        resp = client.post("/generate", json={"query": "water", "topic": "Science"})
+        resp = client.post("/generate", json={"query": "water"})
         assert resp.status_code == 401
 
     def test_generate_succeeds_with_correct_key(self) -> None:
@@ -504,7 +526,7 @@ class TestAPIKeyAuth:
         client, _ = self._make_secured_client(games_api_key="mykey")
         resp = client.post(
             "/generate",
-            json={"query": "water", "topic": "Science"},
+            json={"query": "water"},
             headers={"X-API-Key": "mykey"},
         )
         assert resp.status_code == 200
@@ -542,6 +564,8 @@ class TestUninitialised:
         from ai_engine.api.app import create_app
 
         mock_gen = MagicMock()
+        mock_gen.generate = AsyncMock(return_value=_make_quiz_envelope())
+        mock_gen.generate_from_context = AsyncMock(return_value=_make_quiz_envelope())
         mock_pipeline = MagicMock()
         app = create_app(generator=mock_gen, rag_pipeline=mock_pipeline)
 
@@ -551,7 +575,7 @@ class TestUninitialised:
         # Nullify the generator to simulate missing component.
         app.state.generator = None
 
-        resp = client.post("/generate", json={"query": "water", "topic": "Science"})
+        resp = client.post("/generate", json={"query": "water"})
         assert resp.status_code == 503
         assert "not initialised" in resp.json()["detail"].lower()
 
@@ -571,8 +595,8 @@ class TestRateLimiting:
         from ai_engine.api.app import create_app
 
         mock_gen = MagicMock()
-        mock_gen.generate.return_value = _make_quiz_envelope()
-        mock_gen.generate_from_context.return_value = _make_quiz_envelope()
+        mock_gen.generate = AsyncMock(return_value=_make_quiz_envelope())
+        mock_gen.generate_from_context = AsyncMock(return_value=_make_quiz_envelope())
         mock_pipeline = MagicMock()
 
         env_overrides = {
@@ -583,6 +607,7 @@ class TestRateLimiting:
         previous = {key: os.environ.get(key) for key in env_overrides}
         for key, value in env_overrides.items():
             os.environ[key] = value
+        _clear_all_settings_caches()
 
         try:
             app = create_app(
@@ -596,6 +621,7 @@ class TestRateLimiting:
                     del os.environ[key]
                 else:
                     os.environ[key] = old_value
+            _clear_all_settings_caches()
 
         return TestClient(app, raise_server_exceptions=False)
 
@@ -603,8 +629,8 @@ class TestRateLimiting:
         """Second generation call in same window is limited with HTTP 429."""
         client = self._make_rate_limited_client()
 
-        first = client.post("/generate", json={"query": "water", "topic": "Science"})
-        second = client.post("/generate", json={"query": "water", "topic": "Science"})
+        first = client.post("/generate", json={"query": "water"})
+        second = client.post("/generate", json={"query": "water"})
 
         assert first.status_code == 200
         assert second.status_code == 429
@@ -624,6 +650,8 @@ class TestRateLimiting:
         from ai_engine.api.app import create_app
 
         mock_gen = MagicMock()
+        mock_gen.generate = AsyncMock(return_value=_make_quiz_envelope())
+        mock_gen.generate_from_context = AsyncMock(return_value=_make_quiz_envelope())
         mock_pipeline = MagicMock()
         app = create_app(generator=mock_gen, rag_pipeline=mock_pipeline)
 

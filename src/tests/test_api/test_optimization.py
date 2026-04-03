@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import threading
 from dataclasses import dataclass
 from fnmatch import fnmatch
@@ -9,6 +10,11 @@ from fnmatch import fnmatch
 from ai_engine.api.optimization import GenerationOptimizationService
 from ai_engine.api.schemas import GenerateRequest
 from ai_engine.games.schemas import GameEnvelope, QuizGame, QuizQuestion
+
+
+def _run(coro):
+    """Run a coroutine synchronously for test convenience."""
+    return asyncio.run(coro)
 
 
 @dataclass
@@ -36,10 +42,9 @@ class _StubGenerator:
             "retry_used": False,
         }
 
-    def generate_from_context(
+    async def generate_from_context(
         self,
         context: str,
-        topic: str,
         game_type: str = "quiz",
         *,
         language: str | None = None,
@@ -50,7 +55,6 @@ class _StubGenerator:
     ) -> GameEnvelope:
         _ = (
             context,
-            topic,
             game_type,
             language,
             difficulty_percentage,
@@ -62,7 +66,6 @@ class _StubGenerator:
             game_type="quiz",
             game=QuizGame(
                 title="Test Quiz",
-                topic="Science",
                 questions=[
                     QuizQuestion(
                         question="What is H2O?",
@@ -138,8 +141,8 @@ def test_persistent_cache_stats_and_reset_use_cache_index(tmp_path) -> None:
         persistent_cache_path=str(cache_file),
     )
 
-    req = GenerateRequest(query="water", topic="Science")
-    service.generate(req)
+    req = GenerateRequest(query="water")
+    _run(service.generate(req))
 
     stats_before = service.cache_stats()
     assert stats_before["persistent_enabled"] is True
@@ -164,8 +167,8 @@ def test_redis_backend_falls_back_to_tinydb_when_unavailable(tmp_path) -> None:
         persistent_cache_path=str(cache_file),
     )
 
-    req = GenerateRequest(query="water", topic="Science")
-    service.generate(req)
+    req = GenerateRequest(query="water")
+    _run(service.generate(req))
 
     stats = service.cache_stats()
     assert stats["persistent_enabled"] is True
@@ -189,9 +192,9 @@ def test_redis_backend_read_write_reset_path(monkeypatch) -> None:
         persistent_cache_path=None,
     )
 
-    req = GenerateRequest(query="water", topic="Science")
-    first = service.generate(req)
-    second = service.generate(req)
+    req = GenerateRequest(query="water")
+    first = _run(service.generate(req))
+    second = _run(service.generate(req))
 
     assert first.metrics["cache_hit"] is False
     assert second.metrics["cache_hit"] is True
@@ -225,9 +228,9 @@ def test_cache_namespace_versioning_and_selective_invalidation(tmp_path) -> None
         persistent_cache_path=str(cache_file),
     )
 
-    req = GenerateRequest(query="water", topic="Science")
-    first_v1 = v1.generate(req)
-    first_v2 = v2.generate(req)
+    req = GenerateRequest(query="water")
+    first_v1 = _run(v1.generate(req))
+    first_v2 = _run(v2.generate(req))
 
     assert first_v1.metrics["cache_hit"] is False
     assert first_v2.metrics["cache_hit"] is False
@@ -257,18 +260,18 @@ def test_persistent_backend_failures_do_not_break_generation(monkeypatch) -> Non
         persistent_cache_path=None,
     )
 
-    req = GenerateRequest(query="water", topic="Science")
+    req = GenerateRequest(query="water")
     service._redis_cache.fail_setex = True
-    result = service.generate(req)
+    result = _run(service.generate(req))
 
     assert result.payload["game_type"] == "quiz"
     assert result.metrics["persistent_fallback_used"] is True
     assert result.metrics["persistent_error"] == "write_error"
 
     service._redis_cache.fail_setex = False
-    service.generate(req)
+    _run(service.generate(req))
     service._redis_cache.fail_get = True
-    read_fail_result = service.generate(req)
+    read_fail_result = _run(service.generate(req))
 
     assert read_fail_result.payload["game_type"] == "quiz"
     assert read_fail_result.metrics["persistent_fallback_used"] is True
@@ -287,8 +290,10 @@ def test_persistent_index_stays_consistent_under_concurrency(tmp_path) -> None:
     )
 
     def worker() -> None:
+        loop = asyncio.new_event_loop()
         for _ in range(25):
-            service.generate(GenerateRequest(query="water", topic="Science"))
+            loop.run_until_complete(service.generate(GenerateRequest(query="water")))
+        loop.close()
 
     threads = [threading.Thread(target=worker) for _ in range(6)]
     for thread in threads:

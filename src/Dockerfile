@@ -1,7 +1,7 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # Stage 1 – builder base: prepare source and metadata
 # ──────────────────────────────────────────────────────────────────────────────
-ARG APP_NAME=AxiomNode
+ARG APP_NAME=ai_engine
 ARG SERVICE_NAME=ai_engine
 ARG DISTRIBUTION=dev
 ARG RELEASE_VERSION=v1

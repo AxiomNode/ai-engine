@@ -16,6 +16,27 @@ from ai_engine.observability.collector import StatsCollector
 pytestmark = pytest.mark.skipif(not _HAS_FASTAPI, reason="fastapi not installed")
 
 
+def _clear_all_settings_caches() -> None:
+    """Clear all get_settings LRU caches across duplicate module imports."""
+    import sys
+
+    seen_ids: set[int] = set()
+    for _name, mod in list(sys.modules.items()):
+        try:
+            gs = getattr(mod, "get_settings", None)
+        except Exception:
+            continue
+        if gs is None:
+            continue
+        try:
+            has_clear = hasattr(gs, "cache_clear")
+        except Exception:
+            continue
+        if has_clear and id(gs) not in seen_ids:
+            seen_ids.add(id(gs))
+            gs.cache_clear()
+
+
 def _make_client() -> tuple["TestClient", StatsCollector]:
     """Create a fresh TestClient + collector pair."""
     from ai_engine.observability.api import create_app
@@ -150,9 +171,29 @@ class TestMetricsEndpoint:
 class TestCacheMonitoringBridge:
     """Tests for cache monitoring endpoints delegated to ai-api."""
 
+    @staticmethod
+    def _patch_async_client(monkeypatch, fake_response):
+        """Replace httpx.AsyncClient with a fake that returns *fake_response*."""
+        from ai_engine.observability import api as obs_api
+        from unittest.mock import AsyncMock
+
+        class _FakeAsyncClient:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def get(self, *a, **kw):
+                return fake_response
+
+            async def post(self, *a, **kw):
+                return fake_response
+
+        monkeypatch.setattr(obs_api.httpx, "AsyncClient", lambda **kw: _FakeAsyncClient())
+
     def test_cache_stats_returns_payload_from_generation_api(self, monkeypatch) -> None:
         """GET /cache/stats should proxy runtime cache payload from ai-api."""
-        from ai_engine.observability import api as obs_api
 
         class _FakeResponse:
             status_code = 200
@@ -182,7 +223,7 @@ class TestCacheMonitoringBridge:
                     },
                 }
 
-        monkeypatch.setattr(obs_api.httpx, "get", lambda *args, **kwargs: _FakeResponse())
+        self._patch_async_client(monkeypatch, _FakeResponse())
 
         client, _ = _make_client()
         resp = client.get("/cache/stats")
@@ -193,7 +234,6 @@ class TestCacheMonitoringBridge:
 
     def test_cache_reset_proxies_to_generation_api(self, monkeypatch) -> None:
         """POST /cache/reset should return reset counters from ai-api."""
-        from ai_engine.observability import api as obs_api
 
         class _FakeResponse:
             status_code = 200
@@ -206,7 +246,7 @@ class TestCacheMonitoringBridge:
             def json() -> dict[str, int]:
                 return {"removed_memory": 3, "removed_persistent": 7}
 
-        monkeypatch.setattr(obs_api.httpx, "post", lambda *args, **kwargs: _FakeResponse())
+        self._patch_async_client(monkeypatch, _FakeResponse())
 
         client, _ = _make_client()
         resp = client.post("/cache/reset")
@@ -217,7 +257,6 @@ class TestCacheMonitoringBridge:
 
     def test_stats_includes_cache_runtime(self, monkeypatch) -> None:
         """GET /stats should include cache_runtime object for backoffice dashboards."""
-        from ai_engine.observability import api as obs_api
 
         class _FakeResponse:
             status_code = 200
@@ -247,7 +286,7 @@ class TestCacheMonitoringBridge:
                     },
                 }
 
-        monkeypatch.setattr(obs_api.httpx, "get", lambda *args, **kwargs: _FakeResponse())
+        self._patch_async_client(monkeypatch, _FakeResponse())
 
         client, _ = _make_client()
         resp = client.get("/stats")
@@ -272,10 +311,16 @@ class TestObsAPIKeyAuth:
         from ai_engine.observability.api import create_app
 
         os.environ["AI_ENGINE_BRIDGE_API_KEY"] = bridge_api_key
+        os.environ["AI_ENGINE_GENERATION_API_URL"] = ""
+        _clear_all_settings_caches()
         try:
             app = create_app(StatsCollector())
+            # Ensure no real HTTP calls to generation API during tests.
+            app.state.generation_api_url = ""
         finally:
             del os.environ["AI_ENGINE_BRIDGE_API_KEY"]
+            os.environ.pop("AI_ENGINE_GENERATION_API_URL", None)
+            _clear_all_settings_caches()
         return TestClient(app, raise_server_exceptions=False)
 
     def test_no_key_required_when_env_not_set(self) -> None:

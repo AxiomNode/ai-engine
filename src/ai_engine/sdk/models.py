@@ -97,7 +97,6 @@ class GeneratedQuiz(BaseModel):
     model_type: Literal["quiz"] = "quiz"
     metadata: GenerationMetadata = Field(default_factory=GenerationMetadata)
     title: str
-    topic: str
     questions: list[QuizQuestion] = Field(default_factory=list)
 
     @classmethod
@@ -145,7 +144,6 @@ class GeneratedQuiz(BaseModel):
             return cls(
                 metadata=metadata,
                 title=str(game.get("title", "Untitled Quiz")),
-                topic=str(game.get("topic", "General")),
                 questions=tf_questions,
             )
 
@@ -200,7 +198,6 @@ class GeneratedQuiz(BaseModel):
         return cls(
             metadata=metadata,
             title=str(game.get("title", "Untitled Quiz")),
-            topic=str(game.get("topic", "General")),
             questions=questions,
         )
 
@@ -229,7 +226,6 @@ class GeneratedWordPass(BaseModel):
     model_type: Literal["word-pass"] = "word-pass"
     metadata: GenerationMetadata = Field(default_factory=GenerationMetadata)
     title: str
-    topic: str
     entries: list[WordPassEntry] = Field(default_factory=list)
 
     @classmethod
@@ -280,7 +276,6 @@ class GeneratedWordPass(BaseModel):
         return cls(
             metadata=metadata,
             title=str(game.get("title", "Untitled WordPass")),
-            topic=str(game.get("topic", "General")),
             entries=entries,
         )
 
