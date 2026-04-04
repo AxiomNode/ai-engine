@@ -21,23 +21,23 @@ integration with **local language models** (llama.cpp / GGUF), a
 **structured educational game generator** (quiz, word-pass, true/false),
 and an **observability / stats API** (FastAPI) for monitoring model usage — all in Python.
 
-## Integracion En Nueva Arquitectura
+## Integration in the target architecture
 
-`ai-engine` opera como servicio interno de capacidades AI para microservicios de dominio.
+`ai-engine` runs as an internal AI capability service for domain microservices.
 
-- No se considera endpoint publico para clientes finales.
-- Consumidores esperados: `microservice-quizz`, `microservice-wordpass` y otros microservicios internos autorizados.
-- Exposicion recomendada: red privada con politicas de acceso por servicio.
+- It is not intended as a public endpoint for end users.
+- Expected consumers: `microservice-quizz`, `microservice-wordpass`, and other authorized internal services.
+- Recommended exposure: private network with service-to-service access controls.
 
-Contrato interno inicial publicado en:
+Initial internal contract:
 
 - `contracts-and-schemas/schemas/openapi/internal-ai-engine.v1.yaml`
 
-## Responsabilidad principal
+## Core runtime components
 
-- ai-engine-api: API principal de generacion e ingesta AI con cache, RAG y control de dependencias.
-- ai-engine-stats: observabilidad AI para eventos, agregados operativos y metricas de cache/runtime.
-- llama-server: inferencia LLM base para el motor AI.
+- `ai-engine-api`: primary AI generation and ingestion API, with cache and RAG integration.
+- `ai-engine-stats`: AI observability API for events and aggregated runtime metrics.
+- `llama-server`: local LLM inference runtime used by the engine.
 
 ## Project Structure
 
@@ -120,6 +120,23 @@ python -m ai_engine.llm.model_manager list
 cd src
 pytest
 ```
+
+## CI/CD workflow behavior
+
+- `.github/workflows/ci.yml`
+    - Trigger: push (`main`, `develop`) and pull request.
+    - `test` job: lint, formatting, import order, advisory type check, and coverage-gated tests.
+    - `optional-extras-matrix` job: profile-based validation for `core_api`, `rag_kbd`, and `redis` extras.
+    - `trigger-platform-infra-build` job:
+        - Runs on push to `main`.
+        - Dispatches `platform-infra/.github/workflows/build-push.yaml` twice:
+            - `service=ai-engine-api`
+            - `service=ai-engine-stats`
+        - Requires `PLATFORM_INFRA_DISPATCH_TOKEN` in this repository.
+
+## Deployment automation chain
+
+Push to `main` triggers image rebuilds in `platform-infra`, followed by automatic deployment to `dev`.
 
 ## Quick Start
 
