@@ -91,11 +91,9 @@ FROM runtime-base AS runtime-api
 
 COPY --from=builder-api /install /usr/local
 
-# Default command for generation API (docker-compose can still override).
-CMD ["uvicorn", "ai_engine.api.app:app", \
-    "--host", "0.0.0.0", \
-    "--port", "8001", \
-    "--workers", "2"]
+# Default command for generation API.
+# Use a shell form so Kubernetes/runtime env vars can control workers/port.
+CMD uvicorn ai_engine.api.app:app --host 0.0.0.0 --port ${PORT:-8001} --workers ${UVICORN_WORKERS:-1}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -105,11 +103,9 @@ FROM runtime-base AS runtime-stats
 
 COPY --from=builder-stats /install /usr/local
 
-# Default: observability/stats API. Override in docker-compose for other services.
-CMD ["uvicorn", "ai_engine.observability.api:app", \
-     "--host", "0.0.0.0", \
-     "--port", "8000", \
-     "--workers", "2"]
+# Default: observability/stats API.
+# Use a shell form so Kubernetes/runtime env vars can control workers/port.
+CMD uvicorn ai_engine.observability.api:app --host 0.0.0.0 --port ${PORT:-8000} --workers ${UVICORN_WORKERS:-1}
 
 
 # Backward-compatible target name used by older compose configs.
