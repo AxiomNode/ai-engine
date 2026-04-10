@@ -517,6 +517,12 @@ class TestAPIKeyAuth:
         resp = client.get("/health")
         assert resp.status_code == 200
 
+    def test_ready_is_public_even_with_keys(self) -> None:
+        """Readiness remains public so Kubernetes probes do not require API keys."""
+        client, _ = self._make_secured_client()
+        resp = client.get("/ready")
+        assert resp.status_code == 200
+
     def test_generate_wrong_key_returns_403(self) -> None:
         """Generation endpoints reject an invalid key when games key is set."""
         client, _ = self._make_secured_client()

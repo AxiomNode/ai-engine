@@ -840,6 +840,7 @@ def create_app(
         service="generation",
         public_paths={
             "/health",
+            "/ready",
             "/docs",
             "/openapi.json",
             "/docs/oauth2-redirect",
@@ -1418,6 +1419,7 @@ def create_app(
         app,
         public_paths={
             "/health",
+            "/ready",
             "/docs",
             "/openapi.json",
             "/docs/oauth2-redirect",
