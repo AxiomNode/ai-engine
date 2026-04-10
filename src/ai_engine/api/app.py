@@ -42,7 +42,7 @@ import logging
 import threading
 import time
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Any
 
 import httpx
@@ -88,7 +88,7 @@ GAME_CATEGORIES_CATALOG: list[dict[str, str]] = [
 ]
 
 try:
-    from fastapi import FastAPI, Header, HTTPException, Query, Request
+    from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
     from fastapi.openapi.utils import get_openapi
 except ImportError as _imp_err:  # pragma: no cover
     raise ImportError(
@@ -612,6 +612,16 @@ def _health_dependencies(request: Request) -> dict[str, Any]:
     }
 
 
+def _startup_status(request: Request) -> dict[str, Any]:
+    """Return app bootstrap state for liveness and readiness endpoints."""
+    status = getattr(request.app.state, "startup_status", "unknown")
+    error = getattr(request.app.state, "startup_error", None)
+    return {
+        "status": status,
+        "error": error,
+    }
+
+
 def create_app(
     generator: Any = None,
     rag_pipeline: Any = None,
@@ -686,46 +696,85 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):  # type: ignore[type-arg]
         """Initialise and tear down application-level resources."""
+        async def initialise_runtime_state(load_from_env: bool) -> None:
+            app.state.startup_status = "initializing"
+            app.state.startup_error = None
+
+            try:
+                if load_from_env:
+                    # Build from environment variables without blocking socket bind.
+                    _state["generator"], _state["rag_pipeline"] = await asyncio.to_thread(
+                        _build_from_env
+                    )
+                    app.state.generator = _state["generator"]
+                    app.state.rag_pipeline = _state["rag_pipeline"]
+
+                # Seed the RAG vector store with curated examples and educational
+                # resources so the LLM always has high-quality few-shot context.
+                if app.state.rag_pipeline is not None:
+                    from ai_engine.examples import ExampleInjector
+
+                    await asyncio.to_thread(
+                        ExampleInjector(app.state.rag_pipeline).inject_all
+                    )
+
+                if (
+                    app.state.optimizer is None
+                    and app.state.generator is not None
+                    and app.state.rag_pipeline is not None
+                ):
+                    app.state.optimizer = GenerationOptimizationService(
+                        app.state.generator,
+                        app.state.rag_pipeline,
+                        cache_backend=settings.generation_cache_backend,
+                        cache_namespace=settings.generation_cache_namespace,
+                        distribution_version=distribution_version,
+                        persistent_cache_path=settings.generation_cache_path,
+                        redis_url=settings.generation_cache_redis_url,
+                        redis_prefix=settings.generation_cache_redis_prefix,
+                    )
+
+                app.state.startup_status = "ready"
+                logger.info(
+                    "ai-engine generation API started distribution_version=%s",
+                    distribution_version,
+                )
+
+                # Launch cache warm-up as a background task so the server starts
+                # accepting requests immediately while popular games are pre-generated.
+                if settings.cache_warmup_enabled and app.state.optimizer is not None:
+                    app.state.warmup_task = asyncio.create_task(
+                        _warmup_cache(app.state.optimizer)
+                    )
+            except Exception as exc:
+                app.state.startup_status = "failed"
+                app.state.startup_error = str(exc)
+                logger.exception(
+                    "ai-engine generation API failed to initialise distribution_version=%s",
+                    distribution_version,
+                )
+
         if app.state.generator is None:
-            # Build from environment variables when no explicit injection.
-            _state["generator"], _state["rag_pipeline"] = _build_from_env()
-            app.state.generator = _state["generator"]
-            app.state.rag_pipeline = _state["rag_pipeline"]
-
-        # Seed the RAG vector store with curated examples and educational
-        # resources so the LLM always has high-quality few-shot context.
-        if app.state.rag_pipeline is not None:
-            from ai_engine.examples import ExampleInjector
-
-            ExampleInjector(app.state.rag_pipeline).inject_all()
-
-        if (
-            app.state.optimizer is None
-            and app.state.generator is not None
-            and app.state.rag_pipeline is not None
-        ):
-            app.state.optimizer = GenerationOptimizationService(
-                app.state.generator,
-                app.state.rag_pipeline,
-                cache_backend=settings.generation_cache_backend,
-                cache_namespace=settings.generation_cache_namespace,
-                distribution_version=distribution_version,
-                persistent_cache_path=settings.generation_cache_path,
-                redis_url=settings.generation_cache_redis_url,
-                redis_prefix=settings.generation_cache_redis_prefix,
+            app.state.bootstrap_task = asyncio.create_task(
+                initialise_runtime_state(load_from_env=True)
             )
-
-        logger.info(
-            "ai-engine generation API started distribution_version=%s",
-            distribution_version,
-        )
-
-        # Launch cache warm-up as a background task so the server starts
-        # accepting requests immediately while popular games are pre-generated.
-        if settings.cache_warmup_enabled and app.state.optimizer is not None:
-            asyncio.create_task(_warmup_cache(app.state.optimizer))
+        else:
+            await initialise_runtime_state(load_from_env=False)
 
         yield
+
+        bootstrap_task = getattr(app.state, "bootstrap_task", None)
+        if bootstrap_task is not None and not bootstrap_task.done():
+            bootstrap_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await bootstrap_task
+
+        warmup_task = getattr(app.state, "warmup_task", None)
+        if warmup_task is not None and not warmup_task.done():
+            warmup_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await warmup_task
+
         # Clean up async resources on shutdown
         raw_gen = _unwrap_generator(app.state.generator) if app.state.generator else None
         llm_client = getattr(raw_gen, "llm_client", None)
@@ -755,6 +804,12 @@ def create_app(
     app.state.rag_pipeline = rag_pipeline
     app.state.collector = _collector
     app.state.distribution_version = distribution_version
+    app.state.startup_status = (
+        "ready" if generator is not None and rag_pipeline is not None else "pending"
+    )
+    app.state.startup_error = None
+    app.state.bootstrap_task = None
+    app.state.warmup_task = None
     app.state.stats_url = settings.stats_url
     app.state.stats_api_key = (
         settings.stats_api_key or settings.bridge_api_key or settings.api_key
@@ -818,6 +873,22 @@ def create_app(
             "total_events": len(_get_collector(request)),
             "correlation_id": _get_correlation_id(request),
             "distribution_version": _get_distribution_version(request),
+            "startup": _startup_status(request),
+            "dependencies": _health_dependencies(request),
+        }
+
+    @app.get("/ready", tags=["service"])
+    def ready(request: Request, response: Response) -> dict[str, Any]:
+        """Return readiness based on async bootstrap completion."""
+        startup = _startup_status(request)
+        if startup["status"] != "ready":
+            response.status_code = 503
+
+        return {
+            "status": "ready" if startup["status"] == "ready" else "not_ready",
+            "correlation_id": _get_correlation_id(request),
+            "distribution_version": _get_distribution_version(request),
+            "startup": startup,
             "dependencies": _health_dependencies(request),
         }
 

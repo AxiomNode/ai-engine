@@ -136,6 +136,7 @@ class TestHealth:
         resp = client.get("/health")
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
+        assert resp.json()["startup"]["status"] == "ready"
         assert resp.headers.get("X-Distribution-Version")
 
     def test_reports_event_count(self) -> None:
@@ -156,6 +157,27 @@ class TestHealth:
         assert "cache" in data["dependencies"]
         assert "correlation_id" in data
         assert "distribution_version" in data
+
+
+class TestReadiness:
+    """Tests for GET /ready."""
+
+    def test_returns_ready_when_dependencies_are_injected(self) -> None:
+        """Readiness returns 200 once the app bootstrap has completed."""
+        client, *_ = _make_client()
+        resp = client.get("/ready")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ready"
+        assert resp.json()["startup"]["status"] == "ready"
+
+    def test_returns_not_ready_when_startup_is_in_progress(self) -> None:
+        """Readiness returns 503 while async bootstrap is still in progress."""
+        client, *_ = _make_client()
+        client.app.state.startup_status = "initializing"
+        resp = client.get("/ready")
+        assert resp.status_code == 503
+        assert resp.json()["status"] == "not_ready"
+        assert resp.json()["startup"]["status"] == "initializing"
 
 
 # ------------------------------------------------------------------
