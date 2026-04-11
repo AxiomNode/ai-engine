@@ -180,8 +180,6 @@ class TestReadiness:
         assert resp.status_code == 503
         assert resp.json()["status"] == "not_ready"
         assert resp.json()["startup"]["status"] == "initializing"
-
-
 # ------------------------------------------------------------------
 # POST /generate
 # ------------------------------------------------------------------

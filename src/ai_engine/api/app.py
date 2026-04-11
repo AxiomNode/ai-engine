@@ -235,6 +235,26 @@ async def _warmup_cache(optimizer: GenerationOptimizationService) -> None:
     )
 
 
+async def _prime_runtime_content(
+    rag_pipeline: Any | None,
+    optimizer: GenerationOptimizationService | None,
+    *,
+    cache_warmup_enabled: bool,
+) -> None:
+    """Seed curated examples and optionally warm cache after readiness."""
+    if rag_pipeline is not None:
+        try:
+            from ai_engine.examples import ExampleInjector
+
+            await asyncio.to_thread(ExampleInjector(rag_pipeline).inject_all)
+        except Exception:
+            logger.exception("example-bootstrap: failed to inject curated corpus")
+            return
+
+    if cache_warmup_enabled and optimizer is not None:
+        await _warmup_cache(optimizer)
+
+
 def _get_generator(request: Request) -> Any:
     """Retrieve the generator from app state.
 
@@ -719,15 +739,6 @@ def create_app(
                     app.state.generator = _state["generator"]
                     app.state.rag_pipeline = _state["rag_pipeline"]
 
-                # Seed the RAG vector store with curated examples and educational
-                # resources so the LLM always has high-quality few-shot context.
-                if app.state.rag_pipeline is not None:
-                    from ai_engine.examples import ExampleInjector
-
-                    await asyncio.to_thread(
-                        ExampleInjector(app.state.rag_pipeline).inject_all
-                    )
-
                 if (
                     app.state.optimizer is None
                     and app.state.generator is not None
@@ -750,11 +761,13 @@ def create_app(
                     distribution_version,
                 )
 
-                # Launch cache warm-up as a background task so the server starts
-                # accepting requests immediately while popular games are pre-generated.
-                if settings.cache_warmup_enabled and app.state.optimizer is not None:
+                if app.state.rag_pipeline is not None or app.state.optimizer is not None:
                     app.state.warmup_task = asyncio.create_task(
-                        _warmup_cache(app.state.optimizer)
+                        _prime_runtime_content(
+                            app.state.rag_pipeline,
+                            app.state.optimizer,
+                            cache_warmup_enabled=settings.cache_warmup_enabled,
+                        )
                     )
             except Exception as exc:
                 app.state.startup_status = "failed"
