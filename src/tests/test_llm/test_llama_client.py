@@ -47,8 +47,6 @@ class TestLlamaClientGenerateAPI:
     @staticmethod
     def _make_mock_client(response_json, captured=None):
         """Create a mock httpx.AsyncClient whose post() returns response_json."""
-        import httpx
-
         class _MockResponse:
             status_code = 200
 
@@ -73,8 +71,6 @@ class TestLlamaClientGenerateAPI:
 
     def test_generate_calls_api(self, monkeypatch):
         """Verify generate() sends a POST and returns the completion text."""
-        import ai_engine.llm.llama_client as mod
-
         client = LlamaClient(api_url="http://localhost:8080/completion")
         mock = self._make_mock_client({"content": "Hello from API"})
         client._http_client = mock

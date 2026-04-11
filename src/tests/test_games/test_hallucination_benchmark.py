@@ -25,7 +25,6 @@ from ai_engine.games.schemas import GameEnvelope
 from ai_engine.rag.chunker import Chunker
 from ai_engine.rag.document import Document
 from ai_engine.rag.pipeline import RAGPipeline
-from ai_engine.rag.retriever import Retriever
 from ai_engine.rag.vector_store import InMemoryVectorStore
 
 # Try real embedder; skip entire module if sentence-transformers is absent.

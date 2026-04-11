@@ -8,10 +8,7 @@ Provides:
 
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
-import re
 import threading
 import time
 from typing import Any
@@ -31,7 +28,6 @@ def compute_rag_stats(rag_pipeline: Any) -> dict[str, Any]:
     """
     store = rag_pipeline.vector_store
     retriever = rag_pipeline.retriever
-    embedder = rag_pipeline.embedder
 
     documents = getattr(store, "_documents", [])
     embeddings_list = getattr(store, "_embeddings_list", [])

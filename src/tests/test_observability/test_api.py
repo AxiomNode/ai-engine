@@ -175,7 +175,6 @@ class TestCacheMonitoringBridge:
     def _patch_async_client(monkeypatch, fake_response):
         """Replace httpx.AsyncClient with a fake that returns *fake_response*."""
         from ai_engine.observability import api as obs_api
-        from unittest.mock import AsyncMock
 
         class _FakeAsyncClient:
             async def __aenter__(self):

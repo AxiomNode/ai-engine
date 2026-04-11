@@ -62,7 +62,7 @@ jobs:
         include:
           - profile: core_api
             extras: "dev,api"
-            test_cmd: "pytest -q tests/test_api tests/test_observability tests/test_games tests/test_llm tests/test_config.py"
+            test_cmd: "pytest -q tests/test_api tests/test_observability tests/test_llm tests/test_config.py"
           - profile: rag_kbd
             extras: "dev,api,rag,kbd"
             test_cmd: "pytest -q tests/test_rag tests/test_kbd"

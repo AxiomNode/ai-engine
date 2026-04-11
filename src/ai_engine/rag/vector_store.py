@@ -1,8 +1,6 @@
 """Vector store interface for the RAG pipeline."""
 
 from __future__ import annotations
-
-import heapq
 from abc import ABC, abstractmethod
 
 import numpy as np
