@@ -17,17 +17,22 @@ if (-not (Test-Path $EnvFile)) {
     throw "Distribution file not found: $EnvFile"
 }
 
-$Profile = "cpu"
-if ($Environment -eq "vps-gpu") {
-    $Profile = "gpu"
+$SecretsFile = ".env.secrets"
+if (-not (Test-Path $SecretsFile)) {
+    throw "Secrets file not found: $SecretsFile. Run: node ../secrets/scripts/prepare-runtime-secrets.mjs $Stage ai-engine"
 }
 
-$ComposeArgs = @("--env-file", $EnvFile, "--profile", $Profile, "-f", "docker-compose.yml")
+$ComposeMode = "cpu"
+if ($Environment -eq "vps-gpu") {
+    $ComposeMode = "gpu"
+}
+
+$ComposeArgs = @("--env-file", $EnvFile, "--env-file", $SecretsFile, "--profile", $ComposeMode, "-f", "docker-compose.yml")
 
 New-Item -ItemType Directory -Force -Path "models" | Out-Null
 New-Item -ItemType Directory -Force -Path "data" | Out-Null
 
-Write-Host "Validating compose config for $Stage/$Environment (profile=$Profile)..."
+Write-Host "Validating compose config for $Stage/$Environment (profile=$ComposeMode)..."
 docker compose @ComposeArgs config | Out-Null
 
 Write-Host "Starting stack for $Stage/$Environment..."

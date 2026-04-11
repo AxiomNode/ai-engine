@@ -32,12 +32,19 @@ if [[ ! -f "${ENV_FILE}" ]]; then
   exit 1
 fi
 
+SECRETS_FILE=".env.secrets"
+if [[ ! -f "${SECRETS_FILE}" ]]; then
+  echo "Secrets file not found: ${SECRETS_FILE}"
+  echo "Run: node ../secrets/scripts/prepare-runtime-secrets.mjs ${STAGE} ai-engine"
+  exit 1
+fi
+
 PROFILE="cpu"
 if [[ "${ENVIRONMENT}" == "vps-gpu" ]]; then
   PROFILE="gpu"
 fi
 
-COMPOSE_ARGS=(--env-file "${ENV_FILE}" --profile "${PROFILE}" -f docker-compose.yml)
+COMPOSE_ARGS=(--env-file "${ENV_FILE}" --env-file "${SECRETS_FILE}" --profile "${PROFILE}" -f docker-compose.yml)
 
 mkdir -p models data
 

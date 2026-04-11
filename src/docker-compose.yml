@@ -10,8 +10,9 @@
 # Prerequisites:
 #   1. Download at least one model:
 #        python -m ai_engine.llm.model_manager download qwen2.5-3b
-#   2. Copy the env template:
-#        cp src/distributions/examples/.env.example src/.env
+#   2. Inject runtime secrets from the private vault:
+#        node ../secrets/scripts/prepare-runtime-secrets.mjs dev ai-engine
+#   3. Use a tracked distribution file plus src/.env.secrets for private values.
 #
 # Usage:
 #   docker compose --profile cpu up --build
