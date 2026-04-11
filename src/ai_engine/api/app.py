@@ -292,16 +292,26 @@ def _generation_failure_metadata(
     *,
     correlation_id: str,
     distribution_version: str,
+    extra_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build normalized metadata for failed generation events."""
-    return {
+    metadata: dict[str, Any] = {
         "event_type": "generation",
         "cache_hit": False,
         "cache_layer": "none",
+        "game_type": req.game_type,
         "language": req.language,
+        "requested_max_tokens": req.max_tokens,
+        "difficulty_percentage": req.difficulty_percentage,
+        "use_cache": req.use_cache,
+        "force_refresh": req.force_refresh,
+        "query_chars": len(req.query),
         "correlation_id": correlation_id,
         "distribution_version": distribution_version,
     }
+    if extra_metadata:
+        metadata.update(extra_metadata)
+    return metadata
 
 
 def _install_api_key_openapi(
@@ -1013,6 +1023,32 @@ def create_app(
                 ),
             )
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except Exception as exc:
+            failure_metadata = _generation_failure_metadata(
+                req,
+                correlation_id=correlation_id,
+                distribution_version=distribution_version,
+                extra_metadata=getattr(exc, "generation_metrics", None),
+            )
+            logger.exception(
+                "generate request failed correlation_id=%s game_type=%s max_tokens=%s",
+                correlation_id,
+                req.game_type,
+                req.max_tokens,
+            )
+            await _record_observability_event(
+                request,
+                prompt=req.query,
+                response="",
+                latency_ms=float(failure_metadata.get("total_latency_ms", 0.0)),
+                max_tokens=req.max_tokens,
+                json_mode=True,
+                success=False,
+                game_type=req.game_type,
+                error=str(exc),
+                metadata=failure_metadata,
+            )
+            raise
 
     async def _execute_generate_sdk(
         req: GenerateRequest,
@@ -1084,6 +1120,32 @@ def create_app(
                 ),
             )
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except Exception as exc:
+            failure_metadata = _generation_failure_metadata(
+                req,
+                correlation_id=correlation_id,
+                distribution_version=distribution_version,
+                extra_metadata=getattr(exc, "generation_metrics", None),
+            )
+            logger.exception(
+                "generate_sdk request failed correlation_id=%s game_type=%s max_tokens=%s",
+                correlation_id,
+                req.game_type,
+                req.max_tokens,
+            )
+            await _record_observability_event(
+                request,
+                prompt=req.query,
+                response="",
+                latency_ms=float(failure_metadata.get("total_latency_ms", 0.0)),
+                max_tokens=req.max_tokens,
+                json_mode=True,
+                success=False,
+                game_type=req.game_type,
+                error=str(exc),
+                metadata=failure_metadata,
+            )
+            raise
 
     async def _execute_ingest(
         req: IngestRequest,

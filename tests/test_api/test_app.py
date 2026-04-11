@@ -91,6 +91,8 @@ def _make_word_pass_envelope() -> GameEnvelope:
 def _make_client(
     envelope: GameEnvelope | None = None,
     gen_side_effect: Exception | None = None,
+    *,
+    raise_server_exceptions: bool = True,
 ) -> tuple[TestClient, MagicMock, MagicMock, StatsCollector]:
     """Build a TestClient with mocked generator and RAG pipeline.
 
@@ -119,7 +121,7 @@ def _make_client(
         rag_pipeline=mock_pipeline,
         collector=collector,
     )
-    return TestClient(app), mock_gen, mock_pipeline, collector
+    return TestClient(app, raise_server_exceptions=raise_server_exceptions), mock_gen, mock_pipeline, collector
 
 
 # ------------------------------------------------------------------
@@ -255,6 +257,25 @@ class TestGenerate:
         assert resp.status_code == 422
         assert "Failed to extract JSON" in resp.json()["detail"]
 
+    def test_generate_runtime_error_records_observability_and_returns_500(self) -> None:
+        """Unexpected generator failures should emit a failed event with metadata."""
+        client, _, _, collector = _make_client(
+            gen_side_effect=RuntimeError("llama read timeout"),
+            raise_server_exceptions=False,
+        )
+        resp = client.post("/generate", json={"query": "water", "max_tokens": 512})
+        assert resp.status_code == 500
+
+        events = collector.history(last_n=1)
+        assert len(events) == 1
+        event = events[0]
+        assert event["success"] is False
+        assert event["error"] == "llama read timeout"
+        assert event["metadata"]["event_type"] == "generation"
+        assert event["metadata"]["correlation_id"]
+        assert event["metadata"]["requested_max_tokens"] == 512
+        assert event["metadata"]["query_chars"] == len("water")
+
     def test_generate_uses_default_language_es(self) -> None:
         """Default language is Spanish when not specified."""
         client, mock_gen, *_ = _make_client()
@@ -274,6 +295,28 @@ class TestGenerate:
         assert "metadata" in data
         assert "data" in data
         assert "metrics" in data
+
+    def test_generate_sdk_runtime_error_records_observability_and_returns_500(self) -> None:
+        """Unexpected SDK generation failures should emit a failed event with metadata."""
+        client, _, _, collector = _make_client(
+            gen_side_effect=RuntimeError("llama read timeout"),
+            raise_server_exceptions=False,
+        )
+        resp = client.post(
+            "/generate/sdk",
+            json={"query": "water cycle", "language": "en", "max_tokens": 256},
+        )
+        assert resp.status_code == 500
+
+        events = collector.history(last_n=1)
+        assert len(events) == 1
+        event = events[0]
+        assert event["success"] is False
+        assert event["error"] == "llama read timeout"
+        assert event["metadata"]["event_type"] == "generation"
+        assert event["metadata"]["correlation_id"]
+        assert event["metadata"]["requested_max_tokens"] == 256
+        assert event["metadata"]["query_chars"] == len("water cycle")
 
     def test_generate_applies_language_and_difficulty_headers(self) -> None:
         """Header overrides must be propagated to the generator call."""

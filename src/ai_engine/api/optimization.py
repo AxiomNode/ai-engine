@@ -279,30 +279,38 @@ class GenerationOptimizationService:
         metrics["rag_latency_ms"] = round((time.perf_counter() - rag_start) * 1000, 2)
 
         gen_start = time.perf_counter()
-        if hasattr(self._generator, "generate_from_context"):
-            envelope = await self._generator.generate_from_context(
-                context=context,
-                game_type=req.game_type,
-                language=req.language,
-                difficulty_percentage=req.difficulty_percentage,
-                num_questions=req.num_questions,
-                letters=req.letters,
-                max_tokens=req.max_tokens,
+        try:
+            if hasattr(self._generator, "generate_from_context"):
+                envelope = await self._generator.generate_from_context(
+                    context=context,
+                    game_type=req.game_type,
+                    language=req.language,
+                    difficulty_percentage=req.difficulty_percentage,
+                    num_questions=req.num_questions,
+                    letters=req.letters,
+                    max_tokens=req.max_tokens,
+                )
+            else:
+                # Backward compatibility for wrapped/mocked generators that still expose only generate(...).
+                envelope = await self._generator.generate(
+                    query=req.query,
+                    game_type=req.game_type,
+                    language=req.language,
+                    difficulty_percentage=req.difficulty_percentage,
+                    num_questions=req.num_questions,
+                    letters=req.letters,
+                    max_tokens=req.max_tokens,
+                )
+            metrics["generation_latency_ms"] = round(
+                (time.perf_counter() - gen_start) * 1000, 2
             )
-        else:
-            # Backward compatibility for wrapped/mocked generators that still expose only generate(...).
-            envelope = await self._generator.generate(
-                query=req.query,
-                game_type=req.game_type,
-                language=req.language,
-                difficulty_percentage=req.difficulty_percentage,
-                num_questions=req.num_questions,
-                letters=req.letters,
-                max_tokens=req.max_tokens,
+        except Exception as exc:
+            metrics["generation_latency_ms"] = round(
+                (time.perf_counter() - gen_start) * 1000, 2
             )
-        metrics["generation_latency_ms"] = round(
-            (time.perf_counter() - gen_start) * 1000, 2
-        )
+            metrics["total_latency_ms"] = round((time.perf_counter() - started) * 1000, 2)
+            setattr(exc, "generation_metrics", dict(metrics))
+            raise
 
         run_metrics = getattr(self._generator, "last_run_metrics", {})
         metrics["llm_latency_ms"] = float(run_metrics.get("llm_total_ms", 0.0))
