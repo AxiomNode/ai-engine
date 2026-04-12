@@ -1,0 +1,261 @@
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+import pytest
+
+from ai_engine.api import diagnostics
+from ai_engine.rag.document import Document
+
+
+class FakeEmbedder:
+    def _vectorize(self, text: str) -> list[float]:
+        lowered = text.lower()
+        return [
+            (
+                1.0
+                if any(token in lowered for token in ["foto", "cloroplast", "calvin"])
+                else 0.0
+            ),
+            (
+                1.0
+                if any(
+                    token in lowered for token in ["revolución", "bastilla", "rousseau"]
+                )
+                else 0.0
+            ),
+            (
+                1.0
+                if any(
+                    token in lowered
+                    for token in ["pitágoras", "hipotenusa", "triángulo"]
+                )
+                else 0.0
+            ),
+        ]
+
+    def embed_documents(self, documents: list[Document]) -> list[list[float]]:
+        return [self._vectorize(document.content) for document in documents]
+
+    def embed_text(self, text: str) -> list[float]:
+        return self._vectorize(text)
+
+
+class ImmediateThread:
+    def __init__(self, target, daemon: bool = False):
+        self._target = target
+        self.daemon = daemon
+
+    def start(self) -> None:
+        self._target()
+
+
+@pytest.fixture(autouse=True)
+def reset_diagnostics_state() -> None:
+    diagnostics._current_run = None
+    if diagnostics._run_lock.locked():
+        diagnostics._run_lock.release()
+    yield
+    diagnostics._current_run = None
+    if diagnostics._run_lock.locked():
+        diagnostics._run_lock.release()
+
+
+@pytest.mark.parametrize(
+    ("chunk_count", "expected_level"),
+    [
+        (0, "empty"),
+        (5, "critical"),
+        (20, "low"),
+        (100, "moderate"),
+        (250, "good"),
+        (600, "excellent"),
+    ],
+)
+def test_compute_rag_stats_reports_coverage_levels(
+    chunk_count: int, expected_level: str
+) -> None:
+    documents = [
+        Document(
+            content=f"document content {index}",
+            metadata={"source": "source-a" if index % 2 == 0 else "source-b"},
+            doc_id=f"doc-{index // 2}",
+        )
+        for index in range(chunk_count)
+    ]
+    embeddings = [[0.1, 0.2, 0.3] for _ in range(chunk_count)]
+    rag_pipeline = SimpleNamespace(
+        vector_store=SimpleNamespace(_documents=documents, _embeddings_list=embeddings),
+        retriever=SimpleNamespace(top_k=7, min_score=0.42),
+    )
+
+    stats = diagnostics.compute_rag_stats(rag_pipeline)
+
+    assert stats["coverage_level"] == expected_level
+    assert stats["retriever_config"] == {"top_k": 7, "min_score": 0.42}
+    assert stats["total_chunks"] == chunk_count
+    if chunk_count:
+        assert stats["embedding_dimensions"] == 3
+
+
+def test_compute_rag_stats_groups_sources_and_unique_documents() -> None:
+    rag_pipeline = SimpleNamespace(
+        vector_store=SimpleNamespace(
+            _documents=[
+                Document(content="alpha", metadata={"source": "docs"}, doc_id="doc-1"),
+                Document(
+                    content="beta beta", metadata={"source": "docs"}, doc_id="doc-1"
+                ),
+                Document(content="gamma", metadata={}, doc_id=None),
+            ],
+            _embeddings_list=[[1.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+        ),
+        retriever=SimpleNamespace(top_k=5, min_score=0.3),
+    )
+
+    stats = diagnostics.compute_rag_stats(rag_pipeline)
+
+    assert stats["unique_documents"] == 1
+    assert stats["sources"][0]["source"] == "docs"
+    assert stats["sources"][0]["chunks"] == 2
+    assert stats["sources"][0]["unique_documents"] == 1
+    assert stats["sources"][1]["source"] == "unknown"
+
+
+def test_run_rag_retrieval_suite_returns_passing_results() -> None:
+    rag_pipeline = SimpleNamespace(embedder=FakeEmbedder())
+
+    result = diagnostics._run_rag_retrieval_suite(rag_pipeline)
+
+    assert result["suite"] == "RAG Retrieval Quality"
+    assert result["failed"] == 0
+    assert result["passed"] == result["total"] == 4
+
+
+def test_other_diagnostics_suites_return_successful_summaries() -> None:
+    prompt_result = diagnostics._run_prompt_grounding_suite()
+    generation_result = diagnostics._run_generation_params_suite()
+    cache_result = diagnostics._run_cache_integrity_suite()
+    metrics_result = diagnostics._run_metrics_suite()
+
+    assert prompt_result["failed"] == 0
+    assert generation_result["failed"] == 0
+    assert cache_result["failed"] == 0
+    assert metrics_result["failed"] == 0
+
+
+def test_run_all_suites_collects_summary(monkeypatch: pytest.MonkeyPatch) -> None:
+    diagnostics._current_run = diagnostics._reset_current_run()
+    monkeypatch.setattr(
+        diagnostics,
+        "_run_rag_retrieval_suite",
+        lambda rag_pipeline: {
+            "suite": "rag",
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "tests": [],
+        },
+    )
+    monkeypatch.setattr(
+        diagnostics,
+        "_run_prompt_grounding_suite",
+        lambda: {"suite": "prompt", "total": 2, "passed": 1, "failed": 1, "tests": []},
+    )
+    monkeypatch.setattr(
+        diagnostics,
+        "_run_generation_params_suite",
+        lambda: {
+            "suite": "generation",
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "tests": [],
+        },
+    )
+    monkeypatch.setattr(
+        diagnostics,
+        "_run_cache_integrity_suite",
+        lambda: {"suite": "cache", "total": 1, "passed": 1, "failed": 0, "tests": []},
+    )
+    monkeypatch.setattr(
+        diagnostics,
+        "_run_metrics_suite",
+        lambda: {"suite": "metrics", "total": 1, "passed": 1, "failed": 0, "tests": []},
+    )
+
+    diagnostics._run_all_suites(SimpleNamespace())
+
+    assert diagnostics._current_run is not None
+    assert diagnostics._current_run["status"] == "completed"
+    assert diagnostics._current_run["summary"] == {
+        "total": 6,
+        "passed": 5,
+        "failed": 1,
+        "skipped": 0,
+        "errors": 0,
+    }
+
+
+def test_start_test_run_handles_already_running() -> None:
+    acquired = diagnostics._run_lock.acquire(blocking=False)
+    assert acquired
+    try:
+        result = diagnostics.start_test_run(SimpleNamespace())
+    finally:
+        diagnostics._run_lock.release()
+
+    assert result["status"] == "already_running"
+
+
+def test_start_test_run_completes_and_status_is_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_run_all_suites(rag_pipeline: object) -> None:
+        assert diagnostics._current_run is not None
+        diagnostics._current_run["suites"]["fake"] = {
+            "suite": "fake",
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "tests": [],
+        }
+        diagnostics._current_run["summary"]["total"] = 1
+        diagnostics._current_run["summary"]["passed"] = 1
+        diagnostics._current_run["status"] = "completed"
+        diagnostics._current_run["finished_at"] = 123.0
+
+    monkeypatch.setattr(diagnostics.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(diagnostics, "_run_all_suites", fake_run_all_suites)
+
+    result = diagnostics.start_test_run(SimpleNamespace())
+    status = diagnostics.get_test_status()
+
+    assert result["status"] == "started"
+    assert status["status"] == "completed"
+    assert status["summary"]["passed"] == 1
+
+
+def test_start_test_run_marks_error_on_worker_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(diagnostics.threading, "Thread", ImmediateThread)
+
+    def fail_run_all_suites(rag_pipeline: object) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(diagnostics, "_run_all_suites", fail_run_all_suites)
+
+    result = diagnostics.start_test_run(SimpleNamespace())
+    status = diagnostics.get_test_status()
+
+    assert result["status"] == "started"
+    assert status["status"] == "error"
+    assert status["finished_at"] is not None
+
+
+def test_get_test_status_is_idle_without_active_run() -> None:
+    status = diagnostics.get_test_status()
+
+    assert status["status"] == "idle"
+    assert status["summary"]["total"] == 0
