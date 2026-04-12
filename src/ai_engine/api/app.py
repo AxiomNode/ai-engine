@@ -217,13 +217,18 @@ async def _warmup_cache(optimizer: GenerationOptimizationService) -> None:
                         ok += 1
                     logger.debug(
                         "cache-warmup: %s|%s|%s → %s",
-                        gt, lang, cname,
+                        gt,
+                        lang,
+                        cname,
                         "hit" if result.metrics.get("cache_hit") else "generated",
                     )
                 except Exception:
                     failed += 1
                     logger.warning(
-                        "cache-warmup: %s|%s|%s failed", gt, lang, cname,
+                        "cache-warmup: %s|%s|%s failed",
+                        gt,
+                        lang,
+                        cname,
                         exc_info=True,
                     )
                 # Small pause between LLM calls to avoid overloading.
@@ -231,7 +236,9 @@ async def _warmup_cache(optimizer: GenerationOptimizationService) -> None:
 
     logger.info(
         "cache-warmup: done — generated=%d cached=%d failed=%d",
-        ok, skipped, failed,
+        ok,
+        skipped,
+        failed,
     )
 
 
@@ -726,6 +733,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):  # type: ignore[type-arg]
         """Initialise and tear down application-level resources."""
+
         async def initialise_runtime_state(load_from_env: bool) -> None:
             app.state.startup_status = "initializing"
             app.state.startup_error = None
@@ -733,8 +741,8 @@ def create_app(
             try:
                 if load_from_env:
                     # Build from environment variables without blocking socket bind.
-                    _state["generator"], _state["rag_pipeline"] = await asyncio.to_thread(
-                        _build_from_env
+                    _state["generator"], _state["rag_pipeline"] = (
+                        await asyncio.to_thread(_build_from_env)
                     )
                     app.state.generator = _state["generator"]
                     app.state.rag_pipeline = _state["rag_pipeline"]
@@ -761,7 +769,10 @@ def create_app(
                     distribution_version,
                 )
 
-                if app.state.rag_pipeline is not None or app.state.optimizer is not None:
+                if (
+                    app.state.rag_pipeline is not None
+                    or app.state.optimizer is not None
+                ):
                     app.state.warmup_task = asyncio.create_task(
                         _prime_runtime_content(
                             app.state.rag_pipeline,
@@ -799,7 +810,9 @@ def create_app(
                 await warmup_task
 
         # Clean up async resources on shutdown
-        raw_gen = _unwrap_generator(app.state.generator) if app.state.generator else None
+        raw_gen = (
+            _unwrap_generator(app.state.generator) if app.state.generator else None
+        )
         llm_client = getattr(raw_gen, "llm_client", None)
         if llm_client is not None and hasattr(llm_client, "close"):
             await llm_client.close()
@@ -981,7 +994,9 @@ def create_app(
             all_namespaces=all_namespaces,
         )
 
-    async def _execute_generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
+    async def _execute_generate(
+        req: GenerateRequest, request: Request
+    ) -> dict[str, Any]:
         """Execute generation request and return normalized payload."""
         _enforce_generation_rate_limit(request)
 
@@ -1295,7 +1310,11 @@ def create_app(
     ) -> dict[str, Any]:
         """Generate quiz with model-specific endpoint and header-driven settings."""
         resolved_language = language or x_game_language
-        resolved_difficulty = difficulty_percentage if difficulty_percentage is not None else x_difficulty_percentage
+        resolved_difficulty = (
+            difficulty_percentage
+            if difficulty_percentage is not None
+            else x_difficulty_percentage
+        )
         req = _build_model_generate_request(
             game_type="quiz",
             query_text=query_text,
@@ -1328,7 +1347,11 @@ def create_app(
     ) -> dict[str, Any]:
         """Generate word-pass with model-specific endpoint and settings headers."""
         resolved_language = language or x_game_language
-        resolved_difficulty = difficulty_percentage if difficulty_percentage is not None else x_difficulty_percentage
+        resolved_difficulty = (
+            difficulty_percentage
+            if difficulty_percentage is not None
+            else x_difficulty_percentage
+        )
         req = _build_model_generate_request(
             game_type="word-pass",
             query_text=query_text,
@@ -1360,7 +1383,11 @@ def create_app(
     ) -> dict[str, Any]:
         """Generate true/false with model-specific endpoint and settings headers."""
         resolved_language = language or x_game_language
-        resolved_difficulty = difficulty_percentage if difficulty_percentage is not None else x_difficulty_percentage
+        resolved_difficulty = (
+            difficulty_percentage
+            if difficulty_percentage is not None
+            else x_difficulty_percentage
+        )
         req = _build_model_generate_request(
             game_type="true_false",
             query_text=query_text,

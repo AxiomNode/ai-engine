@@ -54,13 +54,19 @@ def compute_rag_stats(rag_pipeline: Any) -> dict[str, Any]:
     unique_doc_ids: set[str] = set()
     for source, stats in source_stats.items():
         unique_doc_ids.update(stats["doc_ids"])
-        sources_breakdown.append({
-            "source": source,
-            "chunks": stats["chunks"],
-            "total_chars": stats["total_chars"],
-            "unique_documents": len(stats["doc_ids"]),
-            "avg_chunk_chars": round(stats["total_chars"] / stats["chunks"], 1) if stats["chunks"] else 0,
-        })
+        sources_breakdown.append(
+            {
+                "source": source,
+                "chunks": stats["chunks"],
+                "total_chars": stats["total_chars"],
+                "unique_documents": len(stats["doc_ids"]),
+                "avg_chunk_chars": (
+                    round(stats["total_chars"] / stats["chunks"], 1)
+                    if stats["chunks"]
+                    else 0
+                ),
+            }
+        )
 
     sources_breakdown.sort(key=lambda x: x["chunks"], reverse=True)
 
@@ -72,7 +78,9 @@ def compute_rag_stats(rag_pipeline: Any) -> dict[str, Any]:
         coverage_message = "No documents found. Ingest documentation to activate RAG."
     elif total_chunks < 10:
         coverage_level = "critical"
-        coverage_message = "Very few chunks. RAG will not be able to generate quality content."
+        coverage_message = (
+            "Very few chunks. RAG will not be able to generate quality content."
+        )
     elif total_chunks < 50:
         coverage_level = "low"
         coverage_message = "Low coverage. Consider ingesting more documentation."
@@ -132,6 +140,7 @@ def _reset_current_run() -> dict[str, Any]:
 
 
 # ---- individual test suites ------------------------------------------------
+
 
 def _run_rag_retrieval_suite(rag_pipeline: Any) -> dict[str, Any]:
     """Test RAG retrieval quality using known queries."""
@@ -234,8 +243,14 @@ def _run_rag_retrieval_suite(rag_pipeline: Any) -> dict[str, Any]:
     def _test_cross_topic() -> dict[str, Any]:
         docs = test_retriever.retrieve("teorema de Pitágoras hipotenusa")
         context = "\n".join(d.content for d in docs).lower()
-        math_hits = sum(1 for w in ["pitágoras", "hipotenusa", "catetos", "triángulo"] if w in context)
-        bio_hits = sum(1 for w in ["fotosíntesis", "cloroplastos", "clorofila"] if w in context)
+        math_hits = sum(
+            1
+            for w in ["pitágoras", "hipotenusa", "catetos", "triángulo"]
+            if w in context
+        )
+        bio_hits = sum(
+            1 for w in ["fotosíntesis", "cloroplastos", "clorofila"] if w in context
+        )
         passed = math_hits >= bio_hits
         return {
             "name": "Cross-topic isolation (math vs bio)",
@@ -243,15 +258,22 @@ def _run_rag_retrieval_suite(rag_pipeline: Any) -> dict[str, Any]:
             "details": {"math_hits": math_hits, "bio_hits": bio_hits},
         }
 
-    for test_fn in [_test_on_topic, _test_similarity_quality, _test_off_topic_filter, _test_cross_topic]:
+    for test_fn in [
+        _test_on_topic,
+        _test_similarity_quality,
+        _test_off_topic_filter,
+        _test_cross_topic,
+    ]:
         try:
             results.append(test_fn())
         except Exception as exc:
-            results.append({
-                "name": test_fn.__name__,
-                "passed": False,
-                "error": str(exc),
-            })
+            results.append(
+                {
+                    "name": test_fn.__name__,
+                    "passed": False,
+                    "error": str(exc),
+                }
+            )
 
     passed = sum(1 for r in results if r.get("passed"))
     return {
@@ -272,23 +294,27 @@ def _run_prompt_grounding_suite() -> dict[str, Any]:
     # Test 1: System prompt contains grounding instruction
     has_exclusive = "exclusively" in _SYSTEM.lower()
     has_fabricate = "fabricat" in _SYSTEM.lower() or "invent" in _SYSTEM.lower()
-    results.append({
-        "name": "System prompt contains grounding instruction",
-        "passed": has_exclusive and has_fabricate,
-        "details": {
-            "has_exclusively": has_exclusive,
-            "has_anti_fabrication": has_fabricate,
-        },
-    })
+    results.append(
+        {
+            "name": "System prompt contains grounding instruction",
+            "passed": has_exclusive and has_fabricate,
+            "details": {
+                "has_exclusively": has_exclusive,
+                "has_anti_fabrication": has_fabricate,
+            },
+        }
+    )
 
     # Test 2: Context injection in all game types
     for game_type in ["quiz", "word-pass", "true_false"]:
         prompt = get_prompt(game_type, context="__CONTEXT_MARKER__", language="es")
         passed = "__CONTEXT_MARKER__" in prompt
-        results.append({
-            "name": f"Prompt '{game_type}' injects context",
-            "passed": passed,
-        })
+        results.append(
+            {
+                "name": f"Prompt '{game_type}' injects context",
+                "passed": passed,
+            }
+        )
 
     passed = sum(1 for r in results if r.get("passed"))
     return {
@@ -308,22 +334,28 @@ def _run_generation_params_suite() -> dict[str, Any]:
 
     client = LlamaClient(api_url="http://test:8080")
 
-    results.append({
-        "name": "Temperature ≤ 0.4 (hallucination reduction)",
-        "passed": client.temperature <= 0.4,
-        "details": {"temperature": client.temperature, "max_recommended": 0.4},
-    })
+    results.append(
+        {
+            "name": "Temperature ≤ 0.4 (hallucination reduction)",
+            "passed": client.temperature <= 0.4,
+            "details": {"temperature": client.temperature, "max_recommended": 0.4},
+        }
+    )
 
-    results.append({
-        "name": "top_p ≤ 0.95 (controlled generation)",
-        "passed": client.top_p <= 0.95,
-        "details": {"top_p": client.top_p, "max_recommended": 0.95},
-    })
+    results.append(
+        {
+            "name": "top_p ≤ 0.95 (controlled generation)",
+            "passed": client.top_p <= 0.95,
+            "details": {"top_p": client.top_p, "max_recommended": 0.95},
+        }
+    )
 
-    results.append({
-        "name": "JSON Grammar available for structured output",
-        "passed": "object" in JSON_GRAMMAR and "string" in JSON_GRAMMAR,
-    })
+    results.append(
+        {
+            "name": "JSON Grammar available for structured output",
+            "passed": "object" in JSON_GRAMMAR and "string" in JSON_GRAMMAR,
+        }
+    )
 
     passed = sum(1 for r in results if r.get("passed"))
     return {
@@ -345,23 +377,33 @@ def _run_cache_integrity_suite() -> dict[str, Any]:
     svc = GenerationOptimizationService.__new__(GenerationOptimizationService)
     svc._cache_namespace = "v1"
 
-    req_easy = GenerateRequest(query="fotosíntesis", game_type="quiz", difficulty_percentage=20)
-    req_hard = GenerateRequest(query="fotosíntesis", game_type="quiz", difficulty_percentage=80)
-    req_same = GenerateRequest(query="fotosíntesis", game_type="quiz", difficulty_percentage=20)
+    req_easy = GenerateRequest(
+        query="fotosíntesis", game_type="quiz", difficulty_percentage=20
+    )
+    req_hard = GenerateRequest(
+        query="fotosíntesis", game_type="quiz", difficulty_percentage=80
+    )
+    req_same = GenerateRequest(
+        query="fotosíntesis", game_type="quiz", difficulty_percentage=20
+    )
 
     key_easy = svc._cache_key(req_easy)
     key_hard = svc._cache_key(req_hard)
     key_same = svc._cache_key(req_same)
 
-    results.append({
-        "name": "Different difficulty → different cache key",
-        "passed": key_easy != key_hard,
-    })
+    results.append(
+        {
+            "name": "Different difficulty → different cache key",
+            "passed": key_easy != key_hard,
+        }
+    )
 
-    results.append({
-        "name": "Same params → same cache key",
-        "passed": key_easy == key_same,
-    })
+    results.append(
+        {
+            "name": "Same params → same cache key",
+            "passed": key_easy == key_same,
+        }
+    )
 
     passed = sum(1 for r in results if r.get("passed"))
     return {
@@ -381,12 +423,19 @@ def _run_metrics_suite() -> dict[str, Any]:
     collector = StatsCollector()
     summary = collector.summary()
 
-    required_keys = ["retry_rate", "retry_used_count", "avg_rag_similarity", "avg_rag_context_length_chars"]
+    required_keys = [
+        "retry_rate",
+        "retry_used_count",
+        "avg_rag_similarity",
+        "avg_rag_context_length_chars",
+    ]
     for key in required_keys:
-        results.append({
-            "name": f"Metric '{key}' present in summary",
-            "passed": key in summary,
-        })
+        results.append(
+            {
+                "name": f"Metric '{key}' present in summary",
+                "passed": key in summary,
+            }
+        )
 
     passed = sum(1 for r in results if r.get("passed"))
     return {
@@ -401,7 +450,7 @@ def _run_metrics_suite() -> dict[str, Any]:
 # ---- runner orchestrator ---------------------------------------------------
 
 _SUITE_REGISTRY: list[tuple[str, Any]] = [
-    ("rag_retrieval", None),       # requires rag_pipeline
+    ("rag_retrieval", None),  # requires rag_pipeline
     ("prompt_grounding", None),
     ("generation_params", None),
     ("cache_integrity", None),
@@ -488,6 +537,12 @@ def get_test_status() -> dict[str, Any]:
             "status": "idle",
             "message": "No active test run. Execute POST /diagnostics/tests/run.",
             "suites": {},
-            "summary": {"total": 0, "passed": 0, "failed": 0, "skipped": 0, "errors": 0},
+            "summary": {
+                "total": 0,
+                "passed": 0,
+                "failed": 0,
+                "skipped": 0,
+                "errors": 0,
+            },
         }
     return dict(_current_run)

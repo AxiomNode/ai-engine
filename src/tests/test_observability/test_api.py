@@ -189,7 +189,9 @@ class TestCacheMonitoringBridge:
             async def post(self, *a, **kw):
                 return fake_response
 
-        monkeypatch.setattr(obs_api.httpx, "AsyncClient", lambda **kw: _FakeAsyncClient())
+        monkeypatch.setattr(
+            obs_api.httpx, "AsyncClient", lambda **kw: _FakeAsyncClient()
+        )
 
     def test_cache_stats_returns_payload_from_generation_api(self, monkeypatch) -> None:
         """GET /cache/stats should proxy runtime cache payload from ai-api."""

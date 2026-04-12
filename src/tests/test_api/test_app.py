@@ -111,7 +111,9 @@ def _make_client(
         mock_gen.generate_from_context = AsyncMock(side_effect=gen_side_effect)
     else:
         mock_gen.generate = AsyncMock(return_value=envelope or _make_quiz_envelope())
-        mock_gen.generate_from_context = AsyncMock(return_value=envelope or _make_quiz_envelope())
+        mock_gen.generate_from_context = AsyncMock(
+            return_value=envelope or _make_quiz_envelope()
+        )
 
     mock_pipeline = MagicMock()
     collector = StatsCollector()
@@ -121,7 +123,12 @@ def _make_client(
         rag_pipeline=mock_pipeline,
         collector=collector,
     )
-    return TestClient(app, raise_server_exceptions=raise_server_exceptions), mock_gen, mock_pipeline, collector
+    return (
+        TestClient(app, raise_server_exceptions=raise_server_exceptions),
+        mock_gen,
+        mock_pipeline,
+        collector,
+    )
 
 
 # ------------------------------------------------------------------
@@ -347,7 +354,12 @@ class TestGenerate:
         client, mock_gen, *_ = _make_client(envelope=_make_word_pass_envelope())
         resp = client.post(
             "/generate/word-pass",
-            params={"query": "science", "letters": "A,B,C", "language": "en", "difficulty_percentage": "60"},
+            params={
+                "query": "science",
+                "letters": "A,B,C",
+                "language": "en",
+                "difficulty_percentage": "60",
+            },
         )
         assert resp.status_code == 200
         call_kwargs = mock_gen.generate_from_context.call_args.kwargs

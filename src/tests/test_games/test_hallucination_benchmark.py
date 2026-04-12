@@ -325,7 +325,9 @@ class TestRetrievalQuality:
         pipeline.retrieve("fases de la mitosis celular")
         scores = pipeline.retriever.last_scores
         mean_score = sum(scores) / len(scores) if scores else 0
-        assert mean_score > 0.4, f"Mean similarity {mean_score:.3f} too low for on-topic query"
+        assert (
+            mean_score > 0.4
+        ), f"Mean similarity {mean_score:.3f} too low for on-topic query"
 
     def test_unrelated_query_returns_fewer_docs(self, pipeline):
         """Off-topic query should return fewer docs after min_score filtering."""
@@ -364,9 +366,9 @@ class TestRetrievalQuality:
         context = pipeline.build_context("teorema de Pitágoras triángulo")
         found, total = _count_facts_in_text(context, PITAGORAS_FACTS)
         ratio = found / total
-        assert ratio >= 0.5, (
-            f"Context grounding ratio {ratio:.0%} ({found}/{total} facts)"
-        )
+        assert (
+            ratio >= 0.5
+        ), f"Context grounding ratio {ratio:.0%} ({found}/{total} facts)"
 
     def test_cross_topic_isolation(self, pipeline):
         """Query about math should NOT primarily return biology content."""
@@ -385,12 +387,12 @@ class TestPromptGrounding:
 
     def test_system_prompt_has_grounding_instruction(self):
         """System prompt must instruct model to use ONLY provided context."""
-        assert "EXCLUSIVELY" in _SYSTEM or "exclusively" in _SYSTEM.lower(), (
-            "System prompt lacks explicit grounding instruction"
-        )
-        assert "fabricat" in _SYSTEM.lower() or "invent" in _SYSTEM.lower(), (
-            "System prompt doesn't warn against fabrication"
-        )
+        assert (
+            "EXCLUSIVELY" in _SYSTEM or "exclusively" in _SYSTEM.lower()
+        ), "System prompt lacks explicit grounding instruction"
+        assert (
+            "fabricat" in _SYSTEM.lower() or "invent" in _SYSTEM.lower()
+        ), "System prompt doesn't warn against fabrication"
 
     def test_quiz_prompt_passes_context(self):
         """Quiz prompt must include the context block."""
@@ -451,9 +453,7 @@ class TestGenerationGrounding:
             llm_client=_GroundedMockLLM(),
             default_language="es",
         )
-        envelope = _run(
-            gen.generate("mitosis celular", game_type="true_false")
-        )
+        envelope = _run(gen.generate("mitosis celular", game_type="true_false"))
         assert envelope.game_type == "true_false"
 
     def test_grounded_llm_word_pass(self, pipeline):
@@ -463,9 +463,7 @@ class TestGenerationGrounding:
             llm_client=_GroundedMockLLM(),
             default_language="es",
         )
-        envelope = _run(
-            gen.generate("Revolución Francesa", game_type="word-pass")
-        )
+        envelope = _run(gen.generate("Revolución Francesa", game_type="word-pass"))
         assert envelope.game_type == "word-pass"
 
     def test_hallucinating_llm_still_passes_structure(self, pipeline):
@@ -528,9 +526,9 @@ class TestCacheKeyDifferentiation:
 
         key_easy = svc._cache_key(req_easy)
         key_hard = svc._cache_key(req_hard)
-        assert key_easy != key_hard, (
-            "Cache keys are identical for different difficulty_percentage values!"
-        )
+        assert (
+            key_easy != key_hard
+        ), "Cache keys are identical for different difficulty_percentage values!"
 
     def test_same_params_same_key(self):
         """Identical requests should produce the same cache key."""
@@ -598,7 +596,9 @@ class TestMetricsCompleteness:
         collector = StatsCollector()
         summary = collector.summary()
         assert "avg_rag_similarity" in summary, "Missing avg_rag_similarity metric"
-        assert "avg_rag_context_length_chars" in summary, "Missing context length metric"
+        assert (
+            "avg_rag_context_length_chars" in summary
+        ), "Missing context length metric"
 
     def test_prometheus_includes_new_metrics(self):
         """Prometheus output should include retry and similarity metrics."""

@@ -308,7 +308,9 @@ class GenerationOptimizationService:
             metrics["generation_latency_ms"] = round(
                 (time.perf_counter() - gen_start) * 1000, 2
             )
-            metrics["total_latency_ms"] = round((time.perf_counter() - started) * 1000, 2)
+            metrics["total_latency_ms"] = round(
+                (time.perf_counter() - started) * 1000, 2
+            )
             setattr(exc, "generation_metrics", dict(metrics))
             raise
 

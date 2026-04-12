@@ -206,7 +206,9 @@ class GameGenerator:
     ) -> dict[str, Any]:
         """Normalize generated payload fields for downstream contracts."""
         normalized = dict(data)
-        normalized_game_type = str(normalized.get("game_type") or game_type or "quiz").strip().lower()
+        normalized_game_type = (
+            str(normalized.get("game_type") or game_type or "quiz").strip().lower()
+        )
         if normalized_game_type in {"educational-game", "educational_game"}:
             normalized_game_type = "quiz"
         elif normalized_game_type in {"wordpass", "word_pass"}:
@@ -231,7 +233,11 @@ class GameGenerator:
                     raw_options = item.get("options", [])
                     options: list[str] = []
                     if isinstance(raw_options, list):
-                        options = [str(option).strip() for option in raw_options if str(option).strip()]
+                        options = [
+                            str(option).strip()
+                            for option in raw_options
+                            if str(option).strip()
+                        ]
 
                     # Ensure minimum choices required by QuizQuestion schema.
                     if len(options) < 2:
@@ -258,7 +264,9 @@ class GameGenerator:
                     cleaned_questions.append(item)
                 normalized["questions"] = cleaned_questions
 
-            normalized["title"] = str(normalized.get("title") or "Quiz").strip() or "Quiz"
+            normalized["title"] = (
+                str(normalized.get("title") or "Quiz").strip() or "Quiz"
+            )
         return normalized
 
     def _clean_quiz_question_text(self, question: str) -> str:
@@ -318,7 +326,10 @@ class GameGenerator:
             )
 
         retry_tokens = min(
-            max(max_tokens + _JSON_RETRY_TOKEN_EXTRA_MIN, int(max_tokens * _JSON_RETRY_TOKEN_MULTIPLIER)),
+            max(
+                max_tokens + _JSON_RETRY_TOKEN_EXTRA_MIN,
+                int(max_tokens * _JSON_RETRY_TOKEN_MULTIPLIER),
+            ),
             max_tokens + _JSON_RETRY_TOKEN_EXTRA_MAX,
         )
         retry_prompt = prompt + _JSON_RETRY_SUFFIX
@@ -328,7 +339,9 @@ class GameGenerator:
             retry_tokens,
         )
         llm_retry_start = time.perf_counter()
-        retry_output = await self.llm_client.generate(retry_prompt, max_tokens=retry_tokens)
+        retry_output = await self.llm_client.generate(
+            retry_prompt, max_tokens=retry_tokens
+        )
         llm_retry_ms = (time.perf_counter() - llm_retry_start) * 1000
         logger.debug("Retry LLM output length: %d chars", len(retry_output))
 

@@ -78,7 +78,9 @@ class TrackedLlamaClient:
 
         start = time.perf_counter()
         try:
-            response = await self._client.generate(prompt, max_tokens=max_tokens, **kwargs)
+            response = await self._client.generate(
+                prompt, max_tokens=max_tokens, **kwargs
+            )
             elapsed_ms = (time.perf_counter() - start) * 1000
             self._collector.record_call(
                 prompt=prompt,

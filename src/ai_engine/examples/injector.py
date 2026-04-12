@@ -39,7 +39,9 @@ class ExampleInjector:
         docs = self._corpus_to_documents(get_full_corpus())
         if docs:
             self._pipeline.ingest(docs)
-        logger.info("ExampleInjector: ingested %d documents into RAG pipeline", len(docs))
+        logger.info(
+            "ExampleInjector: ingested %d documents into RAG pipeline", len(docs)
+        )
         return len(docs)
 
     def inject_by_kind(self, kind: str) -> int:
@@ -47,7 +49,9 @@ class ExampleInjector:
 
         Useful values: ``"game_example"``, ``"educational_resource"``.
         """
-        corpus = [d for d in get_full_corpus() if d.get("metadata", {}).get("kind") == kind]
+        corpus = [
+            d for d in get_full_corpus() if d.get("metadata", {}).get("kind") == kind
+        ]
         docs = self._corpus_to_documents(corpus)
         if docs:
             self._pipeline.ingest(docs)
@@ -57,13 +61,18 @@ class ExampleInjector:
     def inject_by_game_type(self, game_type: str) -> int:
         """Ingest only game examples for a specific *game_type*."""
         corpus = [
-            d for d in get_full_corpus()
+            d
+            for d in get_full_corpus()
             if d.get("metadata", {}).get("game_type") == game_type
         ]
         docs = self._corpus_to_documents(corpus)
         if docs:
             self._pipeline.ingest(docs)
-        logger.info("ExampleInjector: ingested %d documents (game_type=%s)", len(docs), game_type)
+        logger.info(
+            "ExampleInjector: ingested %d documents (game_type=%s)",
+            len(docs),
+            game_type,
+        )
         return len(docs)
 
     # ------------------------------------------------------------------

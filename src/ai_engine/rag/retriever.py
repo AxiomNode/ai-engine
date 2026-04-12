@@ -46,8 +46,6 @@ class Retriever:
         k = top_k if top_k is not None else self.top_k
         query_embedding = self.embedder.embed_text(query)
         results = self.vector_store.search(query_embedding, top_k=k)
-        filtered = [
-            (doc, score) for doc, score in results if score >= self.min_score
-        ]
+        filtered = [(doc, score) for doc, score in results if score >= self.min_score]
         self.last_scores = [score for _, score in filtered]
         return [doc for doc, _score in filtered]

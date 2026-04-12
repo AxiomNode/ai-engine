@@ -47,6 +47,7 @@ class TestLlamaClientGenerateAPI:
     @staticmethod
     def _make_mock_client(response_json, captured=None):
         """Create a mock httpx.AsyncClient whose post() returns response_json."""
+
         class _MockResponse:
             status_code = 200
 
@@ -84,9 +85,7 @@ class TestLlamaClientGenerateAPI:
         mock = self._make_mock_client({"content": "ok"}, captured)
         client._http_client = mock
 
-        asyncio.run(
-            client.generate("Say hi", max_tokens=128)
-        )
+        asyncio.run(client.generate("Say hi", max_tokens=128))
         assert captured.get("n_predict") == 128
 
     def test_generate_uses_openai_max_tokens_for_v1_completions(self, monkeypatch):
@@ -95,18 +94,14 @@ class TestLlamaClientGenerateAPI:
         mock = self._make_mock_client({"choices": [{"text": "ok"}]}, captured)
         client._http_client = mock
 
-        asyncio.run(
-            client.generate("Say hi", max_tokens=128)
-        )
+        asyncio.run(client.generate("Say hi", max_tokens=128))
         assert captured.get("max_tokens") == 128
         assert "n_predict" not in captured
 
     def test_json_mode_sends_grammar(self, monkeypatch):
         """When json_mode=True, the grammar should be sent to the API."""
         captured = {}
-        client = LlamaClient(
-            api_url="http://localhost:8080/completion", json_mode=True
-        )
+        client = LlamaClient(api_url="http://localhost:8080/completion", json_mode=True)
         mock = self._make_mock_client({"content": '{"a":1}'}, captured)
         client._http_client = mock
 
@@ -123,9 +118,7 @@ class TestLlamaClientGenerateAPI:
         mock = self._make_mock_client({"content": "ok"}, captured)
         client._http_client = mock
 
-        asyncio.run(
-            client.generate("Give me JSON", json_mode=True)
-        )
+        asyncio.run(client.generate("Give me JSON", json_mode=True))
         assert "grammar" in captured
 
     def test_generate_raises_on_http_error(self, monkeypatch):

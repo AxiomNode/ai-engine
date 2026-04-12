@@ -174,7 +174,9 @@ class LlamaClient:
     # Private helpers
     # ------------------------------------------------------------------
 
-    async def _generate_via_api(self, prompt: str, max_tokens: int, json_mode: bool) -> str:
+    async def _generate_via_api(
+        self, prompt: str, max_tokens: int, json_mode: bool
+    ) -> str:
         """Send a completion request to the llama.cpp HTTP server (async)."""
         api_url = (self.api_url or "").rstrip("/")
         is_openai_completions = api_url.endswith("/v1/completions")

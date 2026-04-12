@@ -17,7 +17,6 @@ from ai_engine.examples.corpus import (
 from ai_engine.examples.injector import ExampleInjector
 from ai_engine.rag.document import Document
 
-
 # ── Corpus integrity ──────────────────────────────────────────────────
 
 
@@ -37,25 +36,33 @@ class TestCorpusIntegrity:
         )
         assert len(get_full_corpus()) == total
 
-    @pytest.mark.parametrize("entry", get_full_corpus(), ids=lambda e: e.get("doc_id", "?"))
+    @pytest.mark.parametrize(
+        "entry", get_full_corpus(), ids=lambda e: e.get("doc_id", "?")
+    )
     def test_each_entry_has_content_and_doc_id(self, entry):
         assert "content" in entry
         assert isinstance(entry["content"], str)
         assert len(entry["content"]) > 0
         assert "doc_id" in entry
 
-    @pytest.mark.parametrize("entry", get_full_corpus(), ids=lambda e: e.get("doc_id", "?"))
+    @pytest.mark.parametrize(
+        "entry", get_full_corpus(), ids=lambda e: e.get("doc_id", "?")
+    )
     def test_each_entry_has_metadata(self, entry):
         meta = entry.get("metadata", {})
         assert "kind" in meta
         assert meta["kind"] in ("game_example", "educational_resource")
 
-    @pytest.mark.parametrize("entry", get_full_corpus(), ids=lambda e: e.get("doc_id", "?"))
+    @pytest.mark.parametrize(
+        "entry", get_full_corpus(), ids=lambda e: e.get("doc_id", "?")
+    )
     def test_doc_ids_are_unique(self, entry):
         """Collect all doc_ids and assert no duplicates."""
         # This test runs per-entry but we do a global check.
         all_ids = [e["doc_id"] for e in get_full_corpus()]
-        assert all_ids.count(entry["doc_id"]) == 1, f"duplicate doc_id: {entry['doc_id']}"
+        assert (
+            all_ids.count(entry["doc_id"]) == 1
+        ), f"duplicate doc_id: {entry['doc_id']}"
 
 
 class TestGameExamples:
@@ -77,7 +84,9 @@ class TestGameExamples:
             assert len(q["options"]) == 4
             assert 0 <= q["correct_index"] <= 3
 
-    @pytest.mark.parametrize("entry", WORD_PASS_EXAMPLES, ids=lambda e: e.get("doc_id", "?"))
+    @pytest.mark.parametrize(
+        "entry", WORD_PASS_EXAMPLES, ids=lambda e: e.get("doc_id", "?")
+    )
     def test_word_pass_example_contains_valid_json(self, entry):
         meta = entry["metadata"]
         assert meta["game_type"] == "word-pass"
@@ -93,7 +102,9 @@ class TestGameExamples:
             assert "answer" in w
             assert "starts_with" in w
 
-    @pytest.mark.parametrize("entry", TRUE_FALSE_EXAMPLES, ids=lambda e: e.get("doc_id", "?"))
+    @pytest.mark.parametrize(
+        "entry", TRUE_FALSE_EXAMPLES, ids=lambda e: e.get("doc_id", "?")
+    )
     def test_true_false_example_contains_valid_json(self, entry):
         meta = entry["metadata"]
         assert meta["game_type"] == "true_false"

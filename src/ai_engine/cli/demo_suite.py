@@ -225,12 +225,14 @@ def demo_games_with_rag_llm() -> str:
         rag_pipeline=pipeline,
         llm_client=cast(Any, FakeLlamaClient()),
     )
-    envelope = asyncio.run(generator.generate(
-        query="water cycle",
-        game_type="quiz",
-        num_questions=1,
-        language="en",
-    ))
+    envelope = asyncio.run(
+        generator.generate(
+            query="water cycle",
+            game_type="quiz",
+            num_questions=1,
+            language="en",
+        )
+    )
     if envelope.game_type != "quiz":
         raise ValueError("Expected quiz output")
     game = envelope.game
@@ -314,12 +316,14 @@ def demo_full_integration() -> str:
     )
     tracked_generator = TrackedGameGenerator(generator, collector)
 
-    envelope = asyncio.run(tracked_generator.generate(
-        query="water cycle",
-        game_type="quiz",
-        num_questions=1,
-        language="en",
-    ))
+    envelope = asyncio.run(
+        tracked_generator.generate(
+            query="water cycle",
+            game_type="quiz",
+            num_questions=1,
+            language="en",
+        )
+    )
     if envelope.game_type != "quiz":
         raise ValueError("Full integration did not produce quiz output")
 
