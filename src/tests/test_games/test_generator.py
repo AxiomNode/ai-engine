@@ -8,9 +8,9 @@ import pytest
 from ai_engine.games.generator import GameGenerator
 from ai_engine.games.schemas import (
     GameEnvelope,
-    WordPassGame,
     QuizGame,
     TrueFalseGame,
+    WordPassGame,
 )
 from ai_engine.rag.document import Document
 from ai_engine.rag.embedder import Embedder

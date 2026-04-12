@@ -328,7 +328,7 @@ def _run_prompt_grounding_suite() -> dict[str, Any]:
 
 def _run_generation_params_suite() -> dict[str, Any]:
     """Test LLM generation parameters for factual content."""
-    from ai_engine.llm.llama_client import LlamaClient, JSON_GRAMMAR
+    from ai_engine.llm.llama_client import JSON_GRAMMAR, LlamaClient
 
     results: list[dict[str, Any]] = []
 

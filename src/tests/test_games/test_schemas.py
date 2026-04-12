@@ -5,12 +5,12 @@ from pydantic import ValidationError
 
 from ai_engine.games.schemas import (
     GameEnvelope,
-    WordPassGame,
-    WordPassWord,
     QuizGame,
     QuizQuestion,
     TrueFalseGame,
     TrueFalseStatement,
+    WordPassGame,
+    WordPassWord,
 )
 
 # ------------------------------------------------------------------

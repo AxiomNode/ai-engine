@@ -1,8 +1,8 @@
 """Tests for ai_engine.sdk models."""
 
 from ai_engine.sdk import (
-    GeneratedWordPass,
     GeneratedQuiz,
+    GeneratedWordPass,
     LanguageCode,
     get_language_info,
     parse_generate_response,

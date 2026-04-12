@@ -20,7 +20,7 @@ import re
 import pytest
 
 from ai_engine.games.generator import GameGenerator
-from ai_engine.games.prompts import get_prompt, _SYSTEM
+from ai_engine.games.prompts import _SYSTEM, get_prompt
 from ai_engine.games.schemas import GameEnvelope
 from ai_engine.rag.chunker import Chunker
 from ai_engine.rag.document import Document
@@ -603,8 +603,8 @@ class TestMetricsCompleteness:
     def test_prometheus_includes_new_metrics(self):
         """Prometheus output should include retry and similarity metrics."""
         from ai_engine.observability.collector import (
-            StatsCollector,
             GenerationEvent,
+            StatsCollector,
             summary_to_prometheus,
         )
 

@@ -29,8 +29,7 @@ from typing import Any
 import httpx
 
 try:
-    from fastapi import FastAPI, Query, Request
-    from fastapi import HTTPException
+    from fastapi import FastAPI, HTTPException, Query, Request
     from fastapi.openapi.utils import get_openapi
     from fastapi.responses import PlainTextResponse
     from pydantic import BaseModel, Field

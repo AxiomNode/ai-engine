@@ -8,12 +8,12 @@ educational games (quiz, word-pass, true/false, etc.).
 from ai_engine.games.generator import GameGenerator
 from ai_engine.games.schemas import (
     GameEnvelope,
-    WordPassGame,
-    WordPassWord,
     QuizGame,
     QuizQuestion,
     TrueFalseGame,
     TrueFalseStatement,
+    WordPassGame,
+    WordPassWord,
 )
 
 __all__ = [

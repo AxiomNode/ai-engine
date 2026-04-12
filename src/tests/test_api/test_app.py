@@ -19,10 +19,10 @@ except ImportError:
 
 from ai_engine.games.schemas import (
     GameEnvelope,
-    WordPassGame,
-    WordPassWord,
     QuizGame,
     QuizQuestion,
+    WordPassGame,
+    WordPassWord,
 )
 from ai_engine.observability.collector import StatsCollector
 
