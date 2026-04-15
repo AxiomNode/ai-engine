@@ -391,7 +391,7 @@ def _install_api_key_openapi(
         app.openapi_schema = schema
         return schema  # type: ignore[return-value]
 
-    app.openapi = custom_openapi
+    setattr(app, "openapi", custom_openapi)
 
 
 def _apply_generate_headers(

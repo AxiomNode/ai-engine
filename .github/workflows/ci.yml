@@ -43,8 +43,7 @@ jobs:
         run: isort --check-only ai_engine/ tests/
 
       - name: Type check with mypy
-        run: mypy ai_engine/ --ignore-missing-imports
-        continue-on-error: true  # advisory until full stubs are added
+        run: mypy ai_engine/
 
       - name: Run tests with coverage
         run: |

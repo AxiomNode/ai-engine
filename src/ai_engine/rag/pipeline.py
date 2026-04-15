@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+from typing import Any
 
 from ai_engine.llm.llama_client import LlamaClient
 from ai_engine.rag.chunker import Chunker
@@ -112,7 +114,12 @@ class RAGPipeline:
 
         context = self.build_context(query)
         prompt = self.PROMPT_TEMPLATE.format(context=context, goal=goal)
-        raw = self.llm_client.generate(prompt, max_tokens=max_tokens)
+        generate_sync = getattr(self.llm_client, "generate_sync", None)
+        if callable(generate_sync):
+            raw = generate_sync(prompt, max_tokens=max_tokens)
+        else:
+            raw_result: Any = self.llm_client.generate(prompt, max_tokens=max_tokens)
+            raw = asyncio.run(raw_result) if asyncio.iscoroutine(raw_result) else raw_result
         json_text = extract_json_from_text(raw)
         if not json_text:
             # If extraction fails, raise with the raw model output for debugging

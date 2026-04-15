@@ -17,6 +17,7 @@ The demo runs in three stages:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -169,10 +170,12 @@ def run_game_demo(model_path: str, pipeline: Any) -> None:
 
     print("[GAME] Generating a quiz about 'fotosintesis'...")
     try:
-        envelope = generator.generate(
-            query="fotosintesis plantas cloroplastos glucosa",
-            game_type="quiz",
-            num_questions=3,
+        envelope = asyncio.run(
+            generator.generate(
+                query="fotosintesis plantas cloroplastos glucosa",
+                game_type="quiz",
+                num_questions=3,
+            )
         )
     except Exception as exc:
         log.error("Game generation failed: %s", exc)

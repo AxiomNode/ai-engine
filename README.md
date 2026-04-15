@@ -125,7 +125,7 @@ pytest
 
 - `.github/workflows/ci.yml`
     - Trigger: push (`main`, `develop`) and pull request.
-    - `test` job: lint, formatting, import order, advisory type check, and coverage-gated tests.
+    - `test` job: lint, formatting, import order, required type check, and coverage-gated tests.
     - `optional-extras-matrix` job: profile-based validation for `core_api`, `rag_kbd`, and `redis` extras.
     - `trigger-platform-infra-build` job:
         - Runs on push to `main`.
