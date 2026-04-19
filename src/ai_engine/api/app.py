@@ -330,6 +330,36 @@ def _get_optimizer(request: Request) -> Any:
     return request.app.state.optimizer
 
 
+def _invalidate_rag_stats_cache(app: FastAPI) -> None:
+    """Drop cached RAG diagnostics so future reads recompute fresh stats."""
+    app.state.rag_stats_cache = None
+
+
+def _get_cached_rag_stats(request: Request, pipeline: Any) -> dict[str, Any]:
+    """Return cached RAG stats when still fresh, otherwise recompute them."""
+    ttl_ms = max(0, get_settings().diagnostics_cache_ttl_ms)
+    now = time.monotonic()
+    cached = getattr(request.app.state, "rag_stats_cache", None)
+    if (
+        ttl_ms > 0
+        and isinstance(cached, dict)
+        and cached.get("expires_at", -1.0) > now
+        and isinstance(cached.get("payload"), dict)
+    ):
+        return cached["payload"]
+
+    payload = compute_rag_stats(pipeline)
+    if ttl_ms > 0:
+        request.app.state.rag_stats_cache = {
+            "payload": payload,
+            "expires_at": now + (ttl_ms / 1000),
+        }
+    else:
+        request.app.state.rag_stats_cache = None
+
+    return payload
+
+
 def _get_distribution_version(request: Request) -> str:
     """Return distribution-version tag associated with this app instance."""
     value = getattr(request.app.state, "distribution_version", None)
@@ -358,7 +388,7 @@ def _generation_failure_metadata(
         "difficulty_percentage": req.difficulty_percentage,
         "use_cache": req.use_cache,
         "force_refresh": req.force_refresh,
-        "query_chars": len(req.query),
+        "query_chars": len(req.resolved_topic),
         "correlation_id": correlation_id,
         "distribution_version": distribution_version,
     }
@@ -372,7 +402,7 @@ def _resolve_effective_max_tokens(req: GenerateRequest) -> int:
     return estimate_effective_max_tokens(
         req.game_type,
         req.max_tokens,
-        num_questions=req.num_questions,
+        item_count=req.item_count,
         letters=req.letters,
     )
 
@@ -448,13 +478,13 @@ def _apply_generate_headers(
 def _build_model_generate_request(
     *,
     game_type: str,
-    query_text: str,
+    query_text: str | None,
     language_header: str | None,
     difficulty_header: int | None,
-    num_questions: int,
+    item_count: int,
     category_id: str | None,
     category_name: str | None,
-    letters: str,
+    letters: str | None,
     max_tokens: int,
     use_cache: bool,
     force_refresh: bool,
@@ -472,7 +502,7 @@ def _build_model_generate_request(
         difficulty_percentage=max(0, min(100, int(difficulty_header or 50))),
         category_id=resolved_category_id,
         category_name=resolved_category_name,
-        num_questions=num_questions,
+        item_count=item_count,
         letters=letters,
         max_tokens=max_tokens,
         use_cache=use_cache,
@@ -1040,6 +1070,7 @@ def create_app(
     app.state.stats_api_key = (
         settings.stats_api_key or settings.bridge_api_key or settings.api_key
     )
+    app.state.rag_stats_cache = None
     app.state.rate_limiter = (
         _FixedWindowRateLimiter(
             max_requests=settings.rate_limit_requests,
@@ -1225,7 +1256,7 @@ def create_app(
                 result.metrics["effective_max_tokens"] = effective_max_tokens
                 await _record_observability_event(
                     request,
-                    prompt=req.query,
+                    prompt=req.resolved_topic,
                     response=str(result.payload),
                     latency_ms=float(result.metrics.get("total_latency_ms", 0.0)),
                     max_tokens=effective_max_tokens,
@@ -1238,7 +1269,7 @@ def create_app(
             except ValueError as exc:
                 await _record_observability_event(
                     request,
-                    prompt=req.query,
+                    prompt=req.resolved_topic,
                     response="",
                     latency_ms=0.0,
                     max_tokens=req.max_tokens,
@@ -1275,7 +1306,7 @@ def create_app(
                 )
                 await _record_observability_event(
                     request,
-                    prompt=req.query,
+                    prompt=req.resolved_topic,
                     response="",
                     latency_ms=float(failure_metadata.get("total_latency_ms", 0.0)),
                     max_tokens=effective_max_tokens,
@@ -1310,7 +1341,7 @@ def create_app(
                 )
                 await _record_observability_event(
                     request,
-                    prompt=req.query,
+                    prompt=req.resolved_topic,
                     response="",
                     latency_ms=float(failure_metadata.get("total_latency_ms", 0.0)),
                     max_tokens=effective_max_tokens,
@@ -1340,7 +1371,7 @@ def create_app(
                 )
                 await _record_observability_event(
                     request,
-                    prompt=req.query,
+                    prompt=req.resolved_topic,
                     response="",
                     latency_ms=float(failure_metadata.get("total_latency_ms", 0.0)),
                     max_tokens=effective_max_tokens,
@@ -1394,7 +1425,7 @@ def create_app(
                 sdk_payload = result.sdk_payload
                 await _record_observability_event(
                     request,
-                    prompt=req.query,
+                    prompt=req.resolved_topic,
                     response=str(sdk_payload),
                     latency_ms=float(result.metrics.get("total_latency_ms", 0.0)),
                     max_tokens=effective_max_tokens,
@@ -1403,9 +1434,10 @@ def create_app(
                     game_type=req.game_type,
                     metadata=result.metrics,
                 )
+                sdk_metadata = sdk_payload.get("metadata", {})
                 return GenerateSDKResponse(
                     model_type=str(sdk_payload.get("model_type", req.game_type)),
-                    metadata=dict(sdk_payload.get("metadata", {})),
+                    metadata=sdk_metadata if isinstance(sdk_metadata, dict) else {},
                     data={
                         key: value
                         for key, value in sdk_payload.items()
@@ -1417,7 +1449,7 @@ def create_app(
                 elapsed_ms = (time.perf_counter() - started) * 1000
                 await _record_observability_event(
                     request,
-                    prompt=req.query,
+                    prompt=req.resolved_topic,
                     response="",
                     latency_ms=elapsed_ms,
                     max_tokens=req.max_tokens,
@@ -1454,7 +1486,7 @@ def create_app(
                 )
                 await _record_observability_event(
                     request,
-                    prompt=req.query,
+                    prompt=req.resolved_topic,
                     response="",
                     latency_ms=float(failure_metadata.get("total_latency_ms", 0.0)),
                     max_tokens=effective_max_tokens,
@@ -1489,7 +1521,7 @@ def create_app(
                 )
                 await _record_observability_event(
                     request,
-                    prompt=req.query,
+                    prompt=req.resolved_topic,
                     response="",
                     latency_ms=float(failure_metadata.get("total_latency_ms", 0.0)),
                     max_tokens=effective_max_tokens,
@@ -1519,7 +1551,7 @@ def create_app(
                 )
                 await _record_observability_event(
                     request,
-                    prompt=req.query,
+                    prompt=req.resolved_topic,
                     response="",
                     latency_ms=float(failure_metadata.get("total_latency_ms", 0.0)),
                     max_tokens=effective_max_tokens,
@@ -1558,6 +1590,7 @@ def create_app(
             for d in req.documents
         ]
         pipeline.ingest(docs)
+        _invalidate_rag_stats_cache(request.app)
 
         optimizer = _get_optimizer(request)
         if optimizer is not None:
@@ -1670,8 +1703,9 @@ def create_app(
     @app.post("/generate/quiz", tags=["generation"])
     async def generate_quiz(
         request: Request,
-        query_text: str = Query(..., alias="query"),
-        num_questions: int = Query(default=5, ge=1, le=50),
+        query_text: str | None = Query(default=None, alias="query"),
+        item_count: int | None = Query(default=None, ge=1, le=50),
+        num_questions: int | None = Query(default=None, ge=1, le=50, include_in_schema=False),
         max_tokens: int = Query(default=1024, ge=64, le=4096),
         use_cache: bool = Query(default=True),
         force_refresh: bool = Query(default=False),
@@ -1697,10 +1731,10 @@ def create_app(
             query_text=query_text,
             language_header=resolved_language,
             difficulty_header=resolved_difficulty,
-            num_questions=num_questions,
+            item_count=item_count if item_count is not None else (num_questions or 5),
             category_id=category_id,
             category_name=category_name,
-            letters=DEFAULT_WORD_PASS_LETTERS,
+            letters=None,
             max_tokens=max_tokens,
             use_cache=use_cache,
             force_refresh=force_refresh,
@@ -1710,9 +1744,9 @@ def create_app(
     @app.post("/generate/word-pass", tags=["generation"])
     async def generate_word_pass(
         request: Request,
-        query_text: str = Query(..., alias="query"),
-        letters: str = Query(default=DEFAULT_WORD_PASS_LETTERS),
-        num_questions: int = Query(default=5, ge=1, le=50),
+        query_text: str | None = Query(default=None, alias="query"),
+        item_count: int | None = Query(default=None, ge=1, le=50),
+        num_questions: int | None = Query(default=None, ge=1, le=50, include_in_schema=False),
         max_tokens: int = Query(default=1024, ge=64, le=4096),
         use_cache: bool = Query(default=True),
         force_refresh: bool = Query(default=False),
@@ -1726,7 +1760,7 @@ def create_app(
             alias="X-Difficulty-Percentage",
         ),
     ) -> dict[str, Any]:
-        """Generate word-pass with model-specific endpoint and settings headers."""
+        """Generate standalone WordPass entries with model-specific settings headers."""
         resolved_language = language or x_game_language
         resolved_difficulty = (
             difficulty_percentage
@@ -1738,10 +1772,10 @@ def create_app(
             query_text=query_text,
             language_header=resolved_language,
             difficulty_header=resolved_difficulty,
-            num_questions=num_questions,
+            item_count=item_count if item_count is not None else (num_questions or 5),
             category_id=category_id,
             category_name=category_name,
-            letters=letters,
+            letters=None,
             max_tokens=max_tokens,
             use_cache=use_cache,
             force_refresh=force_refresh,
@@ -1751,8 +1785,9 @@ def create_app(
     @app.post("/generate/true-false", tags=["generation"])
     async def generate_true_false(
         request: Request,
-        query_text: str = Query(..., alias="query"),
-        num_questions: int = Query(default=5, ge=1, le=50),
+        query_text: str | None = Query(default=None, alias="query"),
+        item_count: int | None = Query(default=None, ge=1, le=50),
+        num_questions: int | None = Query(default=None, ge=1, le=50, include_in_schema=False),
         max_tokens: int = Query(default=1024, ge=64, le=4096),
         use_cache: bool = Query(default=True),
         force_refresh: bool = Query(default=False),
@@ -1778,10 +1813,10 @@ def create_app(
             query_text=query_text,
             language_header=resolved_language,
             difficulty_header=resolved_difficulty,
-            num_questions=num_questions,
+            item_count=item_count if item_count is not None else (num_questions or 5),
             category_id=category_id,
             category_name=category_name,
-            letters=DEFAULT_WORD_PASS_LETTERS,
+            letters=None,
             max_tokens=max_tokens,
             use_cache=use_cache,
             force_refresh=force_refresh,
@@ -1887,7 +1922,7 @@ def create_app(
                 "retriever_config": {},
                 "sources": [],
             }
-        return compute_rag_stats(pipeline)
+        return _get_cached_rag_stats(request, pipeline)
 
     @app.post("/diagnostics/tests/run", tags=["diagnostics"])
     def run_diagnostics_tests(request: Request) -> dict[str, Any]:

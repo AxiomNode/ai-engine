@@ -72,12 +72,12 @@ def test_quiz_generation_rejects_missing_options_instead_of_using_placeholders()
         asyncio.run(generator.generate_from_context(context="contexto", game_type="quiz"))
 
 
-def test_word_pass_generation_rejects_duplicate_letters() -> None:
+def test_word_pass_generation_allows_duplicate_letters_for_individual_entries() -> None:
     generator = _build_generator(
         """
         {
           "game_type": "word-pass",
-          "title": "Rosco de prueba",
+          "title": "Pack de prueba",
           "words": [
             {"letter": "A", "hint": "Primera", "answer": "Arbol", "starts_with": true},
             {"letter": "A", "hint": "Duplicada", "answer": "Avion", "starts_with": true}
@@ -86,10 +86,51 @@ def test_word_pass_generation_rejects_duplicate_letters() -> None:
         """
     )
 
-    with pytest.raises(ValueError, match="duplicates letter"):
-        asyncio.run(
-            generator.generate_from_context(context="contexto", game_type="word-pass")
-        )
+    result = asyncio.run(
+        generator.generate_from_context(context="contexto", game_type="word-pass")
+    )
+
+    assert len(result.game.words) == 2
+
+
+def test_word_pass_generation_infers_letter_from_answer_when_missing() -> None:
+    generator = _build_generator(
+        """
+        {
+          "game_type": "word-pass",
+          "title": "Pack de prueba",
+          "words": [
+            {"hint": "Planeta rojo", "answer": "Marte", "starts_with": true}
+          ]
+        }
+        """
+    )
+
+    result = asyncio.run(
+        generator.generate_from_context(context="contexto", game_type="word-pass")
+    )
+
+    assert result.game.words[0].letter == "M"
+
+
+def test_word_pass_generation_normalizes_long_letter_alias() -> None:
+    generator = _build_generator(
+        """
+        {
+          "game_type": "word-pass",
+          "title": "Pack de prueba",
+          "words": [
+            {"letter": "P - representative letter", "hint": "Light-driven plant process", "answer": "Photosynthesis", "starts_with": true}
+          ]
+        }
+        """
+    )
+
+    result = asyncio.run(
+        generator.generate_from_context(context="contexto", game_type="word-pass")
+    )
+
+    assert result.game.words[0].letter == "P"
 
 
 def test_true_false_generation_requires_boolean_is_true() -> None:
@@ -99,7 +140,7 @@ def test_true_false_generation_requires_boolean_is_true() -> None:
           "game_type": "true_false",
           "title": "Verdadero o falso",
           "statements": [
-            {"statement": "Texto valido", "is_true": "yes", "explanation": ""}
+            {"statement": "Texto valido", "is_true": "perhaps", "explanation": ""}
           ]
         }
         """
@@ -109,6 +150,26 @@ def test_true_false_generation_requires_boolean_is_true() -> None:
         asyncio.run(
             generator.generate_from_context(context="contexto", game_type="true_false")
         )
+
+
+def test_true_false_generation_accepts_string_boolean_values() -> None:
+    generator = _build_generator(
+        """
+        {
+          "game_type": "true_false",
+          "title": "Verdadero o falso",
+          "statements": [
+            {"statement": "Texto valido", "is_true": "true", "explanation": ""}
+          ]
+        }
+        """
+    )
+
+    result = asyncio.run(
+        generator.generate_from_context(context="contexto", game_type="true_false")
+    )
+
+    assert result.game.statements[0].is_true is True
 
 
 def test_quiz_generation_prunes_off_topic_question_after_retry() -> None:

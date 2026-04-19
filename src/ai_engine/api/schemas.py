@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, model_validator
 
 
 class DocumentInput(BaseModel):
@@ -39,25 +39,61 @@ class GenerateRequest(BaseModel):
     """Request body for ``POST /generate``.
 
     Attributes:
-        query: Keywords used to retrieve relevant context from the RAG pipeline.
+        query: Optional topic override used to retrieve relevant context.
         game_type: One of ``"quiz"``, ``"word-pass"``, ``"true_false"``.
         language: ISO 639-1 language code for the generated content.
-        num_questions: Number of questions / statements to generate.
-        letters: Comma-separated letters for word-pass rosco.
+        item_count: Number of items to generate.
         max_tokens: Maximum tokens for the LLM generation call.
     """
 
-    query: str
+    query: str | None = None
     game_type: str = "quiz"
     language: str = "es"
-    num_questions: int = Field(default=5, ge=1, le=50)
+    item_count: int = Field(
+        default=5,
+        ge=1,
+        le=50,
+        validation_alias=AliasChoices("item_count", "num_questions"),
+    )
     difficulty_percentage: int = Field(default=50, ge=0, le=100)
     category_id: str | None = None
     category_name: str | None = None
-    letters: str = "A,B,C,D,E,F,G,H,I,J,L,M,N,O,P,R,S,T,V,Z"
+    letters: str | None = Field(
+        default=None,
+        json_schema_extra={"deprecated": True},
+    )
     max_tokens: int = Field(default=1024, ge=64, le=4096)
     use_cache: bool = True
     force_refresh: bool = False
+
+    @model_validator(mode="after")
+    def validate_generation_target(self) -> "GenerateRequest":
+        self.query = self.query.strip() if isinstance(self.query, str) else None
+        self.category_id = (
+            self.category_id.strip() if isinstance(self.category_id, str) else None
+        )
+        self.category_name = (
+            self.category_name.strip()
+            if isinstance(self.category_name, str)
+            else None
+        )
+        if not self.query and not self.category_id and not self.category_name:
+            raise ValueError("query or category_id/category_name is required")
+        return self
+
+    @property
+    def num_questions(self) -> int:
+        """Backward-compatible alias for the historical item count name."""
+        return self.item_count
+
+    @property
+    def resolved_topic(self) -> str:
+        """Return the best available topic seed for retrieval and prompting."""
+        if self.query:
+            return self.query
+        if self.category_name:
+            return self.category_name
+        return self.category_id or ""
 
 
 class GenerateSDKResponse(BaseModel):

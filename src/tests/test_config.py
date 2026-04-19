@@ -126,6 +126,12 @@ class TestAIEngineSettingsDefaults:
         assert settings.query_embedding_cache_max_entries == 2048
         assert settings.retrieval_result_cache_max_entries == 1024
 
+    def test_diagnostics_cache_ttl_default(self, monkeypatch):
+        monkeypatch.delenv("AI_ENGINE_DIAGNOSTICS_CACHE_TTL_MS", raising=False)
+        cfg = _reload_config(monkeypatch)
+        settings = cfg.AIEngineSettings()
+        assert settings.diagnostics_cache_ttl_ms == 2000
+
     def test_distribution_default(self, monkeypatch):
         monkeypatch.delenv("AI_ENGINE_DISTRIBUTION", raising=False)
         cfg = _reload_config(monkeypatch)
@@ -185,6 +191,12 @@ class TestAIEngineSettingsFromEnv:
         settings = cfg.AIEngineSettings()
         assert settings.embedding_device == "cuda"
         assert settings.embedding_batch_size == 96
+
+    def test_diagnostics_cache_ttl_from_env(self, monkeypatch):
+        monkeypatch.setenv("AI_ENGINE_DIAGNOSTICS_CACHE_TTL_MS", "750")
+        cfg = _reload_config(monkeypatch)
+        settings = cfg.AIEngineSettings()
+        assert settings.diagnostics_cache_ttl_ms == 750
 
     def test_api_key_from_env(self, monkeypatch):
         monkeypatch.setenv("AI_ENGINE_API_KEY", "secret-key-123")

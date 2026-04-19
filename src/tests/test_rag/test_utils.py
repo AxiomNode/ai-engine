@@ -40,6 +40,11 @@ class TestExtractJsonFromText:
         assert result is not None
         assert '"item"' in result
 
+    def test_prefers_top_level_array_when_it_appears_before_objects(self):
+        raw = '[{"item": 1}, {"item": 2}] trailing text'
+        result = extract_json_from_text(raw)
+        assert result == '[{"item": 1}, {"item": 2}]'
+
     def test_handles_json_with_braces_in_strings(self):
         raw = 'text {"msg": "use {x} here"} end'
         result = extract_json_from_text(raw)

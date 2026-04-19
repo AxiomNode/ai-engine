@@ -276,11 +276,12 @@ class GenerationOptimizationService:
                     metrics=metrics,
                 )
 
+        topic_seed = req.resolved_topic
         rag_start = time.perf_counter()
-        kbd_hits = await asyncio.to_thread(self._kbd_search_sync, req.query)
+        kbd_hits = await asyncio.to_thread(self._kbd_search_sync, topic_seed)
         metrics["kbd_hits"] = len(kbd_hits)
         profile = get_game_type_profile(req.game_type)
-        query_terms = [req.query.strip()]
+        query_terms = [topic_seed.strip()]
         if req.category_name:
             query_terms.append(req.category_name)
         if kbd_hits:
@@ -334,7 +335,7 @@ class GenerationOptimizationService:
                 envelope = await self._generator.generate_from_context(
                     context=context,
                     game_type=req.game_type,
-                    topic=req.query,
+                    topic=topic_seed,
                     language=req.language,
                     difficulty_percentage=req.difficulty_percentage,
                     num_questions=req.num_questions,
@@ -349,7 +350,7 @@ class GenerationOptimizationService:
                     language=req.language,
                     difficulty_percentage=req.difficulty_percentage,
                     num_questions=req.num_questions,
-                    letters=req.letters,
+                    letters=req.letters or "",
                     max_tokens=req.max_tokens,
                 )
             metrics["generation_latency_ms"] = round(
@@ -521,14 +522,13 @@ class GenerationOptimizationService:
         raw = json.dumps(
             {
                 "namespace": self._cache_namespace,
-                "query": req.query.strip().lower(),
+                "query": req.resolved_topic.strip().lower(),
                 "game_type": req.game_type,
                 "language": req.language,
                 "difficulty_percentage": req.difficulty_percentage,
                 "category_id": (req.category_id or "").strip().lower(),
                 "category_name": (req.category_name or "").strip().lower(),
-                "num_questions": req.num_questions,
-                "letters": req.letters,
+                "item_count": req.num_questions,
                 "embedding_model": embedding_model,
                 "corpus_signature": corpus_signature,
             },

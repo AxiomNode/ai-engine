@@ -148,9 +148,9 @@ def _request_case(base_url: str, api_key: str, case: BenchmarkCase) -> tuple[int
         "force_refresh=true",
     ]
     if case.game_type == "quiz":
-        params.append("num_questions=3")
+        params.append("item_count=3")
     if case.game_type == "word-pass":
-        params.append("letters=A,B,C,D,E,F,G,H,I,J,L,M,N,O,P,R,S,T,V,Z")
+        params.append("item_count=20")
     request = Request(
         f"{endpoint}?{'&'.join(params)}",
         headers={"X-API-Key": api_key},

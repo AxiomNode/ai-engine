@@ -16,13 +16,14 @@ class TestGetPrompt:
         assert "Python is a programming language" in prompt
         assert "correct_index" in prompt
 
-    def test_word_pass_prompt_contains_letters(self):
+    def test_word_pass_prompt_contains_item_count_not_letters(self):
         prompt = get_prompt(
             game_type="word-pass",
             context="Geography facts.",
-            letters="A,B,C",
+            num_questions=3,
         )
-        assert "A,B,C" in prompt
+        assert "Return up to 3 standalone entries" in prompt
+        assert "Do not build an alphabet rosco" in prompt
         assert "word-pass" in prompt.lower()
 
     def test_true_false_prompt(self):

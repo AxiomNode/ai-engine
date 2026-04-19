@@ -117,15 +117,15 @@ class QuizGame(BaseModel):
 
 
 # ------------------------------------------------------------------
-# WordPass (rosco)
+# WordPass
 # ------------------------------------------------------------------
 
 
 class WordPassWord(BaseModel):
-    """A single word entry for a WordPass rosco.
+    """A single reusable WordPass entry.
 
     Attributes:
-        letter: The letter of the alphabet this entry covers (A–Z).
+        letter: Representative letter for the entry (usually the initial).
             Normalised to upper-case on input.
         hint: Clue or definition read aloud to the player.
         answer: The correct word (starts with or contains *letter*).
@@ -179,13 +179,13 @@ class WordPassWord(BaseModel):
 
 
 class WordPassGame(BaseModel):
-    """A full WordPass (rosco) game.
+    """A collection of standalone WordPass entries.
 
     Attributes:
         game_type: Always ``"word-pass"``; included in serialisation for
             type discrimination.
         title: Human-readable title.
-        words: List of word entries (ideally one per letter A-Z).
+        words: List of independent WordPass entries.
     """
 
     game_type: Literal["word-pass"] = "word-pass"

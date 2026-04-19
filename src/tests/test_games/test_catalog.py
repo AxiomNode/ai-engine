@@ -13,13 +13,15 @@ def test_normalize_game_type_aliases() -> None:
     assert normalize_game_type("true-false") == "true_false"
 
 
-def test_count_requested_items_uses_letters_for_word_pass() -> None:
-    assert count_requested_items("word-pass", letters="A,B,C,D") == 4
+def test_count_requested_items_prefers_item_count_for_word_pass() -> None:
+    assert count_requested_items("word-pass", item_count=4) == 4
+    assert count_requested_items("word-pass", num_questions=3) == 3
 
 
 def test_estimate_effective_max_tokens_uses_game_profile() -> None:
-    assert estimate_effective_max_tokens("quiz", 512, num_questions=5) == 296
-    assert estimate_effective_max_tokens("word-pass", 1024, letters="A,B,C,D,E") == 320
+    assert estimate_effective_max_tokens("quiz", 512, num_questions=5) == 512
+    assert estimate_effective_max_tokens("word-pass", 1024, item_count=5) == 256
+    assert estimate_effective_max_tokens("word-pass", 1024, item_count=20) == 416
 
 
 def test_get_game_type_profile_returns_retrieval_settings() -> None:

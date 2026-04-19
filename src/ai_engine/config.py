@@ -107,6 +107,9 @@ Environment variables
 ``AI_ENGINE_RAG_CONTEXT_CHAR_LIMIT``
     Default context length budget used when building prompts from retrieved chunks.
 
+``AI_ENGINE_DIAGNOSTICS_CACHE_TTL_MS``
+    Time-to-live in milliseconds for short-lived diagnostics endpoint caches.
+
 ``AI_ENGINE_DISTRIBUTION``
     Deployment distribution label (e.g. ``dev``, ``stg``, ``pro``).
 
@@ -171,6 +174,7 @@ class AIEngineSettings(BaseSettings):
         retriever_candidate_multiplier: Over-fetch factor used before metadata reranking.
         retriever_metadata_match_boost: Score bonus for metadata preference matches.
         rag_context_char_limit: Default prompt context character budget.
+        diagnostics_cache_ttl_ms: Short-lived diagnostics cache TTL in milliseconds.
         distribution: Deployment distribution label.
         release_version: Deployment release version label.
     """
@@ -336,6 +340,12 @@ class AIEngineSettings(BaseSettings):
         ge=512,
         alias="AI_ENGINE_RAG_CONTEXT_CHAR_LIMIT",
         validation_alias="AI_ENGINE_RAG_CONTEXT_CHAR_LIMIT",
+    )
+    diagnostics_cache_ttl_ms: int = Field(
+        default=2000,
+        ge=0,
+        alias="AI_ENGINE_DIAGNOSTICS_CACHE_TTL_MS",
+        validation_alias="AI_ENGINE_DIAGNOSTICS_CACHE_TTL_MS",
     )
     cache_warmup_enabled: bool = Field(
         default=True,

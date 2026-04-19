@@ -153,6 +153,140 @@ class TestLlamaClientGenerateAPI:
         with pytest.raises(httpx.HTTPStatusError):
             asyncio.run(client.generate("Say hi"))
 
+    def test_generate_retries_once_on_transient_http_error(self, monkeypatch):
+        class _RetryResponse:
+            def __init__(self, status_code, payload=None):
+                self.status_code = status_code
+                self._payload = payload or {}
+                self.text = ""
+
+            def json(self):
+                return self._payload
+
+            def raise_for_status(self):
+                if self.status_code >= 400:
+                    import httpx
+
+                    raise httpx.HTTPStatusError(
+                        "Server Error",
+                        request=httpx.Request("POST", "http://x"),
+                        response=httpx.Response(self.status_code),
+                    )
+
+        class _RetryClient:
+            is_closed = False
+
+            def __init__(self) -> None:
+                self.calls = 0
+
+            async def post(self, url, *, json=None, **kw):
+                self.calls += 1
+                if self.calls == 1:
+                    return _RetryResponse(500)
+                return _RetryResponse(200, {"content": "ok after retry"})
+
+            async def aclose(self):
+                pass
+
+        client = LlamaClient(api_url="http://localhost:8080/completion")
+        client._http_client = _RetryClient()
+
+        result = asyncio.run(client.generate("Say hi"))
+
+        assert result == "ok after retry"
+        assert client._http_client.calls == 2
+
+    def test_generate_reduces_max_tokens_when_kv_budget_is_exceeded(self, monkeypatch):
+        class _RetryResponse:
+            def __init__(self, status_code, payload=None, text=""):
+                self.status_code = status_code
+                self._payload = payload or {}
+                self.text = text
+
+            def json(self):
+                return self._payload
+
+            def raise_for_status(self):
+                if self.status_code >= 400:
+                    import httpx
+
+                    raise httpx.HTTPStatusError(
+                        "Server Error",
+                        request=httpx.Request("POST", "http://x"),
+                        response=httpx.Response(self.status_code),
+                    )
+
+        class _RetryClient:
+            is_closed = False
+
+            def __init__(self) -> None:
+                self.max_tokens_seen: list[int] = []
+
+            async def post(self, url, *, json=None, **kw):
+                requested = int((json or {}).get("max_tokens", 0))
+                self.max_tokens_seen.append(requested)
+                if requested > 192:
+                    return _RetryResponse(
+                        500,
+                        text="Input prompt is too big compared to KV size.",
+                    )
+                return _RetryResponse(200, {"choices": [{"text": "ok after reduction"}]})
+
+            async def aclose(self):
+                pass
+
+        client = LlamaClient(api_url="http://localhost:8080/v1/completions")
+        client._http_client = _RetryClient()
+
+        result = asyncio.run(client.generate("Say hi", max_tokens=504))
+
+        assert result == "ok after reduction"
+        assert client._http_client.max_tokens_seen == [504, 504, 252, 252, 126]
+
+    def test_generate_reduces_max_tokens_when_upstream_returns_budget_400(self, monkeypatch):
+        class _RetryResponse:
+            def __init__(self, status_code, payload=None, text=""):
+                self.status_code = status_code
+                self._payload = payload or {}
+                self.text = text
+
+            def json(self):
+                return self._payload
+
+            def raise_for_status(self):
+                if self.status_code >= 400:
+                    import httpx
+
+                    raise httpx.HTTPStatusError(
+                        "Bad Request",
+                        request=httpx.Request("POST", "http://x"),
+                        response=httpx.Response(self.status_code),
+                    )
+
+        class _RetryClient:
+            is_closed = False
+
+            def __init__(self) -> None:
+                self.max_tokens_seen: list[int] = []
+
+            async def post(self, url, *, json=None, **kw):
+                requested = int((json or {}).get("max_tokens", 0))
+                self.max_tokens_seen.append(requested)
+                if requested > 192:
+                    return _RetryResponse(400, text="")
+                return _RetryResponse(200, {"choices": [{"text": "ok after reduction"}]})
+
+            async def aclose(self):
+                pass
+
+        client = LlamaClient(api_url="http://localhost:8080/v1/completions")
+        client._http_client = _RetryClient()
+
+        result = asyncio.run(client.generate("Say hi", max_tokens=504))
+
+        assert result == "ok after reduction"
+        assert client._http_client.max_tokens_seen == [504, 252, 126]
+
     def test_seed_sent_when_non_negative(self, monkeypatch):
         captured = {}
         client = LlamaClient(api_url="http://x", seed=42)

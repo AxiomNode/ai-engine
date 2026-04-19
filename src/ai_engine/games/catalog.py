@@ -32,25 +32,25 @@ GAME_TYPE_PROFILES: dict[str, GameTypeProfile] = {
         game_type="quiz",
         retrieval_top_k=6,
         context_char_limit=4200,
-        min_tokens=224,
-        base_tokens=96,
-        per_item_tokens=40,
+        min_tokens=320,
+        base_tokens=160,
+        per_item_tokens=72,
     ),
     "word-pass": GameTypeProfile(
         game_type="word-pass",
-        retrieval_top_k=10,
-        context_char_limit=5200,
-        min_tokens=320,
-        base_tokens=128,
-        per_item_tokens=28,
+        retrieval_top_k=6,
+        context_char_limit=2600,
+        min_tokens=256,
+        base_tokens=96,
+        per_item_tokens=16,
     ),
     "true_false": GameTypeProfile(
         game_type="true_false",
         retrieval_top_k=8,
         context_char_limit=3800,
-        min_tokens=192,
-        base_tokens=80,
-        per_item_tokens=32,
+        min_tokens=256,
+        base_tokens=112,
+        per_item_tokens=48,
     ),
 }
 
@@ -75,14 +75,18 @@ def get_game_type_profile(game_type: str) -> GameTypeProfile:
 def count_requested_items(
     game_type: str,
     *,
+    item_count: int | None = None,
     num_questions: int = 5,
-    letters: str = "A,B,C,D,E,F,G,H,I,J,L,M,N,O,P,R,S,T,V,Z",
+    letters: str | None = None,
 ) -> int:
     """Estimate the number of generated items requested by the caller."""
+    if item_count is not None:
+        return max(1, int(item_count))
     normalized = normalize_game_type(game_type)
-    if normalized == "word-pass":
+    if normalized == "word-pass" and isinstance(letters, str) and letters.strip():
         parsed_letters = [entry.strip() for entry in letters.split(",") if entry.strip()]
-        return max(1, len(parsed_letters))
+        if parsed_letters:
+            return max(1, len(parsed_letters))
     return max(1, int(num_questions))
 
 
@@ -90,14 +94,16 @@ def estimate_effective_max_tokens(
     game_type: str,
     requested_max_tokens: int,
     *,
+    item_count: int | None = None,
     num_questions: int = 5,
-    letters: str = "A,B,C,D,E,F,G,H,I,J,L,M,N,O,P,R,S,T,V,Z",
+    letters: str | None = None,
 ) -> int:
     """Clamp token budgets using per-game operational profiles."""
     profile = get_game_type_profile(game_type)
     requested = max(64, int(requested_max_tokens))
     requested_items = count_requested_items(
         game_type,
+        item_count=item_count,
         num_questions=num_questions,
         letters=letters,
     )

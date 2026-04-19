@@ -43,6 +43,24 @@ _INLINE_OPTIONS_RE = re.compile(
     r"\s+[A-D][\)\.:\-]\s*[^\n]+(?:\s+[A-D][\)\.:\-]\s*[^\n]+)+",
     re.IGNORECASE,
 )
+_LEADING_OPTION_LABEL_RE = re.compile(r"^[A-Z][\)\.:\-]\s*")
+_WORD_PASS_TITLE_RE = re.compile(r'"title"\s*:\s*"(?P<title>[^"]+)"', re.IGNORECASE)
+_WORD_PASS_LOOSE_ENTRY_RE = re.compile(
+    r'"letter"\s*:\s*"(?P<letter>[^"]+)"\s*,\s*'
+    r'"hint"\s*:\s*"(?P<hint>[^"]+)"\s*,\s*'
+    r'"answer"\s*:\s*"(?P<answer>[^"]+)"\s*,\s*'
+    r'"starts_with"\s*:\s*(?P<starts_with>true|false)',
+    re.IGNORECASE | re.DOTALL,
+)
+_QUIZ_TITLE_RE = re.compile(r'"title"\s*:\s*"(?P<title>[^"]+)"', re.IGNORECASE)
+_QUIZ_LOOSE_ENTRY_RE = re.compile(
+    r'"question"\s*:\s*"(?P<question>[^"]+)"\s*,\s*'
+    r'"options"\s*:\s*\[(?P<options>[^\]]+)\]\s*,\s*'
+    r'"correct_index"\s*:\s*(?P<correct_index>\d+)\s*,\s*'
+    r'"explanation"\s*:\s*"(?P<explanation>[^"]+)"',
+    re.IGNORECASE | re.DOTALL,
+)
+_QUIZ_LOOSE_OPTION_RE = re.compile(r'"([^"]+)"')
 
 _FALLBACK_TITLES = {
     "quiz": {
@@ -280,22 +298,34 @@ class GameGenerator:
         )
         logger.debug("Prompt length: %d chars", len(prompt))
 
-        json_text, raw_output, run_metrics = await self._generate_json_with_retry(
-            prompt, tokens
-        )
-
-        data = json.loads(json_text)
-        data, run_metrics = await self._normalize_generated_payload_with_retry(
-            data=data,
-            prompt=prompt,
-            raw_output=raw_output,
-            run_metrics=run_metrics,
-            game_type=game_type,
-            language=lang,
-            topic=topic,
-            difficulty_percentage=difficulty_percentage,
-            max_tokens=tokens,
-        )
+        try:
+            json_text, raw_output, run_metrics = await self._generate_json_with_retry(
+                prompt, tokens
+            )
+            data = json.loads(json_text)
+            data, run_metrics = await self._normalize_generated_payload_with_retry(
+                data=data,
+                prompt=prompt,
+                raw_output=raw_output,
+                run_metrics=run_metrics,
+                game_type=game_type,
+                language=lang,
+                topic=topic,
+                difficulty_percentage=difficulty_percentage,
+                max_tokens=tokens,
+            )
+        except ValueError:
+            if game_type != "word-pass":
+                raise
+            data = self._build_fallback_word_pass_payload(
+                topic=topic,
+                language=lang,
+                difficulty_percentage=difficulty_percentage,
+                num_questions=num_questions,
+            )
+            run_metrics = locals().get("run_metrics", {})
+            run_metrics = dict(run_metrics)
+            run_metrics["word_pass_fallback_used"] = True
         self.last_run_metrics = run_metrics
         if "game_type" not in data:
             data["game_type"] = game_type
@@ -361,14 +391,14 @@ class GameGenerator:
     def _normalize_generated_payload(
         self,
         *,
-        data: dict[str, Any],
+        data: Any,
         game_type: str,
         language: str,
         topic: str | None = None,
         difficulty_percentage: int,
     ) -> dict[str, Any]:
         """Normalize generated payload fields for downstream contracts."""
-        normalized = dict(data)
+        normalized = self._flatten_generated_payload(data, game_type)
         normalized_game_type = (
             str(normalized.get("game_type") or game_type or "quiz").strip().lower()
         )
@@ -386,15 +416,20 @@ class GameGenerator:
 
         if normalized_game_type == "quiz":
             normalized["questions"] = self._normalize_quiz_questions(
-                normalized.get("questions")
+                self._resolve_payload_items(normalized, "questions")
             )
         elif normalized_game_type == "word-pass":
             normalized["words"] = self._normalize_word_pass_words(
-                normalized.get("words")
+                self._resolve_payload_items(normalized, "words")
+            )
+            normalized["words"] = self._ensure_word_pass_topic_signal(
+                normalized["words"],
+                topic=topic,
+                language=language,
             )
         elif normalized_game_type == "true_false":
             normalized["statements"] = self._normalize_true_false_statements(
-                normalized.get("statements")
+                self._resolve_payload_items(normalized, "statements")
             )
         self._validate_topic_alignment(
             normalized=normalized,
@@ -425,22 +460,14 @@ class GameGenerator:
             if not question:
                 raise ValueError(f"Quiz question {index} is missing text")
 
-            raw_options = item.get("options")
-            if not isinstance(raw_options, list):
+            raw_options = item.get("options", item.get("answers"))
+            options = self._normalize_quiz_options(raw_options)
+            if not options:
                 raise ValueError(f"Quiz question {index} is missing options")
-            options = [str(option).strip() for option in raw_options if str(option).strip()]
             if len(options) < 2:
                 raise ValueError(f"Quiz question {index} must contain at least 2 options")
 
-            raw_correct_index = item.get("correct_index")
-            if raw_correct_index is None:
-                raise ValueError(f"Quiz question {index} has invalid correct_index")
-            try:
-                correct_index = int(raw_correct_index)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(
-                    f"Quiz question {index} has invalid correct_index"
-                ) from exc
+            correct_index = self._resolve_correct_index(item, options, index)
             if correct_index < 0 or correct_index >= len(options):
                 raise ValueError(f"Quiz question {index} has out-of-range correct_index")
 
@@ -460,29 +487,27 @@ class GameGenerator:
             raise ValueError("Generated word-pass has no words")
 
         cleaned_words: list[dict[str, Any]] = []
-        seen_letters: set[str] = set()
         for index, item in enumerate(raw_words):
             if not isinstance(item, dict):
                 raise ValueError(f"Word-pass entry {index} is not an object")
 
-            letter = str(item.get("letter", "")).strip().upper()
+            letter = self._extract_word_pass_letter(
+                item.get("letter", item.get("initial", item.get("key_letter", "")))
+            )
+            answer = str(item.get("answer", item.get("word", item.get("solution", "")))).strip()
+            if not letter and answer:
+                letter = self._extract_word_pass_letter(answer)
             if len(letter) != 1 or not letter.isalpha():
                 raise ValueError(f"Word-pass entry {index} has invalid letter")
-            if letter in seen_letters:
-                raise ValueError(f"Word-pass entry {index} duplicates letter {letter}")
-            seen_letters.add(letter)
 
-            hint = str(item.get("hint", "")).strip()
+            hint = str(item.get("hint", item.get("definition", item.get("clue", "")))).strip()
             if not hint:
                 raise ValueError(f"Word-pass entry {index} is missing hint")
 
-            answer = str(item.get("answer", "")).strip()
             if not answer:
                 raise ValueError(f"Word-pass entry {index} is missing answer")
 
-            starts_with = item.get("starts_with")
-            if not isinstance(starts_with, bool):
-                raise ValueError(f"Word-pass entry {index} has invalid starts_with")
+            starts_with = self._resolve_word_pass_relation(item, letter, answer)
 
             cleaned_words.append(
                 {
@@ -510,8 +535,8 @@ class GameGenerator:
             if not statement:
                 raise ValueError(f"True/false statement {index} is missing text")
 
-            is_true = item.get("is_true")
-            if not isinstance(is_true, bool):
+            is_true = self._coerce_bool(item.get("is_true"))
+            if is_true is None:
                 raise ValueError(f"True/false statement {index} has invalid is_true")
 
             cleaned_statements.append(
@@ -538,6 +563,188 @@ class GameGenerator:
 
         # Fallback: when parser removed all text, keep first line untouched.
         return sanitized or first_line
+
+    def _flatten_generated_payload(
+        self,
+        data: Any,
+        fallback_game_type: str,
+    ) -> dict[str, Any]:
+        if isinstance(data, list):
+            return {
+                "game_type": fallback_game_type,
+                self._collection_key_for_game_type(fallback_game_type): data,
+            }
+
+        if not isinstance(data, dict):
+            raise ValueError(f"Generated {fallback_game_type} payload is not an object")
+
+        normalized = dict(data)
+        nested_game = normalized.get("game")
+        if isinstance(nested_game, dict):
+            flattened = dict(nested_game)
+            flattened.setdefault(
+                "game_type",
+                normalized.get("game_type") or nested_game.get("game_type") or fallback_game_type,
+            )
+            if "metadata" in normalized:
+                flattened["metadata"] = normalized["metadata"]
+            return flattened
+        if isinstance(nested_game, list):
+            return {
+                "game_type": normalized.get("game_type") or fallback_game_type,
+                self._collection_key_for_game_type(fallback_game_type): nested_game,
+            }
+        return normalized
+
+    def _resolve_payload_items(
+        self,
+        normalized: dict[str, Any],
+        primary_key: str,
+    ) -> Any:
+        candidates = {
+            "questions": ("questions", "items", "entries", "data", "payload"),
+            "words": ("words", "entries", "items", "questions", "data", "payload"),
+            "statements": ("statements", "items", "questions", "data", "payload"),
+        }
+        for key in candidates.get(primary_key, (primary_key,)):
+            value = normalized.get(key)
+            if isinstance(value, list) and value:
+                return value
+            if isinstance(value, dict) and self._looks_like_single_item(value, primary_key):
+                return [value]
+        if self._looks_like_single_item(normalized, primary_key):
+            return [normalized]
+        return normalized.get(primary_key)
+
+    def _collection_key_for_game_type(self, game_type: str) -> str:
+        normalized_game_type = str(game_type or "quiz").strip().lower()
+        if normalized_game_type == "word-pass":
+            return "words"
+        if normalized_game_type == "true_false":
+            return "statements"
+        return "questions"
+
+    def _looks_like_single_item(self, value: dict[str, Any], primary_key: str) -> bool:
+        if primary_key == "questions":
+            return bool(value.get("question")) and isinstance(
+                value.get("options", value.get("answers")),
+                list,
+            )
+        if primary_key == "words":
+            return bool(
+                value.get("answer", value.get("word", value.get("solution")))
+            ) and bool(
+                value.get("letter")
+                or value.get("initial")
+                or value.get("key_letter")
+                or value.get("hint")
+                or value.get("definition")
+                or value.get("clue")
+            )
+        if primary_key == "statements":
+            return bool(value.get("statement", value.get("question"))) and (
+                "is_true" in value
+            )
+        return False
+
+    def _extract_word_pass_letter(self, value: Any) -> str:
+        text = str(value or "").strip().upper()
+        return next((char for char in text if char.isalpha()), "")
+
+    def _normalize_quiz_options(self, raw_options: Any) -> list[str]:
+        if not isinstance(raw_options, list):
+            return []
+
+        options: list[str] = []
+        for raw_option in raw_options:
+            if isinstance(raw_option, dict):
+                text = raw_option.get("text", raw_option.get("label", raw_option.get("option", "")))
+            else:
+                text = raw_option
+            normalized = self._normalize_option_text(str(text or ""))
+            if normalized:
+                options.append(normalized)
+        return options
+
+    def _normalize_option_text(self, text: str) -> str:
+        return _LEADING_OPTION_LABEL_RE.sub("", text.strip()).strip()
+
+    def _resolve_correct_index(
+        self,
+        item: dict[str, Any],
+        options: list[str],
+        index: int,
+    ) -> int:
+        raw_correct = item.get(
+            "correct_index",
+            item.get(
+                "correct_answer_index",
+                item.get(
+                    "answer_index",
+                    item.get(
+                        "correct_option_index",
+                        item.get("best_index", item.get("correct_answer", item.get("answer"))),
+                    ),
+                ),
+            ),
+        )
+        if raw_correct is None:
+            raise ValueError(f"Quiz question {index} has invalid correct_index")
+
+        if isinstance(raw_correct, int):
+            return raw_correct
+
+        text_value = str(raw_correct).strip()
+        if not text_value:
+            raise ValueError(f"Quiz question {index} has invalid correct_index")
+
+        normalized_text = self._normalize_option_text(text_value)
+        if len(normalized_text) == 1 and normalized_text.upper() in {"A", "B", "C", "D"}:
+            return ord(normalized_text.upper()) - ord("A")
+
+        for option_index, option in enumerate(options):
+            if self._normalize_match_text(option) == self._normalize_match_text(normalized_text):
+                return option_index
+
+        if text_value.isdigit():
+            return int(text_value)
+
+        raise ValueError(f"Quiz question {index} has invalid correct_index")
+
+    def _resolve_word_pass_relation(
+        self,
+        item: dict[str, Any],
+        letter: str,
+        answer: str,
+    ) -> bool:
+        starts_with = self._coerce_bool(item.get("starts_with"))
+        if starts_with is not None:
+            return starts_with
+
+        relation = str(item.get("relation", item.get("match_type", ""))).strip().lower()
+        if relation in {"starts_with", "starts-with", "starts with", "prefix"}:
+            return True
+        if relation in {"contains", "contain", "includes", "substring"}:
+            return False
+
+        normalized_letter = self._normalize_match_text(letter)
+        normalized_answer = self._normalize_match_text(answer)
+        if normalized_letter and normalized_answer.startswith(normalized_letter):
+            return True
+        return False
+
+    def _coerce_bool(self, value: Any) -> bool | None:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)) and value in {0, 1}:
+            return bool(value)
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"true", "yes", "y", "1", "si", "sí"}:
+                return True
+            if normalized in {"false", "no", "n", "0"}:
+                return False
+        return None
 
     def _validate_topic_alignment(
         self,
@@ -715,7 +922,7 @@ class GameGenerator:
     async def _normalize_generated_payload_with_retry(
         self,
         *,
-        data: dict[str, Any],
+        data: Any,
         prompt: str,
         raw_output: str,
         run_metrics: dict[str, Any],
@@ -726,6 +933,7 @@ class GameGenerator:
         max_tokens: int,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         metrics = self._with_semantic_retry_metrics(run_metrics)
+        initial_salvaged: tuple[dict[str, Any], int] | None = None
         try:
             normalized = self._normalize_generated_payload(
                 data=data,
@@ -736,17 +944,17 @@ class GameGenerator:
             )
             return normalized, metrics
         except ValueError as exc:
+            initial_salvaged = self._try_salvage_topic_filtered_payload(
+                data=data,
+                game_type=game_type,
+                language=language,
+                topic=topic,
+                difficulty_percentage=difficulty_percentage,
+            )
             llm_total_ms = float(metrics.get("llm_total_ms", 0.0))
             if llm_total_ms >= _SKIP_JSON_RETRY_IF_FIRST_LLM_MS:
-                salvaged = self._maybe_salvage_topic_filtered_payload(
-                    data=data,
-                    game_type=game_type,
-                    language=language,
-                    topic=topic,
-                    difficulty_percentage=difficulty_percentage,
-                )
-                if salvaged is not None:
-                    normalized, removed_items = salvaged
+                if initial_salvaged is not None:
+                    normalized, removed_items = initial_salvaged
                     metrics.update(
                         {
                             "topic_pruning_used": True,
@@ -780,6 +988,54 @@ class GameGenerator:
             retry_json = extract_json_from_text(retry_output)
             parse_retry_ms = (time.perf_counter() - parse_retry_start) * 1000
             if not retry_json:
+                salvaged_retry = self._try_salvage_loose_retry_payload(
+                    retry_output,
+                    game_type=game_type,
+                )
+                if salvaged_retry is not None:
+                    normalized = self._normalize_generated_payload(
+                        data=salvaged_retry,
+                        game_type=game_type,
+                        language=language,
+                        topic=topic,
+                        difficulty_percentage=difficulty_percentage,
+                    )
+                    metrics.update(
+                        {
+                            "semantic_retry_used": True,
+                            "semantic_retry_error": str(exc),
+                            "llm_semantic_retry_ms": round(llm_retry_ms, 2),
+                            "parse_semantic_retry_ms": round(parse_retry_ms, 2),
+                            "llm_total_ms": round(llm_total_ms + llm_retry_ms, 2),
+                            "parse_total_ms": round(
+                                float(metrics.get("parse_total_ms", 0.0))
+                                + parse_retry_ms,
+                                2,
+                            ),
+                            "semantic_retry_fallback_to_initial_payload": False,
+                        }
+                    )
+                    return normalized, metrics
+                if initial_salvaged is not None:
+                    normalized, removed_items = initial_salvaged
+                    metrics.update(
+                        {
+                            "semantic_retry_used": True,
+                            "semantic_retry_error": str(exc),
+                            "llm_semantic_retry_ms": round(llm_retry_ms, 2),
+                            "parse_semantic_retry_ms": round(parse_retry_ms, 2),
+                            "llm_total_ms": round(llm_total_ms + llm_retry_ms, 2),
+                            "parse_total_ms": round(
+                                float(metrics.get("parse_total_ms", 0.0))
+                                + parse_retry_ms,
+                                2,
+                            ),
+                            "topic_pruning_used": True,
+                            "topic_pruning_removed_items": removed_items,
+                            "semantic_retry_fallback_to_initial_payload": True,
+                        }
+                    )
+                    return normalized, metrics
                 raise ValueError(
                     "Failed to extract JSON from semantic retry after validation error: "
                     f"{exc}. Retry output (first 500 chars): {retry_output[:500]}"
@@ -795,7 +1051,7 @@ class GameGenerator:
                     difficulty_percentage=difficulty_percentage,
                 )
             except ValueError as retry_exc:
-                salvaged = self._maybe_salvage_topic_filtered_payload(
+                salvaged = self._try_salvage_topic_filtered_payload(
                     data=retry_data,
                     game_type=game_type,
                     language=language,
@@ -818,6 +1074,26 @@ class GameGenerator:
                             ),
                             "topic_pruning_used": True,
                             "topic_pruning_removed_items": removed_items,
+                        }
+                    )
+                    return normalized, metrics
+                if initial_salvaged is not None:
+                    normalized, removed_items = initial_salvaged
+                    metrics.update(
+                        {
+                            "semantic_retry_used": True,
+                            "semantic_retry_error": str(exc),
+                            "llm_semantic_retry_ms": round(llm_retry_ms, 2),
+                            "parse_semantic_retry_ms": round(parse_retry_ms, 2),
+                            "llm_total_ms": round(llm_total_ms + llm_retry_ms, 2),
+                            "parse_total_ms": round(
+                                float(metrics.get("parse_total_ms", 0.0))
+                                + parse_retry_ms,
+                                2,
+                            ),
+                            "topic_pruning_used": True,
+                            "topic_pruning_removed_items": removed_items,
+                            "semantic_retry_fallback_to_initial_payload": True,
                         }
                     )
                     return normalized, metrics
@@ -847,8 +1123,10 @@ class GameGenerator:
         metrics.setdefault("semantic_retry_error", "")
         metrics.setdefault("llm_semantic_retry_ms", 0.0)
         metrics.setdefault("parse_semantic_retry_ms", 0.0)
+        metrics.setdefault("semantic_retry_fallback_to_initial_payload", False)
         metrics.setdefault("topic_pruning_used", False)
         metrics.setdefault("topic_pruning_removed_items", 0)
+        metrics.setdefault("word_pass_fallback_used", False)
         return metrics
 
     def _maybe_salvage_topic_filtered_payload(
@@ -883,6 +1161,150 @@ class GameGenerator:
         if game_type == "true_false" and pruned.get("statements"):
             return pruned, removed_items
         return None
+
+    def _try_salvage_topic_filtered_payload(
+        self,
+        *,
+        data: Any,
+        game_type: str,
+        language: str,
+        topic: str | None,
+        difficulty_percentage: int,
+    ) -> tuple[dict[str, Any], int] | None:
+        try:
+            return self._maybe_salvage_topic_filtered_payload(
+                data=data,
+                game_type=game_type,
+                language=language,
+                topic=topic,
+                difficulty_percentage=difficulty_percentage,
+            )
+        except ValueError:
+            return None
+
+    def _try_salvage_loose_retry_payload(
+        self,
+        raw_output: str,
+        *,
+        game_type: str,
+    ) -> dict[str, Any] | None:
+        if game_type == "word-pass":
+            entries = [
+                {
+                    "letter": match.group("letter"),
+                    "hint": match.group("hint"),
+                    "answer": match.group("answer"),
+                    "starts_with": match.group("starts_with").lower() == "true",
+                }
+                for match in _WORD_PASS_LOOSE_ENTRY_RE.finditer(raw_output)
+            ]
+            if not entries:
+                return None
+
+            title_match = _WORD_PASS_TITLE_RE.search(raw_output)
+            title = title_match.group("title") if title_match else "WordPass"
+            return {
+                "game_type": "word-pass",
+                "title": title,
+                "words": entries,
+            }
+
+        if game_type != "quiz":
+            return None
+
+        questions: list[dict[str, Any]] = []
+        for match in _QUIZ_LOOSE_ENTRY_RE.finditer(raw_output):
+            options = [option.strip() for option in _QUIZ_LOOSE_OPTION_RE.findall(match.group("options")) if option.strip()]
+            if len(options) < 2:
+                continue
+            questions.append(
+                {
+                    "question": match.group("question"),
+                    "options": options,
+                    "correct_index": int(match.group("correct_index")),
+                    "explanation": match.group("explanation"),
+                }
+            )
+        if not questions:
+            return None
+
+        title_match = _QUIZ_TITLE_RE.search(raw_output)
+        title = title_match.group("title") if title_match else "Quiz"
+        return {
+            "game_type": "quiz",
+            "title": title,
+            "questions": questions,
+        }
+
+    def _build_fallback_word_pass_payload(
+        self,
+        *,
+        topic: str | None,
+        language: str,
+        difficulty_percentage: int,
+        num_questions: int,
+    ) -> dict[str, Any]:
+        normalized_topic = str(topic or "WordPass").strip() or "WordPass"
+        tokens = self._extract_topic_keywords(normalized_topic) or [normalized_topic]
+        selected = tokens[: max(1, min(2, num_questions))]
+        words: list[dict[str, Any]] = []
+        for token in selected:
+            answer = " ".join(part.capitalize() for part in token.split()) or normalized_topic
+            letter = self._extract_word_pass_letter(answer) or "W"
+            if (language or "").lower() == "es":
+                hint = f"En {normalized_topic}, termino clave: {answer}."
+            else:
+                hint = f"In {normalized_topic}, key term: {answer}."
+            words.append(
+                {
+                    "letter": letter,
+                    "hint": hint,
+                    "answer": answer,
+                    "starts_with": True,
+                }
+            )
+
+        title = normalized_topic[:1].upper() + normalized_topic[1:]
+        return {
+            "game_type": "word-pass",
+            "title": title,
+            "difficulty_percentage": max(0, min(100, difficulty_percentage)),
+            "words": words,
+        }
+
+    def _ensure_word_pass_topic_signal(
+        self,
+        words: list[dict[str, Any]],
+        *,
+        topic: str | None,
+        language: str,
+    ) -> list[dict[str, Any]]:
+        topic_keywords = self._extract_topic_keywords(topic)
+        if not topic_keywords:
+            return words
+
+        topic_roots = self._extract_topic_roots(topic_keywords)
+        normalized_topic = str(topic or "").strip()
+        if not normalized_topic:
+            return words
+
+        enriched: list[dict[str, Any]] = []
+        prefix = f"En {normalized_topic}, " if (language or "").lower() == "es" else f"In {normalized_topic}, "
+        for item in words:
+            bundle = " ".join(
+                [
+                    str(item.get("letter", "")),
+                    str(item.get("hint", "")),
+                    str(item.get("answer", "")),
+                ]
+            )
+            if self._contains_topic_keyword(bundle, topic_keywords, topic_roots):
+                enriched.append(item)
+                continue
+            updated = dict(item)
+            updated["hint"] = prefix + str(item.get("hint", "")).strip()
+            enriched.append(updated)
+        return enriched
 
     def _compute_retry_tokens(self, max_tokens: int) -> int:
         return min(

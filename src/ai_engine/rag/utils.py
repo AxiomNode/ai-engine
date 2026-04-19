@@ -29,11 +29,13 @@ def extract_json_from_text(text: str) -> str | None:
     if not text:
         return None
 
-    # Try object ({...}) first, then array ([...])
+    candidates_by_start: list[tuple[int, str, str]] = []
     for open_char, close_char in (("{", "}"), ("[", "]")):
         start = text.find(open_char)
-        if start == -1:
-            continue
+        if start != -1:
+            candidates_by_start.append((start, open_char, close_char))
+
+    for start, open_char, close_char in sorted(candidates_by_start, key=lambda item: item[0]):
 
         # Walk from the end backwards to find the matching close bracket
         for end in range(len(text), start, -1):
@@ -42,7 +44,7 @@ def extract_json_from_text(text: str) -> str | None:
                 continue
             try:
                 json.loads(candidate)
-                return candidate
+                return candidate.rstrip()
             except (json.JSONDecodeError, IndexError):
                 continue
 

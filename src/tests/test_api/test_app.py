@@ -209,7 +209,7 @@ class TestGenerate:
         assert call_kwargs["game_type"] == "true_false"
         assert call_kwargs["language"] == "en"
         assert call_kwargs["num_questions"] == 3
-        assert call_kwargs["max_tokens"] == 192
+        assert call_kwargs["max_tokens"] == 256
 
     def test_generate_preserves_lower_requested_max_tokens(self) -> None:
         client, mock_gen, *_ = _make_client()
@@ -290,7 +290,7 @@ class TestGenerate:
         assert event["metadata"]["event_type"] == "generation"
         assert event["metadata"]["correlation_id"]
         assert event["metadata"]["requested_max_tokens"] == 512
-        assert event["metadata"]["effective_max_tokens"] == 296
+        assert event["metadata"]["effective_max_tokens"] == 512
         assert event["metadata"]["query_chars"] == len("water")
 
     def test_generate_timeout_returns_504_and_records_upstream_metadata(self) -> None:
@@ -485,7 +485,7 @@ class TestGenerate:
         client, mock_gen, *_ = _make_client()
         resp = client.post(
             "/generate/quiz",
-            params={"query": "water cycle", "num_questions": 4},
+            params={"query": "water cycle", "item_count": 4},
             headers={"X-Game-Language": "en", "X-Difficulty-Percentage": "65"},
         )
         assert resp.status_code == 200
@@ -506,16 +506,16 @@ class TestGenerate:
         assert retrieve_kwargs["metadata_preferences"]["category"] == "Science & Nature"
 
     def test_generate_word_pass_model_specific_endpoint(self) -> None:
-        """/generate/word-pass should pass letters and force word-pass game type."""
+        """/generate/word-pass should use item_count and force word-pass game type."""
         client, mock_gen, *_ = _make_client(envelope=_make_word_pass_envelope())
         resp = client.post(
             "/generate/word-pass",
-            params={"query": "chemistry", "letters": "A,B,C"},
+            params={"query": "chemistry", "item_count": 3},
         )
         assert resp.status_code == 200
         call_kwargs = mock_gen.generate_from_context.call_args.kwargs
         assert call_kwargs["game_type"] == "word-pass"
-        assert call_kwargs["letters"] == "A,B,C"
+        assert call_kwargs["num_questions"] == 3
 
     def test_generate_quiz_language_and_difficulty_as_query_params(self) -> None:
         """language and difficulty_percentage as query params should override header defaults."""
@@ -549,7 +549,7 @@ class TestGenerate:
             "/generate/word-pass",
             params={
                 "query": "science",
-                "letters": "A,B,C",
+                "item_count": 3,
                 "language": "en",
                 "difficulty_percentage": "60",
             },
@@ -558,6 +558,18 @@ class TestGenerate:
         call_kwargs = mock_gen.generate_from_context.call_args.kwargs
         assert call_kwargs["language"] == "en"
         assert call_kwargs["difficulty_percentage"] == 60
+
+    def test_generate_word_pass_accepts_category_without_query(self) -> None:
+        client, mock_gen, *_ = _make_client(envelope=_make_word_pass_envelope())
+        resp = client.post(
+            "/generate/word-pass",
+            params={"category_id": "17", "item_count": 2},
+        )
+
+        assert resp.status_code == 200
+        call_kwargs = mock_gen.generate_from_context.call_args.kwargs
+        assert call_kwargs["topic"] == "Science & Nature"
+        assert call_kwargs["num_questions"] == 2
 
 
 # ------------------------------------------------------------------
@@ -650,6 +662,50 @@ class TestIngest:
         assert resp.status_code == 200
         events = collector.history(last_n=1)
         assert events[-1]["metadata"].get("ingest_model") == "quiz"
+
+    def test_rag_stats_cache_is_reused_and_invalidated_after_ingest(self, monkeypatch) -> None:
+        """RAG stats should reuse short-lived cache and invalidate it after ingest."""
+        import ai_engine.api.app as app_module
+
+        client, *_ = _make_client()
+        call_count = 0
+
+        def fake_compute_rag_stats(_pipeline):
+            nonlocal call_count
+            call_count += 1
+            return {
+                "total_chunks": call_count,
+                "total_chars": 100,
+                "unique_documents": 1,
+                "embedding_dimensions": 3,
+                "avg_chunk_chars": 100,
+                "coverage_level": "good",
+                "coverage_message": "ok",
+                "retriever_config": {},
+                "sources": [],
+            }
+
+        monkeypatch.setattr(app_module, "compute_rag_stats", fake_compute_rag_stats)
+
+        first = client.get("/diagnostics/rag/stats")
+        second = client.get("/diagnostics/rag/stats")
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert first.json()["total_chunks"] == 1
+        assert second.json()["total_chunks"] == 1
+        assert call_count == 1
+
+        ingest = client.post(
+            "/ingest",
+            json={"documents": [{"content": "Invalidate diagnostics cache.", "doc_id": "doc-1"}]},
+        )
+        assert ingest.status_code == 200
+
+        third = client.get("/diagnostics/rag/stats")
+        assert third.status_code == 200
+        assert third.json()["total_chunks"] == 2
+        assert call_count == 2
 
 
 # ------------------------------------------------------------------

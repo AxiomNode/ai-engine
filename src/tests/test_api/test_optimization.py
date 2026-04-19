@@ -218,13 +218,36 @@ def test_generate_passes_category_preferences_into_rag() -> None:
     assert result.metrics["embedding_model"] == "embed-a"
     assert result.metrics["corpus_signature"] == "corpus-a"
     assert rag.calls
+
+
+def test_generate_uses_category_name_when_query_is_missing() -> None:
+    rag = _StubRAGPipeline()
+    service = GenerationOptimizationService(
+        generator=_StubGenerator(),
+        rag_pipeline=rag,
+        cache_max_entries=0,
+        persistent_cache_path=None,
+    )
+
+    _run(
+        service.generate(
+            GenerateRequest(
+                game_type="word-pass",
+                category_id="17",
+                category_name="Science & Nature",
+                item_count=2,
+            )
+        )
+    )
+
+    assert rag.calls[0]["query"].startswith("Science & Nature")
     assert rag.calls[0]["metadata_preferences"] == {
         "language": "es",
-        "game_type": "quiz",
+        "game_type": "word-pass",
         "category": "Science & Nature",
     }
     assert "Science & Nature" in str(rag.calls[0]["query"])
-    assert rag.calls[0]["top_k"] == 6
+    assert rag.calls[0]["top_k"] == 10
 
 
 def test_on_ingest_populates_kbd_even_without_tinydb_backend() -> None:

@@ -23,6 +23,16 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+_RETRYABLE_STATUS_CODES = {500, 502, 503, 504}
+_TRANSIENT_API_RETRIES = 1
+_TRANSIENT_API_RETRY_DELAY_SECONDS = 0.35
+_KV_CACHE_RETRY_MARKERS = (
+    "Input prompt is too big compared to KV size",
+    "KV cache is full",
+)
+_KV_CACHE_RETRY_ATTEMPTS = 5
+_MIN_KV_CACHE_RETRY_TOKENS = 16
+
 # Formal GBNF grammar that constrains output to valid JSON.
 # This is sent to llama.cpp so the sampler only emits tokens that form
 # syntactically correct JSON objects or arrays.
@@ -196,23 +206,59 @@ class LlamaClient:
             "top_p": self.top_p,
             "repeat_penalty": self.repeat_penalty,
         }
-        if is_openai_completions:
-            # OpenAI-compatible completions use max_tokens.
-            payload["max_tokens"] = max_tokens
-        else:
-            # Legacy llama.cpp /completion endpoint uses n_predict.
-            payload["n_predict"] = max_tokens
         if self.seed >= 0:
             payload["seed"] = self.seed
         if json_mode:
             payload["grammar"] = JSON_GRAMMAR
 
         client = self._get_http_client()
+        requested_tokens = max(1, int(max_tokens))
         async with self._get_api_semaphore():
-            response = await client.post(
-                self.api_url,  # type: ignore[arg-type]
-                json=payload,
-            )
+            response: httpx.Response | None = None
+            for reduction_attempt in range(_KV_CACHE_RETRY_ATTEMPTS + 1):
+                if is_openai_completions:
+                    payload["max_tokens"] = requested_tokens
+                else:
+                    payload["n_predict"] = requested_tokens
+
+                for attempt in range(_TRANSIENT_API_RETRIES + 1):
+                    response = await client.post(
+                        self.api_url,  # type: ignore[arg-type]
+                        json=payload,
+                    )
+                    if response.status_code not in _RETRYABLE_STATUS_CODES:
+                        break
+                    if attempt >= _TRANSIENT_API_RETRIES:
+                        break
+                    logger.warning(
+                        "Transient llama upstream error %s; retrying request once.",
+                        response.status_code,
+                    )
+                    await asyncio.sleep(_TRANSIENT_API_RETRY_DELAY_SECONDS)
+
+                if response is None or not self._should_retry_with_smaller_budget(
+                    response,
+                    requested_tokens=requested_tokens,
+                ):
+                    break
+
+                reduced_tokens = max(
+                    _MIN_KV_CACHE_RETRY_TOKENS,
+                    requested_tokens // 2,
+                )
+                if (
+                    reduction_attempt >= _KV_CACHE_RETRY_ATTEMPTS
+                    or reduced_tokens >= requested_tokens
+                ):
+                    break
+
+                logger.warning(
+                    "Llama upstream rejected prompt for KV budget with max_tokens=%s; retrying with reduced max_tokens=%s.",
+                    requested_tokens,
+                    reduced_tokens,
+                )
+                requested_tokens = reduced_tokens
+        assert response is not None
         response.raise_for_status()
         data = response.json()
 
@@ -235,6 +281,17 @@ class LlamaClient:
                         return str(message.get("content", ""))
 
         return ""
+
+    def _should_retry_with_smaller_budget(
+        self,
+        response: httpx.Response,
+        *,
+        requested_tokens: int,
+    ) -> bool:
+        if response.status_code not in {400, 500} or requested_tokens <= _MIN_KV_CACHE_RETRY_TOKENS:
+            return False
+        message = str(getattr(response, "text", "") or "")
+        return not message or any(marker in message for marker in _KV_CACHE_RETRY_MARKERS)
 
     def _generate_local(self, prompt: str, max_tokens: int, json_mode: bool) -> str:
         """Generate using a locally loaded GGUF model via llama-cpp-python."""

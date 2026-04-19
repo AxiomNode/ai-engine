@@ -3,7 +3,7 @@
 Each template instructs the LLM to produce strict JSON matching the
 schemas defined in :mod:`ai_engine.games.schemas`.  Templates use Python
 :meth:`str.format` placeholders: ``{context}``,
-``{num_questions}``, ``{language}``, and ``{letters}``.
+``{num_questions}`` and ``{language}``.
 """
 
 from __future__ import annotations
@@ -27,6 +27,13 @@ _SYSTEM = (
     "explanations, hints, answers) in the language specified in the "
     "requirements. Do NOT mix languages. If the requested language is "
     "'es', write everything in Spanish. If 'en', write everything in English."
+)
+
+_WORD_PASS_SYSTEM = (
+    "Return ONLY valid JSON. Use ONLY the provided context. "
+    "If the context is insufficient, return fewer entries instead of inventing facts. "
+    "Keep every hint and answer directly tied to the requested topic. "
+    "Write all title, hint, and answer text in the requested language."
 )
 
 # ------------------------------------------------------------------
@@ -71,19 +78,17 @@ QUIZ_TEMPLATE = (
 
 WORD_PASS_TEMPLATE = (
     "{system}\n\n"
-    "Using the following educational context, create a WordPass (rosco) game.\n\n"
-    "### Context\n{context}\n\n"
-    "### Requirements\n"
+    "Create standalone WordPass entries from this context.\n\n"
+    "Context:\n{context}\n\n"
+    "Requirements:\n"
     "{topic_clause}"
-    "- Language for all content: {language}\n"
-    "- Difficulty percentage: {difficulty_percentage}% (0 easy, 100 hard)\n"
-    "- Cover these letters: {letters}\n"
-    "- Title must be a short, non-empty string relevant to the topic.\n"
-    "- Every hint and answer must stay directly related to the requested topic.\n"
-    "- Do not include unrelated general-knowledge filler, even if it appears in the context.\n"
-    "- For each letter provide a hint (definition/clue) and the answer word.\n"
-    '- Set "starts_with" to true if the answer starts with the letter, false if it only contains it.\n\n'
-    "### Output JSON schema\n"
+    "- Language: {language}\n"
+    "- Difficulty: {difficulty_percentage}%\n"
+    "- Return up to {num_questions} standalone entries.\n"
+    "- Use short, topic-specific hints.\n"
+    "- Do not build an alphabet rosco; entries must be independently reusable.\n"
+    '- Set "starts_with" to true only when the answer begins with the letter.\n\n'
+    "JSON schema:\n"
     "{{\n"
     '  "game_type": "word-pass",\n'
     '  "title": "<string>",\n'
@@ -96,9 +101,7 @@ WORD_PASS_TEMPLATE = (
     "    }}\n"
     "  ]\n"
     "}}\n\n"
-    "IMPORTANT: Generate one word for EACH letter in the list. "
-    "Write ALL text in {language}. "
-    "Generate the word-pass now:"
+    "Return the word-pass JSON now:"
 )
 
 # ------------------------------------------------------------------
@@ -152,7 +155,7 @@ def get_prompt(
     language: str = "es",
     difficulty_percentage: int = 50,
     num_questions: int = 5,
-    letters: str = "A,B,C,D,E,F,G,H,I,J,L,M,N,O,P,R,S,T,V,Z",
+    letters: str | None = None,
 ) -> str:
     """Build a complete prompt for the given game type.
 
@@ -161,7 +164,7 @@ def get_prompt(
         context: RAG-retrieved context text.
         language: Target language code (default ``"es"`` = Spanish).
         num_questions: Number of questions/statements to generate.
-        letters: Comma-separated letters for word-pass.
+        letters: Deprecated legacy rosco letters; ignored by new prompts.
 
     Returns:
         Ready-to-send prompt string.
@@ -176,15 +179,15 @@ def get_prompt(
             f"Unknown game_type {game_type!r}. Supported: {get_supported_game_types()}"
         )
     return template.format(
-        system=_SYSTEM,
+        system=_WORD_PASS_SYSTEM if profile.game_type == "word-pass" else _SYSTEM,
         context=context,
         topic_clause=(
-            f"- Focus specifically on this topic/request: {topic.strip()}\\n"
+            f"- Topic: {topic.strip()}\\n"
             if isinstance(topic, str) and topic.strip()
             else ""
         ),
         language=language,
         difficulty_percentage=difficulty_percentage,
         num_questions=num_questions,
-        letters=letters,
+        letters=letters or "",
     )

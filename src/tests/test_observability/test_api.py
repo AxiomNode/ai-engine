@@ -294,6 +294,65 @@ class TestCacheMonitoringBridge:
         assert resp.status_code == 200
         assert "cache_runtime" in resp.json()
 
+    def test_bridge_reuses_single_async_client_instance(self, monkeypatch) -> None:
+        """Cache bridge should reuse one AsyncClient across multiple proxy calls."""
+        from ai_engine.observability import api as obs_api
+
+        created_clients: list[object] = []
+
+        class _FakeResponse:
+            status_code = 200
+
+            @staticmethod
+            def raise_for_status() -> None:
+                return None
+
+            @staticmethod
+            def json() -> dict[str, object]:
+                return {
+                    "memory_entries": 1,
+                    "memory_max_entries": 10,
+                    "memory_saturation_ratio": 0.1,
+                    "persistent_entries": 0,
+                    "memory_enabled": True,
+                    "persistent_enabled": False,
+                    "persistent_backend": "none",
+                    "cache_namespace": "dev-v1",
+                    "distribution_version": "dev-v1",
+                    "cache_ttl_seconds": 900,
+                    "persistent_backend_errors": {
+                        "read": 0,
+                        "write": 0,
+                        "delete": 0,
+                        "stats": 0,
+                    },
+                    "removed_memory": 2,
+                    "removed_persistent": 0,
+                }
+
+        class _FakeAsyncClient:
+            def __init__(self, *args, **kwargs) -> None:
+                created_clients.append(self)
+
+            async def get(self, *args, **kwargs):
+                return _FakeResponse()
+
+            async def post(self, *args, **kwargs):
+                return _FakeResponse()
+
+            async def aclose(self) -> None:
+                return None
+
+        monkeypatch.setattr(obs_api.httpx, "AsyncClient", _FakeAsyncClient)
+
+        client, _ = _make_client()
+        stats_response = client.get("/cache/stats")
+        reset_response = client.post("/cache/reset")
+
+        assert stats_response.status_code == 200
+        assert reset_response.status_code == 200
+        assert len(created_clients) == 1
+
 
 # ------------------------------------------------------------------
 # API Key authentication (observability API)

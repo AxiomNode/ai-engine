@@ -99,6 +99,176 @@ class _MockLLMWordPass:
         return json.dumps(data)
 
 
+class _MockLLMRecoverableQuizAliases:
+    """Mock LLM that returns recoverable quiz field aliases."""
+
+    async def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
+        return json.dumps(
+            {
+                "game": {
+                    "game_type": "quiz",
+                    "title": "Alias Quiz",
+                    "entries": [
+                        {
+                            "question": "What process powers plant growth?",
+                            "options": [
+                                {"text": "A) Respiration"},
+                                {"text": "B) Photosynthesis"},
+                                {"text": "C) Condensation"},
+                            ],
+                            "correct_answer": "B",
+                            "explanation": "Photosynthesis converts light into chemical energy.",
+                        }
+                    ],
+                }
+            }
+        )
+
+
+class _MockLLMQuizListPayload:
+    """Mock LLM that returns a top-level list of quiz questions."""
+
+    async def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
+        return json.dumps(
+            [
+                {
+                    "question": "Which organelle performs photosynthesis?",
+                    "options": ["Nucleus", "Chloroplast", "Ribosome", "Vacuole"],
+                    "correct_answer": "Chloroplast",
+                    "explanation": "Photosynthesis happens in chloroplasts.",
+                }
+            ]
+        )
+
+
+class _MockLLMQuizMalformedRetry:
+    """Mock LLM that returns an off-topic quiz first, then truncated near-valid JSON."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, int]] = []
+
+    async def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
+        self.calls.append((prompt, max_tokens))
+        if len(self.calls) == 1:
+            return json.dumps(
+                {
+                    "game_type": "quiz",
+                    "title": "Teorema de Pitagoras",
+                    "questions": [
+                        {
+                            "question": "Que relacion establece el teorema de Pitagoras en un triangulo rectangulo?",
+                            "options": ["La hipotenusa y los catetos", "La capital de Francia", "La tabla periodica", "El sistema solar"],
+                            "correct_index": 0,
+                            "explanation": "Relaciona la hipotenusa con los catetos.",
+                        },
+                        {
+                            "question": "Cual es la capital de Francia?",
+                            "options": ["Paris", "Roma", "Berlin", "Lisboa"],
+                            "correct_index": 0,
+                            "explanation": "Paris es la capital de Francia.",
+                        },
+                    ],
+                }
+            )
+        return """{
+  \"game_type\": \"quiz\",
+  \"title\": \"Teorema de Pitagoras\",
+  \"questions\": [
+    {
+      \"question\": \"Segun el teorema de Pitagoras, si los catetos miden 3 y 4, cuanto mide la hipotenusa?\",
+      \"options\": [\"5\", \"6\", \"7\", \"8\"],
+      \"correct_index\": 0,
+      \"explanation\": \"Porque 3^2 + 4^2 = 5^2\"
+    },
+    {
+      \"question\": \"En el teorema de Pitagoras, que lado es el mas largo del triangulo rectangulo?\",
+      \"options\": [\"Hipotenusa\", \"Cateto menor\", \"Base\", \"Altura\"],
+      \"correct_index\": 0,
+      \"explanation\": \"La hipotenusa es el lado opuesto al angulo recto y el mas largo\"
+    }
+  ]"""
+
+
+class _MockLLMSingleQuizObject:
+    """Mock LLM that returns a single quiz question object."""
+
+    async def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
+        return json.dumps(
+            {
+                "question": "How many players per team are on court in basketball?",
+                "options": ["4", "5", "6", "7"],
+                "correct_answer": "5",
+                "explanation": "Each team plays with five players on the court.",
+            }
+        )
+
+
+class _MockLLMRecoverableWordPassAliases:
+    """Mock LLM that returns recoverable word-pass field aliases."""
+
+    async def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
+        return json.dumps(
+            {
+                "game_type": "word-pass",
+                "title": "Alias Rosco",
+                "entries": [
+                    {
+                        "letter": "A",
+                        "clue": "Chemical element essential for water.",
+                        "solution": "Agua",
+                        "relation": "starts_with",
+                    },
+                    {
+                        "letter": "B",
+                        "definition": "Term that contains the letter B.",
+                        "word": "Abeto",
+                        "relation": "contains",
+                    },
+                ],
+            }
+        )
+
+
+class _MockLLMWordPassMalformedRetry:
+    """Mock LLM that returns empty words first, then loosely formatted entries."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, int]] = []
+
+    async def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
+        self.calls.append((prompt, max_tokens))
+        if len(self.calls) == 1:
+            return json.dumps(
+                {
+                    "game_type": "word-pass",
+                    "title": "Photosynthesis",
+                    "words": [],
+                }
+            )
+        return """{
+  \"game_type\": \"word-pass\",
+  \"title\": \"Photosynthesis\",
+  \"words\": [
+    {
+      \"letter\": \"C\",
+      \"hint\": \"A green pigment essential for photosynthesis in plants.\",
+      \"answer\": \"Chlorophyll\",
+      \"starts_with\": true,
+    \"letter\": \"P\",
+      \"hint\": \"The process by which plants convert light into chemical energy.\",
+      \"answer\": \"Photosynthesis\",
+      \"starts_with\": true
+  ]
+}"""
+
+
+class _MockLLMWordPassAlwaysBroken:
+        """Mock LLM that never produces a valid word-pass payload."""
+
+        async def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
+                return "[\n \t\t\t\t\t"
+
+
 class _MockLLMTrueFalse:
     """Mock LLM that returns a valid true/false JSON."""
 
@@ -281,6 +451,86 @@ class _MockLLMOffTopicRetryThenValid:
         )
 
 
+class _MockLLMOffTopicRetryThenBroken:
+    """Mock LLM that first returns a salvageable off-topic quiz, then a broken retry."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, int]] = []
+
+    async def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
+        self.calls.append((prompt, max_tokens))
+        if len(self.calls) == 1:
+            return json.dumps(
+                {
+                    "game_type": "quiz",
+                    "title": "Fotosintesis",
+                    "questions": [
+                        {
+                            "question": "Que proceso usan las plantas para convertir la luz en energia?",
+                            "options": [
+                                "Fotosintesis",
+                                "Respiracion",
+                                "Fermentacion",
+                                "Condensacion",
+                            ],
+                            "correct_index": 0,
+                            "explanation": "La fotosintesis transforma la energia luminosa en energia quimica.",
+                        },
+                        {
+                            "question": "Cual es la capital de Francia?",
+                            "options": ["Madrid", "Paris", "Roma", "Berlin"],
+                            "correct_index": 1,
+                            "explanation": "Paris es la capital de Francia.",
+                        },
+                    ],
+                }
+            )
+        return json.dumps(
+            {
+                "game_type": "quiz",
+                "title": "Fotosintesis",
+                "questions": [],
+            }
+        )
+
+
+class _MockLLMOffTopicRetryThenUnparseable:
+    """Mock LLM that first returns a salvageable quiz, then truncated junk."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, int]] = []
+
+    async def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
+        self.calls.append((prompt, max_tokens))
+        if len(self.calls) == 1:
+            return json.dumps(
+                {
+                    "game_type": "quiz",
+                    "title": "Fotosintesis",
+                    "questions": [
+                        {
+                            "question": "Que proceso usan las plantas para convertir la luz en energia?",
+                            "options": [
+                                "Fotosintesis",
+                                "Respiracion",
+                                "Fermentacion",
+                                "Condensacion",
+                            ],
+                            "correct_index": 0,
+                            "explanation": "La fotosintesis transforma la energia luminosa en energia quimica.",
+                        },
+                        {
+                            "question": "Cual es la capital de Francia?",
+                            "options": ["Madrid", "Paris", "Roma", "Berlin"],
+                            "correct_index": 1,
+                            "explanation": "Paris es la capital de Francia.",
+                        },
+                    ],
+                }
+            )
+        return "[1,2,3,4,5,6,7,8,9,10"
+
+
 class _MockLLMTopicRootMatch:
     """Mock LLM that uses an inflected topic form instead of the exact token."""
 
@@ -432,6 +682,53 @@ class TestGameGeneratorWordPass:
         assert isinstance(result.game, WordPassGame)
         assert len(result.game.words) == 2
 
+    def test_generate_word_pass_recovers_alias_fields(self, rag_pipeline):
+        gen = GameGenerator(
+            rag_pipeline=rag_pipeline,
+            llm_client=_MockLLMRecoverableWordPassAliases(),
+        )
+
+        result = _run(gen.generate(query="letters", game_type="word-pass"))
+
+        assert result.game.words[0].answer == "Agua"
+        assert result.game.words[0].starts_with is True
+        assert result.game.words[1].answer == "Abeto"
+        assert result.game.words[1].starts_with is False
+
+    def test_generate_word_pass_salvages_malformed_retry_entries(self, rag_pipeline):
+        gen = GameGenerator(
+            rag_pipeline=rag_pipeline,
+            llm_client=_MockLLMWordPassMalformedRetry(),
+        )
+
+        result = _run(gen.generate(query="photosynthesis", game_type="word-pass", language="en"))
+
+        assert len(result.game.words) == 2
+        assert result.game.words[0].letter == "C"
+        assert result.game.words[1].answer == "Photosynthesis"
+
+    def test_generate_word_pass_enriches_topic_signal_when_hint_is_too_generic(self, rag_pipeline):
+        gen = GameGenerator(
+            rag_pipeline=rag_pipeline,
+            llm_client=_MockLLMRecoverableWordPassAliases(),
+        )
+
+        result = _run(gen.generate(query="renaissance art", game_type="word-pass", language="en"))
+
+        assert "renaissance art" in result.game.words[0].hint.lower()
+
+    def test_generate_word_pass_uses_fallback_when_model_never_returns_valid_json(self, rag_pipeline):
+        gen = GameGenerator(
+            rag_pipeline=rag_pipeline,
+            llm_client=_MockLLMWordPassAlwaysBroken(),
+        )
+
+        result = _run(gen.generate(query="renaissance art", game_type="word-pass", language="en"))
+
+        assert len(result.game.words) >= 1
+        assert "renaissance art" in result.game.words[0].hint.lower()
+        assert gen.last_run_metrics["word_pass_fallback_used"] is True
+
 
 class TestGameGeneratorTrueFalse:
 
@@ -481,6 +778,40 @@ class TestGameGeneratorErrorHandling:
 
         with pytest.raises(ValueError, match="missing text"):
             _run(gen.generate(query="x", game_type="quiz"))
+
+    def test_recovers_quiz_alias_fields_and_nested_game_payload(self, rag_pipeline):
+        gen = GameGenerator(
+            rag_pipeline=rag_pipeline,
+            llm_client=_MockLLMRecoverableQuizAliases(),
+        )
+
+        envelope = _run(gen.generate(query="photosynthesis", game_type="quiz"))
+
+        assert envelope.game.title == "Alias Quiz"
+        assert envelope.game.questions[0].correct_index == 1
+        assert envelope.game.questions[0].options[1] == "Photosynthesis"
+
+    def test_recovers_top_level_quiz_list_payload(self, rag_pipeline):
+        gen = GameGenerator(
+            rag_pipeline=rag_pipeline,
+            llm_client=_MockLLMQuizListPayload(),
+        )
+
+        envelope = _run(gen.generate(query="photosynthesis", game_type="quiz"))
+
+        assert len(envelope.game.questions) == 1
+        assert envelope.game.questions[0].correct_index == 1
+
+    def test_recovers_single_quiz_object_payload(self, rag_pipeline):
+        gen = GameGenerator(
+            rag_pipeline=rag_pipeline,
+            llm_client=_MockLLMSingleQuizObject(),
+        )
+
+        envelope = _run(gen.generate(query="basketball", game_type="quiz"))
+
+        assert len(envelope.game.questions) == 1
+        assert envelope.game.questions[0].correct_index == 1
 
     def test_uses_fallback_title_when_missing(self, rag_pipeline):
         gen = GameGenerator(
@@ -585,6 +916,50 @@ class TestGameGeneratorErrorHandling:
         assert gen.last_run_metrics["semantic_retry_used"] is True
         assert gen.last_run_metrics["topic_pruning_used"] is True
         assert gen.last_run_metrics["topic_pruning_removed_items"] == 1
+
+    def test_falls_back_to_salvaged_initial_payload_when_retry_is_worse(self, rag_pipeline):
+        llm = _MockLLMOffTopicRetryThenBroken()
+        gen = GameGenerator(rag_pipeline=rag_pipeline, llm_client=llm)
+
+        envelope = _run(gen.generate(query="fotosintesis", game_type="quiz", language="es"))
+
+        assert envelope.game_type == "quiz"
+        assert len(envelope.game.questions) == 1
+        assert envelope.game.questions[0].question.startswith(
+            "Que proceso usan las plantas"
+        )
+        assert len(llm.calls) == 2
+        assert gen.last_run_metrics["semantic_retry_used"] is True
+        assert gen.last_run_metrics["semantic_retry_fallback_to_initial_payload"] is True
+        assert gen.last_run_metrics["topic_pruning_used"] is True
+        assert gen.last_run_metrics["topic_pruning_removed_items"] == 1
+
+    def test_falls_back_to_salvaged_initial_payload_when_retry_is_unparseable(self, rag_pipeline):
+        llm = _MockLLMOffTopicRetryThenUnparseable()
+        gen = GameGenerator(rag_pipeline=rag_pipeline, llm_client=llm)
+
+        envelope = _run(gen.generate(query="fotosintesis", game_type="quiz", language="es"))
+
+        assert envelope.game_type == "quiz"
+        assert len(envelope.game.questions) == 1
+        assert envelope.game.questions[0].question.startswith(
+            "Que proceso usan las plantas"
+        )
+        assert len(llm.calls) == 2
+        assert gen.last_run_metrics["semantic_retry_used"] is True
+        assert gen.last_run_metrics["semantic_retry_fallback_to_initial_payload"] is True
+        assert gen.last_run_metrics["topic_pruning_used"] is True
+        assert gen.last_run_metrics["topic_pruning_removed_items"] == 1
+
+    def test_salvages_malformed_quiz_retry_output(self, rag_pipeline):
+        llm = _MockLLMQuizMalformedRetry()
+        gen = GameGenerator(rag_pipeline=rag_pipeline, llm_client=llm)
+
+        envelope = _run(gen.generate(query="teorema de pitagoras", game_type="quiz", language="es"))
+
+        assert len(envelope.game.questions) == 2
+        assert envelope.game.questions[0].correct_index == 0
+        assert "pitagoras" in envelope.game.questions[0].question.lower()
 
     def test_prunes_off_topic_items_when_retry_is_skipped_after_slow_first_call(self, rag_pipeline):
         gen = GameGenerator(rag_pipeline=rag_pipeline, llm_client=_MockLLMLongOffTopicMixed())

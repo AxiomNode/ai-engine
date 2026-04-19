@@ -113,6 +113,19 @@ def _build_generation_api_headers(request: Request) -> dict[str, str]:
     return headers
 
 
+def _get_generation_api_client(request: Request) -> httpx.AsyncClient:
+    """Return a reusable AsyncClient stored on the FastAPI app state."""
+    client = getattr(request.app.state, "generation_api_client", None)
+    if client is not None and all(
+        hasattr(client, attribute) for attribute in ("get", "post", "aclose")
+    ):
+        return client
+
+    client = httpx.AsyncClient()
+    request.app.state.generation_api_client = client
+    return client
+
+
 def _empty_cache_runtime(request: Request) -> dict[str, Any]:
     """Return fallback cache runtime payload when generation API is unavailable."""
     return {
@@ -143,11 +156,12 @@ async def _fetch_generation_cache_stats(request: Request) -> dict[str, Any]:
 
     endpoint = f"{base_url.rstrip('/')}/internal/cache/stats"
     try:
-        async with httpx.AsyncClient(timeout=2.0) as client:
-            response = await client.get(
-                endpoint,
-                headers=_build_generation_api_headers(request),
-            )
+        client = _get_generation_api_client(request)
+        response = await client.get(
+            endpoint,
+            headers=_build_generation_api_headers(request),
+            timeout=2.0,
+        )
         response.raise_for_status()
         payload = response.json()
         if isinstance(payload, dict):
@@ -174,15 +188,16 @@ async def _reset_generation_cache(
 
     endpoint = f"{base_url.rstrip('/')}/internal/cache/reset"
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.post(
-                endpoint,
-                headers=_build_generation_api_headers(request),
-                params={
-                    "namespace": namespace,
-                    "all_namespaces": str(all_namespaces).lower(),
-                },
-            )
+        client = _get_generation_api_client(request)
+        response = await client.post(
+            endpoint,
+            headers=_build_generation_api_headers(request),
+            params={
+                "namespace": namespace,
+                "all_namespaces": str(all_namespaces).lower(),
+            },
+            timeout=5.0,
+        )
         response.raise_for_status()
         payload = response.json()
         if isinstance(payload, dict):
@@ -305,6 +320,13 @@ def create_app(collector: StatsCollector | None = None) -> FastAPI:
     app.state.distribution_version = distribution_version
     app.state.generation_api_url = settings.generation_api_url
     app.state.generation_monitor_api_key = settings.bridge_api_key or settings.api_key
+    app.state.generation_api_client = httpx.AsyncClient()
+
+    @app.on_event("shutdown")
+    async def close_generation_api_client() -> None:
+        client = getattr(app.state, "generation_api_client", None)
+        if client is not None and hasattr(client, "aclose"):
+            await client.aclose()
 
     # Attach route-scoped API key middleware for bridge/internal integrations.
     if add_api_key_middleware is not None:

@@ -54,6 +54,8 @@ chroma_db/
 .env
 src/.env.secrets
 coverage.json
+src/ai_resp*.json
+src/docs/generation-quality-benchmark.json
 
 # Secrets policy (centralized in secrets repo)
 .env
