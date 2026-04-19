@@ -110,6 +110,8 @@ from ai_engine.api.schemas import (  # noqa: E402
 )
 from ai_engine.config import get_settings  # noqa: E402
 from ai_engine.examples import get_corpus_signature  # noqa: E402
+from ai_engine.examples.corpus import get_full_corpus  # noqa: E402
+from ai_engine.games.catalog import estimate_effective_max_tokens  # noqa: E402
 from ai_engine.observability.collector import StatsCollector  # noqa: E402
 
 
@@ -149,8 +151,20 @@ def _build_from_env() -> tuple[Any, Any]:
 
     embedding_model = settings.embedding_model
     logger.info("Loading embedding model: %s", embedding_model)
-    embedder = SentenceTransformersEmbedder(model_name=embedding_model)
-    pipeline = RAGPipeline(embedder=embedder, vector_store=InMemoryVectorStore())
+    embedder = SentenceTransformersEmbedder(
+        model_name=embedding_model,
+        device=settings.embedding_device,
+        batch_size=settings.embedding_batch_size,
+    )
+    pipeline = RAGPipeline(
+        embedder=embedder,
+        vector_store=InMemoryVectorStore(),
+        context_char_limit=settings.rag_context_char_limit,
+        query_embedding_cache_max_entries=settings.query_embedding_cache_max_entries,
+        retrieval_result_cache_max_entries=settings.retrieval_result_cache_max_entries,
+        candidate_multiplier=settings.retriever_candidate_multiplier,
+        metadata_match_boost=settings.retriever_metadata_match_boost,
+    )
 
     logger.info(
         "Connecting to LLM: %s",
@@ -259,7 +273,11 @@ async def _prime_runtime_content(
         try:
             from ai_engine.examples import ExampleInjector
 
-            await asyncio.to_thread(ExampleInjector(rag_pipeline).inject_all)
+            docs = ExampleInjector._corpus_to_documents(get_full_corpus())
+            if docs:
+                await asyncio.to_thread(rag_pipeline.ingest, docs)
+                if optimizer is not None:
+                    await asyncio.to_thread(optimizer.on_ingest, docs)
         except Exception:
             logger.exception("example-bootstrap: failed to inject curated corpus")
             return
@@ -351,19 +369,12 @@ def _generation_failure_metadata(
 
 def _resolve_effective_max_tokens(req: GenerateRequest) -> int:
     """Clamp token budgets to realistic per-game envelopes for staging throughput."""
-    requested = max(64, int(req.max_tokens))
-    num_questions = max(1, int(req.num_questions))
-
-    if req.game_type == "quiz":
-        budget = max(224, 96 + (40 * num_questions))
-    elif req.game_type == "word-pass":
-        budget = max(256, 96 + (32 * num_questions))
-    elif req.game_type == "true_false":
-        budget = max(192, 80 + (32 * num_questions))
-    else:
-        budget = requested
-
-    return min(requested, budget)
+    return estimate_effective_max_tokens(
+        req.game_type,
+        req.max_tokens,
+        num_questions=req.num_questions,
+        letters=req.letters,
+    )
 
 
 def _install_api_key_openapi(

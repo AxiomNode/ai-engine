@@ -224,6 +224,32 @@ def test_generate_passes_category_preferences_into_rag() -> None:
         "category": "Science & Nature",
     }
     assert "Science & Nature" in str(rag.calls[0]["query"])
+    assert rag.calls[0]["top_k"] == 6
+
+
+def test_on_ingest_populates_kbd_even_without_tinydb_backend() -> None:
+    service = GenerationOptimizationService(
+        generator=_StubGenerator(),
+        rag_pipeline=_StubRAGPipeline(),
+        cache_max_entries=0,
+        persistent_cache_path=None,
+    )
+
+    service.on_ingest([
+        type(
+            "Doc",
+            (),
+            {
+                "content": "The water cycle includes evaporation and condensation.",
+                "doc_id": "w1",
+                "metadata": {"title": "Water Cycle"},
+            },
+        )()
+    ])
+
+    hits = service._kbd_search_sync("water cycle")
+    assert len(hits) == 1
+    assert hits[0].title == "Water Cycle"
 
 
 def test_redis_backend_falls_back_to_tinydb_when_unavailable(tmp_path) -> None:

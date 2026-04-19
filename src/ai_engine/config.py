@@ -20,6 +20,12 @@ Environment variables
     Name of the sentence-transformers model used for RAG embeddings.
     Defaults to ``"all-MiniLM-L6-v2"``.
 
+``AI_ENGINE_EMBEDDING_DEVICE``
+    Device used by sentence-transformers for embedding inference (e.g. ``cpu`` or ``cuda``).
+
+``AI_ENGINE_EMBEDDING_BATCH_SIZE``
+    Batch size used when encoding multiple RAG documents.
+
 ``AI_ENGINE_LLAMA_TIMEOUT_SECONDS``
     Timeout (seconds) for upstream HTTP calls from ai-api to llama.cpp.
 
@@ -86,6 +92,21 @@ Environment variables
 ``AI_ENGINE_GENERATION_MAX_QUEUE_SIZE``
     Maximum number of additional generation requests allowed to wait for capacity.
 
+``AI_ENGINE_QUERY_EMBEDDING_CACHE_MAX_ENTRIES``
+    Maximum number of cached query embeddings kept in-process.
+
+``AI_ENGINE_RETRIEVAL_RESULT_CACHE_MAX_ENTRIES``
+    Maximum number of cached retrieval result sets kept in-process.
+
+``AI_ENGINE_RETRIEVER_CANDIDATE_MULTIPLIER``
+    Multiplier used to over-fetch vector results before metadata reranking.
+
+``AI_ENGINE_RETRIEVER_METADATA_MATCH_BOOST``
+    Score bonus added for matching retrieval metadata preferences.
+
+``AI_ENGINE_RAG_CONTEXT_CHAR_LIMIT``
+    Default context length budget used when building prompts from retrieved chunks.
+
 ``AI_ENGINE_DISTRIBUTION``
     Deployment distribution label (e.g. ``dev``, ``stg``, ``pro``).
 
@@ -124,6 +145,8 @@ class AIEngineSettings(BaseSettings):
         llama_url: HTTP base URL of a llama.cpp server.
         model_path: Path to a local GGUF model file.
         embedding_model: Sentence-transformers model name for RAG.
+        embedding_device: Device used by sentence-transformers inference.
+        embedding_batch_size: Batch size for multi-document embedding generation.
         llama_timeout_seconds: Timeout for upstream llama HTTP calls.
         llama_max_concurrent_requests: Maximum simultaneous upstream llama HTTP calls.
         api_key: Shared secret for ``X-API-Key`` header auth.
@@ -143,6 +166,11 @@ class AIEngineSettings(BaseSettings):
         rate_limit_window_seconds: Window size in seconds for limiting.
         generation_max_in_flight: Maximum concurrently executing generation requests.
         generation_max_queue_size: Maximum queued generation requests waiting for capacity.
+        query_embedding_cache_max_entries: Maximum cached query embeddings.
+        retrieval_result_cache_max_entries: Maximum cached retrieval result sets.
+        retriever_candidate_multiplier: Over-fetch factor used before metadata reranking.
+        retriever_metadata_match_boost: Score bonus for metadata preference matches.
+        rag_context_char_limit: Default prompt context character budget.
         distribution: Deployment distribution label.
         release_version: Deployment release version label.
     """
@@ -166,6 +194,17 @@ class AIEngineSettings(BaseSettings):
         default="paraphrase-multilingual-MiniLM-L12-v2",
         alias="AI_ENGINE_EMBEDDING_MODEL",
         validation_alias="AI_ENGINE_EMBEDDING_MODEL",
+    )
+    embedding_device: str = Field(
+        default="cpu",
+        alias="AI_ENGINE_EMBEDDING_DEVICE",
+        validation_alias="AI_ENGINE_EMBEDDING_DEVICE",
+    )
+    embedding_batch_size: int = Field(
+        default=64,
+        ge=1,
+        alias="AI_ENGINE_EMBEDDING_BATCH_SIZE",
+        validation_alias="AI_ENGINE_EMBEDDING_BATCH_SIZE",
     )
     llama_timeout_seconds: float = Field(
         default=600.0,
@@ -267,6 +306,36 @@ class AIEngineSettings(BaseSettings):
         ge=0,
         alias="AI_ENGINE_GENERATION_MAX_QUEUE_SIZE",
         validation_alias="AI_ENGINE_GENERATION_MAX_QUEUE_SIZE",
+    )
+    query_embedding_cache_max_entries: int = Field(
+        default=2048,
+        ge=0,
+        alias="AI_ENGINE_QUERY_EMBEDDING_CACHE_MAX_ENTRIES",
+        validation_alias="AI_ENGINE_QUERY_EMBEDDING_CACHE_MAX_ENTRIES",
+    )
+    retrieval_result_cache_max_entries: int = Field(
+        default=1024,
+        ge=0,
+        alias="AI_ENGINE_RETRIEVAL_RESULT_CACHE_MAX_ENTRIES",
+        validation_alias="AI_ENGINE_RETRIEVAL_RESULT_CACHE_MAX_ENTRIES",
+    )
+    retriever_candidate_multiplier: int = Field(
+        default=4,
+        ge=1,
+        alias="AI_ENGINE_RETRIEVER_CANDIDATE_MULTIPLIER",
+        validation_alias="AI_ENGINE_RETRIEVER_CANDIDATE_MULTIPLIER",
+    )
+    retriever_metadata_match_boost: float = Field(
+        default=0.08,
+        ge=0.0,
+        alias="AI_ENGINE_RETRIEVER_METADATA_MATCH_BOOST",
+        validation_alias="AI_ENGINE_RETRIEVER_METADATA_MATCH_BOOST",
+    )
+    rag_context_char_limit: int = Field(
+        default=3500,
+        ge=512,
+        alias="AI_ENGINE_RAG_CONTEXT_CHAR_LIMIT",
+        validation_alias="AI_ENGINE_RAG_CONTEXT_CHAR_LIMIT",
     )
     cache_warmup_enabled: bool = Field(
         default=True,

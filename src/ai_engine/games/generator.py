@@ -11,6 +11,7 @@ import time
 import unicodedata
 from typing import Any
 
+from ai_engine.games.catalog import get_game_type_profile
 from ai_engine.games.prompts import get_prompt
 from ai_engine.games.schemas import GameEnvelope
 from ai_engine.llm.llama_client import LlamaClient
@@ -225,9 +226,11 @@ class GameGenerator:
         """
         # 1. Retrieve context once, then delegate to context-based generation.
         lang = language or self.default_language
+        profile = get_game_type_profile(game_type)
         context = self.rag_pipeline.build_context(
             query,
-            top_k=top_k,
+            top_k=top_k if top_k is not None else profile.retrieval_top_k,
+            max_chars=profile.context_char_limit,
             metadata_preferences={
                 "language": lang,
                 "game_type": game_type,
@@ -317,10 +320,12 @@ class GameGenerator:
         """
         lang = language or self.default_language
         tokens = max_tokens or self.default_max_tokens
+        profile = get_game_type_profile(game_type)
 
         context = self.rag_pipeline.build_context(
             query,
-            top_k=top_k,
+            top_k=top_k if top_k is not None else profile.retrieval_top_k,
+            max_chars=profile.context_char_limit,
             metadata_preferences={
                 "language": lang,
                 "game_type": game_type,

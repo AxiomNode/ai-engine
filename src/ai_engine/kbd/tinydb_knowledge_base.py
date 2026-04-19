@@ -26,6 +26,7 @@ except ImportError as _err:  # pragma: no cover
     ) from _err
 
 from ai_engine.kbd.entry import KnowledgeEntry
+from ai_engine.kbd.knowledge_base import _normalize_tokens
 
 
 def _as_entry_dict(row: object) -> dict[str, Any] | None:
@@ -65,6 +66,9 @@ class TinyDBKnowledgeBase:
         else:
             self._db = TinyDB(path)
         self._table = self._db.table(self._TABLE)
+        self._tag_index: dict[str, set[str]] = {}
+        self._keyword_index: dict[str, set[str]] = {}
+        self._rebuild_indexes()
 
     # ------------------------------------------------------------------
     # CRUD
@@ -79,7 +83,11 @@ class TinyDBKnowledgeBase:
         Args:
             entry: The :class:`~ai_engine.kbd.entry.KnowledgeEntry` to store.
         """
+        existing = self.get(entry.entry_id)
+        if existing is not None:
+            self._deindex_entry(existing)
         self._table.upsert(entry.to_dict(), where("entry_id") == entry.entry_id)
+        self._index_entry(entry)
 
     def get(self, entry_id: str) -> KnowledgeEntry | None:
         """Return the entry with *entry_id*, or ``None`` if not found.
@@ -105,7 +113,10 @@ class TinyDBKnowledgeBase:
         existing = self._table.get(where("entry_id") == entry.entry_id)
         if existing is None:
             raise KeyError(f"Entry '{entry.entry_id}' not found")
+        existing_entry = KnowledgeEntry.from_dict(cast(dict[str, Any], existing))
+        self._deindex_entry(existing_entry)
         self._table.update(entry.to_dict(), where("entry_id") == entry.entry_id)
+        self._index_entry(entry)
 
     def delete(self, entry_id: str) -> None:
         """Remove an entry from the knowledge base.
@@ -118,7 +129,10 @@ class TinyDBKnowledgeBase:
         """
         if not self._table.contains(where("entry_id") == entry_id):
             raise KeyError(f"Entry '{entry_id}' not found")
+        existing = self.get(entry_id)
         self._table.remove(where("entry_id") == entry_id)
+        if existing is not None:
+            self._deindex_entry(existing)
 
     # ------------------------------------------------------------------
     # Querying
@@ -142,9 +156,7 @@ class TinyDBKnowledgeBase:
             tag: The tag to filter by.
         """
         tag_lower = tag.lower()
-        rows = self._table.search(
-            where("tags").test(lambda tags: tag_lower in (t.lower() for t in tags))
-        )
+        rows = [self._table.get(where("entry_id") == entry_id) for entry_id in self._tag_index.get(tag_lower, set())]
         entries: list[KnowledgeEntry] = []
         for row in rows:
             data = _as_entry_dict(row)
@@ -160,17 +172,58 @@ class TinyDBKnowledgeBase:
         Args:
             keyword: The keyword to search for.
         """
-        kw = keyword.lower()
-        rows = self._table.search(
-            where("title").test(lambda t: isinstance(t, str) and kw in t.lower())
-            | where("content").test(lambda c: isinstance(c, str) and kw in c.lower())
-        )
-        entries: list[KnowledgeEntry] = []
-        for row in rows:
+        tokens = _normalize_tokens(keyword)
+        if not tokens:
+            return []
+
+        candidate_ids: set[str] = set()
+        for token in tokens:
+            candidate_ids.update(self._keyword_index.get(token, set()))
+
+        ranked: list[tuple[int, KnowledgeEntry]] = []
+        for entry_id in candidate_ids:
+            row = self._table.get(where("entry_id") == entry_id)
             data = _as_entry_dict(row)
-            if data is not None:
-                entries.append(KnowledgeEntry.from_dict(data))
-        return entries
+            if data is None:
+                continue
+            entry = KnowledgeEntry.from_dict(data)
+            title_tokens = _normalize_tokens(entry.title)
+            content_tokens = _normalize_tokens(entry.content)
+            score = (2 * len(tokens & title_tokens)) + len(tokens & content_tokens)
+            if score > 0:
+                ranked.append((score, entry))
+
+        ranked.sort(key=lambda item: (-item[0], item[1].title.lower(), item[1].entry_id))
+        return [entry for _, entry in ranked]
+
+    def _rebuild_indexes(self) -> None:
+        self._tag_index.clear()
+        self._keyword_index.clear()
+        for entry in self.list_all():
+            self._index_entry(entry)
+
+    def _index_entry(self, entry: KnowledgeEntry) -> None:
+        for tag in entry.tags:
+            normalized_tag = tag.lower().strip()
+            if normalized_tag:
+                self._tag_index.setdefault(normalized_tag, set()).add(entry.entry_id)
+
+        for token in _normalize_tokens(f"{entry.title} {entry.content}"):
+            self._keyword_index.setdefault(token, set()).add(entry.entry_id)
+
+    def _deindex_entry(self, entry: KnowledgeEntry) -> None:
+        for tag in entry.tags:
+            normalized_tag = tag.lower().strip()
+            if normalized_tag in self._tag_index:
+                self._tag_index[normalized_tag].discard(entry.entry_id)
+                if not self._tag_index[normalized_tag]:
+                    del self._tag_index[normalized_tag]
+
+        for token in _normalize_tokens(f"{entry.title} {entry.content}"):
+            if token in self._keyword_index:
+                self._keyword_index[token].discard(entry.entry_id)
+                if not self._keyword_index[token]:
+                    del self._keyword_index[token]
 
     # ------------------------------------------------------------------
     # Dunder helpers

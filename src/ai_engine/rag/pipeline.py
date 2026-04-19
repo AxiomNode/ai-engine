@@ -36,11 +36,23 @@ class RAGPipeline:
         top_k: int = 5,
         llm_client: LlamaClient | None = None,
         context_char_limit: int = 3500,
+        query_embedding_cache_max_entries: int = 2048,
+        retrieval_result_cache_max_entries: int = 1024,
+        candidate_multiplier: int = 4,
+        metadata_match_boost: float = 0.08,
     ) -> None:
         self.embedder = embedder
         self.vector_store = vector_store
         self.chunker = chunker or Chunker()
-        self.retriever = Retriever(embedder, vector_store, top_k=top_k)
+        self.retriever = Retriever(
+            embedder,
+            vector_store,
+            top_k=top_k,
+            candidate_multiplier=candidate_multiplier,
+            metadata_match_boost=metadata_match_boost,
+            query_embedding_cache_max_entries=query_embedding_cache_max_entries,
+            retrieval_result_cache_max_entries=retrieval_result_cache_max_entries,
+        )
         self.llm_client = llm_client
         self.context_char_limit = context_char_limit
 
@@ -63,6 +75,7 @@ class RAGPipeline:
 
         embeddings = self.embedder.embed_documents(chunks)
         self.vector_store.add(chunks, embeddings)
+        self.retriever.invalidate_caches()
 
     # ------------------------------------------------------------------
     # Querying

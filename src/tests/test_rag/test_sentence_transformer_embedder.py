@@ -19,10 +19,11 @@ def _make_fake_st_module() -> ModuleType:
     fake_module = ModuleType("sentence_transformers")
 
     class FakeSentenceTransformer:
-        def __init__(self, model_name: str) -> None:
+        def __init__(self, model_name: str, device: str | None = None) -> None:
             self.model_name = model_name
+            self.device = device
 
-        def encode(self, texts, convert_to_numpy: bool = False):
+        def encode(self, texts, convert_to_numpy: bool = False, **kwargs):
             if isinstance(texts, str):
                 return np.array([0.1, 0.2, 0.3])
             return np.array([[0.1, 0.2, 0.3]] * len(texts))
@@ -69,13 +70,21 @@ class TestSentenceTransformersEmbedder:
 
     def test_default_model_name(self, patch_sentence_transformers):
         emb = patch_sentence_transformers.SentenceTransformersEmbedder()
-        assert emb.model_name == "all-MiniLM-L6-v2"
+        assert emb.model_name == "paraphrase-multilingual-MiniLM-L12-v2"
 
     def test_custom_model_name(self, patch_sentence_transformers):
         emb = patch_sentence_transformers.SentenceTransformersEmbedder(
             model_name="my-custom-model"
         )
         assert emb.model_name == "my-custom-model"
+
+    def test_embedder_accepts_device_and_batch_size(self, patch_sentence_transformers):
+        emb = patch_sentence_transformers.SentenceTransformersEmbedder(
+            device="cpu",
+            batch_size=32,
+        )
+        assert emb.device == "cpu"
+        assert emb.batch_size == 32
 
     def test_import_error_raised_when_package_missing(self):
         """ImportError is raised with a helpful message when sentence-transformers is absent."""

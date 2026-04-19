@@ -54,6 +54,14 @@ class TestAIEngineSettingsDefaults:
         settings = cfg.AIEngineSettings()
         assert settings.llama_max_concurrent_requests == 1
 
+    def test_embedding_runtime_defaults(self, monkeypatch):
+        monkeypatch.delenv("AI_ENGINE_EMBEDDING_DEVICE", raising=False)
+        monkeypatch.delenv("AI_ENGINE_EMBEDDING_BATCH_SIZE", raising=False)
+        cfg = _reload_config(monkeypatch)
+        settings = cfg.AIEngineSettings()
+        assert settings.embedding_device == "cpu"
+        assert settings.embedding_batch_size == 64
+
     def test_api_key_default_is_none(self, monkeypatch):
         monkeypatch.delenv("AI_ENGINE_API_KEY", raising=False)
         cfg = _reload_config(monkeypatch)
@@ -110,6 +118,14 @@ class TestAIEngineSettingsDefaults:
         assert settings.generation_max_in_flight == 2
         assert settings.generation_max_queue_size == 2
 
+    def test_retrieval_cache_defaults(self, monkeypatch):
+        monkeypatch.delenv("AI_ENGINE_QUERY_EMBEDDING_CACHE_MAX_ENTRIES", raising=False)
+        monkeypatch.delenv("AI_ENGINE_RETRIEVAL_RESULT_CACHE_MAX_ENTRIES", raising=False)
+        cfg = _reload_config(monkeypatch)
+        settings = cfg.AIEngineSettings()
+        assert settings.query_embedding_cache_max_entries == 2048
+        assert settings.retrieval_result_cache_max_entries == 1024
+
     def test_distribution_default(self, monkeypatch):
         monkeypatch.delenv("AI_ENGINE_DISTRIBUTION", raising=False)
         cfg = _reload_config(monkeypatch)
@@ -161,6 +177,14 @@ class TestAIEngineSettingsFromEnv:
         cfg = _reload_config(monkeypatch)
         settings = cfg.AIEngineSettings()
         assert settings.llama_max_concurrent_requests == 3
+
+    def test_embedding_runtime_from_env(self, monkeypatch):
+        monkeypatch.setenv("AI_ENGINE_EMBEDDING_DEVICE", "cuda")
+        monkeypatch.setenv("AI_ENGINE_EMBEDDING_BATCH_SIZE", "96")
+        cfg = _reload_config(monkeypatch)
+        settings = cfg.AIEngineSettings()
+        assert settings.embedding_device == "cuda"
+        assert settings.embedding_batch_size == 96
 
     def test_api_key_from_env(self, monkeypatch):
         monkeypatch.setenv("AI_ENGINE_API_KEY", "secret-key-123")
@@ -227,6 +251,14 @@ class TestAIEngineSettingsFromEnv:
         settings = cfg.AIEngineSettings()
         assert settings.generation_max_in_flight == 1
         assert settings.generation_max_queue_size == 3
+
+    def test_retrieval_cache_settings_from_env(self, monkeypatch):
+        monkeypatch.setenv("AI_ENGINE_QUERY_EMBEDDING_CACHE_MAX_ENTRIES", "4096")
+        monkeypatch.setenv("AI_ENGINE_RETRIEVAL_RESULT_CACHE_MAX_ENTRIES", "2048")
+        cfg = _reload_config(monkeypatch)
+        settings = cfg.AIEngineSettings()
+        assert settings.query_embedding_cache_max_entries == 4096
+        assert settings.retrieval_result_cache_max_entries == 2048
 
     def test_distribution_version_from_env(self, monkeypatch):
         monkeypatch.setenv("AI_ENGINE_DISTRIBUTION", "stg")

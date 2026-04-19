@@ -12,7 +12,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from ai_engine.api.schemas import GenerateRequest
+from ai_engine.games.catalog import get_game_type_profile
 from ai_engine.kbd.entry import KnowledgeEntry
+from ai_engine.kbd.knowledge_base import KnowledgeBase
 from ai_engine.sdk.models import parse_generate_response
 
 _TinyDBKnowledgeBase: Any
@@ -137,6 +139,7 @@ class GenerationOptimizationService:
             "delete": 0,
             "stats": 0,
         }
+        self._kbd = KnowledgeBase()
 
         if cache_backend == "redis" and _RedisClient is not None and redis_url:
             try:
@@ -159,9 +162,6 @@ class GenerationOptimizationService:
 
     def on_ingest(self, documents: list[Any]) -> None:
         """Index ingested documents into KBD/TinyDB for keyword-based boosting."""
-        if self._db_cache is None:
-            return
-
         for doc in documents:
             content = getattr(doc, "content", "")
             if not isinstance(content, str) or not content.strip():
@@ -173,6 +173,18 @@ class GenerationOptimizationService:
             metadata = getattr(doc, "metadata", {}) or {}
             title = str(metadata.get("title", f"doc-{doc_id[:8]}"))
             tags = ["rag_source", "ingested_doc"]
+            self._kbd.add(
+                KnowledgeEntry(
+                    entry_id=f"rag-{doc_id}",
+                    title=title,
+                    content=content,
+                    tags=tags,
+                    metadata={"kind": "ingested_document", **dict(metadata)},
+                )
+            )
+
+            if self._db_cache is None:
+                continue
             with self._persistent_lock:
                 self._db_cache.add(
                     KnowledgeEntry(
@@ -265,11 +277,9 @@ class GenerationOptimizationService:
                 )
 
         rag_start = time.perf_counter()
-        if self._db_cache is not None:
-            kbd_hits = await asyncio.to_thread(self._kbd_search_sync, req.query)
-        else:
-            kbd_hits = []
+        kbd_hits = await asyncio.to_thread(self._kbd_search_sync, req.query)
         metrics["kbd_hits"] = len(kbd_hits)
+        profile = get_game_type_profile(req.game_type)
         query_terms = [req.query.strip()]
         if req.category_name:
             query_terms.append(req.category_name)
@@ -288,6 +298,7 @@ class GenerationOptimizationService:
         docs = await asyncio.to_thread(
             self._rag_pipeline.retrieve,
             retrieval_query,
+            top_k=profile.retrieval_top_k,
             metadata_preferences=metadata_preferences,
         )
         metrics["rag_docs_retrieved"] = len(docs)
@@ -301,7 +312,13 @@ class GenerationOptimizationService:
         )
         format_context = getattr(self._rag_pipeline, "_format_context", None)
         if callable(format_context):
-            formatted_context = format_context(docs)
+            try:
+                formatted_context = format_context(
+                    docs,
+                    max_chars=profile.context_char_limit,
+                )
+            except TypeError:
+                formatted_context = format_context(docs)
             if isinstance(formatted_context, str):
                 context = formatted_context
             else:
@@ -523,7 +540,7 @@ class GenerationOptimizationService:
     def _kbd_search_sync(self, query: str) -> list[Any]:
         """Run KBD keyword search under lock (sync, meant for to_thread)."""
         with self._persistent_lock:
-            return self._db_cache.search_by_keyword(query)  # type: ignore[union-attr]
+            return self._kbd.search_by_keyword(query)
 
     def _read_persistent_cache(
         self,

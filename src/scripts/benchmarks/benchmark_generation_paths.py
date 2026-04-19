@@ -11,6 +11,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import statistics
 import time
@@ -33,9 +34,19 @@ class _Doc:
 class _StubRAGPipeline:
     """Deterministic retrieval pipeline for benchmarks."""
 
-    def retrieve(self, query: str) -> list[_Doc]:
-        _ = query
+    def retrieve(
+        self,
+        query: str,
+        *,
+        top_k: int | None = None,
+        metadata_preferences: dict[str, Any] | None = None,
+    ) -> list[_Doc]:
+        _ = (query, top_k, metadata_preferences)
         return [_Doc(content="Benchmark context")]
+
+    def _format_context(self, docs: list[_Doc], max_chars: int = 3500) -> str:
+        context = "\n\n".join(doc.content for doc in docs)
+        return context[:max_chars]
 
 
 class _StubGenerator:
@@ -48,17 +59,28 @@ class _StubGenerator:
             "retry_used": False,
         }
 
-    def generate_from_context(
+    async def generate_from_context(
         self,
         context: str,
         game_type: str = "quiz",
         *,
+        topic: str | None = None,
         language: str | None = None,
+        difficulty_percentage: int | None = None,
         num_questions: int = 5,
         letters: str = "A,B,C",
         max_tokens: int | None = None,
     ) -> GameEnvelope:
-        _ = (context, game_type, language, num_questions, letters, max_tokens)
+        _ = (
+            context,
+            game_type,
+            topic,
+            language,
+            difficulty_percentage,
+            num_questions,
+            letters,
+            max_tokens,
+        )
         return GameEnvelope(
             game_type="quiz",
             game=QuizGame(
@@ -134,6 +156,10 @@ def _run_times(fn: Any, runs: int = 30) -> list[float]:
     return values
 
 
+def _run_generate(service: GenerationOptimizationService, req: GenerateRequest) -> Any:
+    return asyncio.run(service.generate(req))
+
+
 def _summarize(values: list[float]) -> dict[str, float]:
     sorted_vals = sorted(values)
     p95_index = int(len(sorted_vals) * 0.95) - 1
@@ -157,7 +183,8 @@ def main() -> int:
     )
 
     miss_values = _run_times(
-        lambda: miss_service.generate(
+        lambda: _run_generate(
+            miss_service,
             req.model_copy(update={"query": f"water-{time.time_ns()}"})
         )
     )
@@ -169,8 +196,8 @@ def main() -> int:
         cache_max_entries=256,
         persistent_cache_path=None,
     )
-    hit_service.generate(req)
-    hit_values = _run_times(lambda: hit_service.generate(req))
+    _run_generate(hit_service, req)
+    hit_values = _run_times(lambda: _run_generate(hit_service, req))
 
     # Scenario 3: persistent fallback on write error (redis)
     original_redis_client = optimization_module._RedisClient
@@ -186,7 +213,7 @@ def main() -> int:
         )
         assert fallback_service._redis_cache is not None
         fallback_service._redis_cache.fail_setex = True
-        fallback_values = _run_times(lambda: fallback_service.generate(req))
+        fallback_values = _run_times(lambda: _run_generate(fallback_service, req))
     finally:
         optimization_module._RedisClient = original_redis_client
 
@@ -199,7 +226,9 @@ def main() -> int:
 
     print(json.dumps(report, indent=2))
 
-    out_path = Path("docs") / "generation-benchmark-baseline.json"
+    out_path = (
+        Path(__file__).resolve().parents[3] / "docs" / "generation-benchmark-baseline.json"
+    )
     out_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(f"Baseline written to: {out_path}")
     return 0

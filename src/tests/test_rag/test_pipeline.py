@@ -22,6 +22,15 @@ class _FixedEmbedder(Embedder):
         return [0.33, 0.33, 0.33]
 
 
+class _CountingEmbedder(_FixedEmbedder):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def embed_text(self, text: str) -> list[float]:
+        self.calls += 1
+        return super().embed_text(text)
+
+
 def _build_pipeline() -> RAGPipeline:
     return RAGPipeline(
         embedder=_FixedEmbedder(),
@@ -99,3 +108,23 @@ def test_ingest_empty_list():
     pipeline.ingest([])  # should not raise
     results = pipeline.retrieve("anything")
     assert results == []
+
+
+def test_retrieve_reuses_cached_query_embedding_until_ingest_changes():
+    embedder = _CountingEmbedder()
+    pipeline = RAGPipeline(embedder=embedder, vector_store=InMemoryVectorStore())
+    pipeline.ingest([Document(content="Python is fast", doc_id="1")])
+    calls_after_ingest = embedder.calls
+
+    first = pipeline.retrieve("python", top_k=1)
+    second = pipeline.retrieve("python", top_k=1)
+
+    assert len(first) == 1
+    assert len(second) == 1
+    assert embedder.calls == calls_after_ingest + 1
+
+    pipeline.ingest([Document(content="Python can power automation", doc_id="2")])
+    third = pipeline.retrieve("python", top_k=1)
+
+    assert len(third) == 1
+    assert embedder.calls == calls_after_ingest + 3

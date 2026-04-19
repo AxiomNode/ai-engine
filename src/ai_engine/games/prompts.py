@@ -8,6 +8,8 @@ schemas defined in :mod:`ai_engine.games.schemas`.  Templates use Python
 
 from __future__ import annotations
 
+from ai_engine.games.catalog import get_supported_game_types, get_game_type_profile
+
 # ------------------------------------------------------------------
 # System-level instruction shared by every game type
 # ------------------------------------------------------------------
@@ -167,10 +169,11 @@ def get_prompt(
     Raises:
         ValueError: If *game_type* is not recognised.
     """
-    template = TEMPLATES.get(game_type)
+    profile = get_game_type_profile(game_type)
+    template = TEMPLATES.get(profile.game_type)
     if template is None:
         raise ValueError(
-            f"Unknown game_type {game_type!r}. Supported: {list(TEMPLATES)}"
+            f"Unknown game_type {game_type!r}. Supported: {get_supported_game_types()}"
         )
     return template.format(
         system=_SYSTEM,

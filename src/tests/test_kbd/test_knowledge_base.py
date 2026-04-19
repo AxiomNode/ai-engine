@@ -78,6 +78,21 @@ def test_search_by_keyword():
     assert len(results) == 1
 
 
+def test_search_by_keyword_ranks_multi_term_matches():
+    kb = KnowledgeBase()
+    kb.add(_entry("1", title="Water cycle basics", content="Water evaporation condensation"))
+    kb.add(_entry("2", title="Water facts", content="Water only"))
+    results = kb.search_by_keyword("water cycle")
+    assert [entry.entry_id for entry in results] == ["1", "2"]
+
+
+def test_search_indexes_are_updated_on_delete():
+    kb = KnowledgeBase()
+    kb.add(_entry("1", title="Python basics", content="Python is great"))
+    kb.delete("1")
+    assert kb.search_by_keyword("python") == []
+
+
 def test_contains_operator():
     kb = KnowledgeBase()
     kb.add(_entry("1"))
