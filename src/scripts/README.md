@@ -6,6 +6,9 @@ This folder is organized by purpose:
 - `scripts/demos/`: demo entrypoints.
 - `scripts/benchmarks/`: benchmark and baseline generation utilities.
 
+Generation-quality benchmarking lives under `scripts/benchmarks/benchmark_generation_quality.py`
+and runs a curated matrix of real topic queries against a live ai-engine endpoint.
+
 Backward-compatible wrappers are kept at the top level (`scripts/demo_suite.py`,
 `scripts/demo_rag_kbd.py`, and `scripts/benchmark_generation_paths.py`).
 

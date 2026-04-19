@@ -191,9 +191,9 @@ runtime dependencies:
    the image — they are mounted as a read-only volume at runtime):
 
    ```bash
-   python -m ai_engine.llm.model_manager download qwen2.5-3b   # ~2 GB
-   # or the recommended production model (~4.8 GB):
-   python -m ai_engine.llm.model_manager download
+  python -m ai_engine.llm.model_manager download               # recommended 7B (~4.8 GB)
+  # or use the ultra-light fallback only if you are resource-constrained:
+  python -m ai_engine.llm.model_manager download qwen2.5-3b   # ~2 GB
    ```
 
 2. Copy the environment template and adjust if needed:
@@ -379,8 +379,10 @@ curl -sS http://localhost:8000/health
 curl -sS http://localhost:8001/health
 ```
 
-The GPU profile uses `ghcr.io/ggerganov/llama.cpp:server-cuda` for
-`llama-server` and enables `gpus: all`.
+The GPU profile uses `LLAMA_GPU_IMAGE` for `llama-server` and enables
+`gpus: all`. The default pinned value is currently
+`ghcr.io/ggerganov/llama.cpp:server-cuda-b4719`, because the registry no longer
+publishes a stable `server-cuda` floating tag.
 
 ### Installation scripts by environment
 
@@ -388,7 +390,8 @@ You can run one command per target environment:
 
 - Linux VPS (CPU): `src/scripts/install/install_vps_linux_cpu.sh`
 - Linux VPS (GPU): `src/scripts/install/install_vps_linux_gpu.sh`
-- Windows (Docker Desktop): `src/scripts/install/install_windows.ps1`
+- Windows (Docker Desktop CPU): `src/scripts/install/install_windows.ps1 -Stage <stage> -Environment windows`
+- Windows (Docker Desktop GPU): `src/scripts/install/install_windows.ps1 -Stage <stage> -Environment windows-gpu`
 
 These wrappers now map to the distribution matrix system.
 
@@ -401,6 +404,7 @@ Examples with stage:
 
 ```powershell
 ./src/scripts/install/install_windows.ps1 -Stage stg -Environment windows
+./src/scripts/install/install_windows.ps1 -Stage stg -Environment windows-gpu
 ```
 
 Examples:
@@ -414,11 +418,11 @@ Examples:
 ```
 
 ```powershell
-# Windows (defaults LLAMA port to 18080)
+# Windows CPU (defaults LLAMA port to 18080)
 ./src/scripts/install/install_windows.ps1
 
-# Windows with CPU profile override file
-./src/scripts/install/install_windows.ps1 -UseCpuProfile
+# Windows GPU workstation
+./src/scripts/install/install_windows.ps1 -Stage stg -Environment windows-gpu
 ```
 
 ---
@@ -428,7 +432,7 @@ Examples:
 | Variable | Default | Description |
 |---|---|---|
 | `AI_ENGINE_MODELS_DIR` | `<project_root>/src/models/` | Path where GGUF model files are stored. Override to point to a shared network drive or Docker volume. |
-| `LLAMA_MODEL_FILE` | `Qwen2.5-3B-Instruct-Q4_K_M.gguf` | GGUF filename loaded by the `llama-server` compose service. |
+| `LLAMA_MODEL_FILE` | `Qwen2.5-7B-Instruct-Q4_K_M.gguf` | GGUF filename loaded by the `llama-server` compose service. |
 | `LLAMA_CTX_SIZE` | `4096` | Context window size (tokens) for the llama.cpp server. |
 | `LLAMA_PORT` | `8080` | Legacy variable kept in env templates; the centralized compose currently publishes `7002:8080`. |
 | `LLAMA_CPUS` | `6.0` | CPU quota assigned to `llama-server` by Docker Compose. |
@@ -451,6 +455,10 @@ Examples:
 | `AI_ENGINE_BRIDGE_API_KEY` | *(unset)* | API key required on bridge-facing routes (`/ingest*`, `/stats*`, `/cache/*`, `/metrics`). |
 | `AI_ENGINE_STATS_API_KEY` | *(unset)* | API key used by `ai-api` to publish events to `ai-stats` (`POST /events`). |
 | `AI_ENGINE_GENERATION_API_URL` | `http://ai-api:8001` | Internal URL used by `ai-stats` to query cache monitoring/reset endpoints from `ai-api`. |
+| `AI_ENGINE_LLAMA_MAX_CONCURRENT_REQUESTS` | `1` | Maximum concurrent llama upstream requests admitted by `ai-api`. |
+| `AI_ENGINE_GENERATION_MAX_IN_FLIGHT` | `1` | Maximum active generation requests allowed by `ai-api` admission control. |
+| `AI_ENGINE_GENERATION_MAX_QUEUE_SIZE` | `1` | Maximum queued generation requests allowed before `503 busy`. |
+| `AI_ENGINE_CACHE_WARMUP_ENABLED` | `false` | Enables or disables startup cache warmup for `ai-api`. |
 | `AI_ENGINE_GENERATION_CACHE_BACKEND` | `redis` | Cache backend used by `ai-api` (`redis` recommended for persistent containerized deployments). |
 | `AI_ENGINE_GENERATION_CACHE_REDIS_URL` | `redis://ai-cache:6379/0` | Redis connection string used by `ai-api` cache layer. |
 | `AI_ENGINE_API_KEY` | *(unset)* | Global fallback API key kept for backward compatibility. |
@@ -473,11 +481,19 @@ assigned to the Linux backend.
 4. If you use WSL 2, raise the limits for the `docker-desktop` WSL environment or remove restrictive values from your `.wslconfig`.
 5. Restart Docker Desktop.
 
+For the `windows-gpu` workstation profile added for RTX 4080 SUPER / Ryzen 7950X class hosts, start with at least:
+
+- 20 vCPUs available to Docker Desktop
+- 40 GB RAM available to Docker Desktop / WSL2
+- GPU sharing enabled for the Linux backend
+
+That leaves headroom on a 32-thread / 64 GB workstation while still allowing the stack to use roughly 60% of host capacity.
+
 After that, run:
 
 ```bash
-docker compose -f src/docker-compose.yml --profile cpu down
-docker compose -f src/docker-compose.yml --profile cpu up -d --build
+docker compose -f src/docker-compose.yml --profile gpu down
+docker compose --env-file src/distributions/stg/windows-gpu.env -f src/docker-compose.yml --profile gpu up -d --build
 ```
 
 ---

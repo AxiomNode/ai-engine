@@ -3,7 +3,7 @@
 This folder defines deployment distributions by:
 
 - stage: `dev`, `stg`, `pro`
-- environment: `windows`, `vps-cpu`, `vps-gpu`
+- environment: `windows`, `windows-gpu`, `vps-cpu`, `vps-gpu`
 
 Each combination is a dedicated env file (from repository root):
 
@@ -38,6 +38,7 @@ Before running installers, inject the matching runtime secrets:
 The installers automatically map environment to a centralized compose profile:
 
 - `windows` -> `cpu`
+- `windows-gpu` -> `gpu`
 - `vps-cpu` -> `cpu`
 - `vps-gpu` -> `gpu`
 
@@ -51,7 +52,7 @@ Installers now load two env files in order:
 Valid values:
 
 - stage: `dev|stg|pro`
-- environment: `windows|vps-cpu|vps-gpu`
+- environment: `windows|windows-gpu|vps-cpu|vps-gpu`
 
 Each env file should define a deployment tag pair used by logs, metrics,
 and monitoring endpoints:

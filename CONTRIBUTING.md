@@ -106,6 +106,6 @@ Before requesting review, verify:
 
 | Variable | Description | Default |
 |---|---|---|
-| `AI_ENGINE_MODELS_DIR` | Directory where GGUF models are stored | `<project_root>/models/` |
+| `AI_ENGINE_MODELS_DIR` | Directory where GGUF models are stored | `<project_root>/src/models/` |
 
 Never commit secrets or credentials. Use environment variables or a secrets manager.

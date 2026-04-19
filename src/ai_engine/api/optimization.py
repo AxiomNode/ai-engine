@@ -105,6 +105,8 @@ class GenerationOptimizationService:
         cache_backend: str = "tinydb",
         cache_namespace: str = "v1",
         distribution_version: str | None = None,
+        embedding_model: str | None = None,
+        corpus_signature: str | None = None,
         persistent_cache_path: str | None = None,
         redis_url: str | None = None,
         redis_prefix: str = "ai-engine:generation-cache",
@@ -122,6 +124,8 @@ class GenerationOptimizationService:
         self._cache_ttl_seconds = cache_ttl_seconds
         self._cache_namespace = cache_namespace
         self._distribution_version = distribution_version
+        self._embedding_model = embedding_model or ""
+        self._corpus_signature = corpus_signature or ""
         self._redis_prefix = redis_prefix
         self._persistent_lock = threading.RLock()
         self._redis_cache = None
@@ -210,8 +214,12 @@ class GenerationOptimizationService:
             "language": req.language,
             "game_type": req.game_type,
             "difficulty_percentage": req.difficulty_percentage,
+            "category_id": req.category_id or "",
+            "category_name": req.category_name or "",
             "rag_docs_retrieved": 0,
             "orchestration_engine": "native-ai-engine",
+            "embedding_model": self._embedding_model,
+            "corpus_signature": self._corpus_signature,
         }
         if self._distribution_version:
             metrics["distribution_version"] = self._distribution_version
@@ -262,11 +270,28 @@ class GenerationOptimizationService:
         else:
             kbd_hits = []
         metrics["kbd_hits"] = len(kbd_hits)
+        query_terms = [req.query.strip()]
+        if req.category_name:
+            query_terms.append(req.category_name)
         if kbd_hits:
-            req = req.model_copy(update={"query": f"{req.query} {kbd_hits[0].title}"})
+            query_terms.append(kbd_hits[0].title)
+        retrieval_query = " ".join(term for term in query_terms if term)
+        metrics["retrieval_query"] = retrieval_query
 
-        docs = await asyncio.to_thread(self._rag_pipeline.retrieve, req.query)
+        metadata_preferences = {
+            "language": req.language,
+            "game_type": req.game_type,
+        }
+        if req.category_name:
+            metadata_preferences["category"] = req.category_name
+
+        docs = await asyncio.to_thread(
+            self._rag_pipeline.retrieve,
+            retrieval_query,
+            metadata_preferences=metadata_preferences,
+        )
         metrics["rag_docs_retrieved"] = len(docs)
+        metrics["rag_metadata_preferences"] = dict(metadata_preferences)
         retriever = getattr(self._rag_pipeline, "retriever", None)
         last_scores = getattr(retriever, "last_scores", None) if retriever else None
         last_scores = list(last_scores) if last_scores else []
@@ -274,7 +299,15 @@ class GenerationOptimizationService:
         metrics["avg_rag_similarity"] = (
             round(sum(last_scores) / len(last_scores), 4) if last_scores else 0.0
         )
-        context = "\n\n".join(doc.content for doc in docs)
+        format_context = getattr(self._rag_pipeline, "_format_context", None)
+        if callable(format_context):
+            formatted_context = format_context(docs)
+            if isinstance(formatted_context, str):
+                context = formatted_context
+            else:
+                context = "\n\n".join(doc.content for doc in docs)
+        else:
+            context = "\n\n".join(doc.content for doc in docs)
         metrics["rag_context_length_chars"] = len(context)
         metrics["rag_latency_ms"] = round((time.perf_counter() - rag_start) * 1000, 2)
 
@@ -284,6 +317,7 @@ class GenerationOptimizationService:
                 envelope = await self._generator.generate_from_context(
                     context=context,
                     game_type=req.game_type,
+                    topic=req.query,
                     language=req.language,
                     difficulty_percentage=req.difficulty_percentage,
                     num_questions=req.num_questions,
@@ -465,6 +499,8 @@ class GenerationOptimizationService:
 
     def _cache_key(self, req: GenerateRequest) -> str:
         """Build a deterministic cache key from semantically relevant fields."""
+        embedding_model = getattr(self, "_embedding_model", "")
+        corpus_signature = getattr(self, "_corpus_signature", "")
         raw = json.dumps(
             {
                 "namespace": self._cache_namespace,
@@ -472,8 +508,12 @@ class GenerationOptimizationService:
                 "game_type": req.game_type,
                 "language": req.language,
                 "difficulty_percentage": req.difficulty_percentage,
+                "category_id": (req.category_id or "").strip().lower(),
+                "category_name": (req.category_name or "").strip().lower(),
                 "num_questions": req.num_questions,
                 "letters": req.letters,
+                "embedding_model": embedding_model,
+                "corpus_signature": corpus_signature,
             },
             sort_keys=True,
             ensure_ascii=True,

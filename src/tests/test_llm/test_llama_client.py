@@ -40,6 +40,10 @@ class TestLlamaClientInit:
         client = LlamaClient(api_url="http://x", json_mode=True)
         assert client.json_mode is True
 
+    def test_default_max_concurrent_requests_is_one(self):
+        client = LlamaClient(api_url="http://localhost:8080/completion")
+        assert client.max_concurrent_requests == 1
+
 
 class TestLlamaClientGenerateAPI:
     """Tests for generate() via HTTP API using a monkeypatched httpx.AsyncClient."""
@@ -157,6 +161,27 @@ class TestLlamaClientGenerateAPI:
 
         asyncio.run(client.generate("test"))
         assert captured.get("seed") == 42
+
+    def test_http_client_limits_follow_max_concurrent_requests(self, monkeypatch):
+        captured = {}
+
+        class _FakeAsyncClient:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+                self.is_closed = False
+
+            async def aclose(self):
+                self.is_closed = True
+
+        monkeypatch.setattr("ai_engine.llm.llama_client.httpx.AsyncClient", _FakeAsyncClient)
+        client = LlamaClient(
+            api_url="http://localhost:8080/completion",
+            max_concurrent_requests=3,
+        )
+        client._get_http_client()
+        limits = captured["limits"]
+        assert limits.max_connections == 3
+        assert limits.max_keepalive_connections == 3
 
 
 class TestLlamaClientProtocol:

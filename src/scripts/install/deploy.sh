@@ -2,10 +2,10 @@
 set -euo pipefail
 
 # Unified deploy script for Linux hosts.
-# Usage from repo root: ./src/scripts/install/deploy.sh <dev|stg|pro> <windows|vps-cpu|vps-gpu>
+# Usage from repo root: ./src/scripts/install/deploy.sh <dev|stg|pro> <windows|windows-gpu|vps-cpu|vps-gpu>
 
 if [[ $# -ne 2 ]]; then
-  echo "Usage: $0 <dev|stg|pro> <windows|vps-cpu|vps-gpu>"
+  echo "Usage: $0 <dev|stg|pro> <windows|windows-gpu|vps-cpu|vps-gpu>"
   exit 1
 fi
 
@@ -18,7 +18,7 @@ case "${STAGE}" in
 esac
 
 case "${ENVIRONMENT}" in
-  windows|vps-cpu|vps-gpu) ;;
+  windows|windows-gpu|vps-cpu|vps-gpu) ;;
   *) echo "Invalid environment: ${ENVIRONMENT}"; exit 1 ;;
 esac
 
@@ -40,7 +40,7 @@ if [[ ! -f "${SECRETS_FILE}" ]]; then
 fi
 
 PROFILE="cpu"
-if [[ "${ENVIRONMENT}" == "vps-gpu" ]]; then
+if [[ "${ENVIRONMENT}" == "vps-gpu" || "${ENVIRONMENT}" == "windows-gpu" ]]; then
   PROFILE="gpu"
 fi
 

@@ -46,7 +46,13 @@ class TestAIEngineSettingsDefaults:
         monkeypatch.delenv("AI_ENGINE_EMBEDDING_MODEL", raising=False)
         cfg = _reload_config(monkeypatch)
         settings = cfg.AIEngineSettings()
-        assert settings.embedding_model == "all-MiniLM-L6-v2"
+        assert settings.embedding_model == "paraphrase-multilingual-MiniLM-L12-v2"
+
+    def test_llama_max_concurrent_requests_default(self, monkeypatch):
+        monkeypatch.delenv("AI_ENGINE_LLAMA_MAX_CONCURRENT_REQUESTS", raising=False)
+        cfg = _reload_config(monkeypatch)
+        settings = cfg.AIEngineSettings()
+        assert settings.llama_max_concurrent_requests == 1
 
     def test_api_key_default_is_none(self, monkeypatch):
         monkeypatch.delenv("AI_ENGINE_API_KEY", raising=False)
@@ -96,6 +102,14 @@ class TestAIEngineSettingsDefaults:
         settings = cfg.AIEngineSettings()
         assert settings.generation_cache_namespace == "v1"
 
+    def test_generation_capacity_defaults(self, monkeypatch):
+        monkeypatch.delenv("AI_ENGINE_GENERATION_MAX_IN_FLIGHT", raising=False)
+        monkeypatch.delenv("AI_ENGINE_GENERATION_MAX_QUEUE_SIZE", raising=False)
+        cfg = _reload_config(monkeypatch)
+        settings = cfg.AIEngineSettings()
+        assert settings.generation_max_in_flight == 2
+        assert settings.generation_max_queue_size == 2
+
     def test_distribution_default(self, monkeypatch):
         monkeypatch.delenv("AI_ENGINE_DISTRIBUTION", raising=False)
         cfg = _reload_config(monkeypatch)
@@ -141,6 +155,12 @@ class TestAIEngineSettingsFromEnv:
         cfg = _reload_config(monkeypatch)
         settings = cfg.AIEngineSettings()
         assert settings.embedding_model == "paraphrase-multilingual-MiniLM-L12-v2"
+
+    def test_llama_max_concurrent_requests_from_env(self, monkeypatch):
+        monkeypatch.setenv("AI_ENGINE_LLAMA_MAX_CONCURRENT_REQUESTS", "3")
+        cfg = _reload_config(monkeypatch)
+        settings = cfg.AIEngineSettings()
+        assert settings.llama_max_concurrent_requests == 3
 
     def test_api_key_from_env(self, monkeypatch):
         monkeypatch.setenv("AI_ENGINE_API_KEY", "secret-key-123")
@@ -199,6 +219,14 @@ class TestAIEngineSettingsFromEnv:
         cfg = _reload_config(monkeypatch)
         settings = cfg.AIEngineSettings()
         assert settings.generation_cache_namespace == "v2"
+
+    def test_generation_capacity_from_env(self, monkeypatch):
+        monkeypatch.setenv("AI_ENGINE_GENERATION_MAX_IN_FLIGHT", "1")
+        monkeypatch.setenv("AI_ENGINE_GENERATION_MAX_QUEUE_SIZE", "3")
+        cfg = _reload_config(monkeypatch)
+        settings = cfg.AIEngineSettings()
+        assert settings.generation_max_in_flight == 1
+        assert settings.generation_max_queue_size == 3
 
     def test_distribution_version_from_env(self, monkeypatch):
         monkeypatch.setenv("AI_ENGINE_DISTRIBUTION", "stg")

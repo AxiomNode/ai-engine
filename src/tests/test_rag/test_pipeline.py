@@ -49,6 +49,51 @@ def test_build_context_returns_string():
     assert "Python" in context
 
 
+def test_retrieve_prefers_matching_metadata():
+    pipeline = _build_pipeline()
+    pipeline.ingest(
+        [
+            Document(
+                content="Python question example in English",
+                doc_id="en-quiz",
+                metadata={"language": "en", "game_type": "quiz", "kind": "game_example"},
+            ),
+            Document(
+                content="Python question example in Spanish",
+                doc_id="es-quiz",
+                metadata={"language": "es", "game_type": "quiz", "kind": "game_example"},
+            ),
+        ]
+    )
+
+    results = pipeline.retrieve(
+        "python question",
+        top_k=1,
+        metadata_preferences={"language": "es", "game_type": "quiz"},
+    )
+
+    assert len(results) == 1
+    assert results[0].doc_id.startswith("es-quiz")
+
+
+def test_build_context_adds_headers_and_honors_limit():
+    pipeline = _build_pipeline()
+    pipeline.ingest(
+        [
+            Document(
+                content="Python is great for data science and scripting.",
+                doc_id="1",
+                metadata={"language": "es", "kind": "educational_resource", "topic": "python"},
+            )
+        ]
+    )
+
+    context = pipeline.build_context("python question", max_chars=70)
+
+    assert context.startswith("Source 1")
+    assert len(context) <= 73
+
+
 def test_ingest_empty_list():
     pipeline = _build_pipeline()
     pipeline.ingest([])  # should not raise

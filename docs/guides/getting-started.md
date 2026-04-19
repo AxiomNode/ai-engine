@@ -200,7 +200,7 @@ ai-engine/
 
 | Variable | Default | Description |
 |---|---|---|
-| `AI_ENGINE_MODELS_DIR` | `<project_root>/models/` | Directory where GGUF files are stored and searched. |
+| `AI_ENGINE_MODELS_DIR` | `<project_root>/src/models/` | Directory where GGUF files are stored and searched. |
 
 Set it in your shell or in a `.env` file loaded by your runner:
 

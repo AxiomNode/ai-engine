@@ -27,9 +27,15 @@ class _Doc:
 class _StubRAGPipeline:
     """Minimal RAG stub for optimization tests."""
 
-    def retrieve(self, query: str) -> list[_Doc]:
-        _ = query
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def retrieve(self, query: str, **kwargs) -> list[_Doc]:
+        self.calls.append({"query": query, **kwargs})
         return [_Doc(content="Water cycle context")]
+
+    def _format_context(self, docs: list[_Doc]) -> str:
+        return "\n\n".join(doc.content for doc in docs)
 
 
 class _StubGenerator:
@@ -47,6 +53,7 @@ class _StubGenerator:
         context: str,
         game_type: str = "quiz",
         *,
+        topic: str | None = None,
         language: str | None = None,
         difficulty_percentage: int | None = None,
         num_questions: int = 5,
@@ -56,6 +63,7 @@ class _StubGenerator:
         _ = (
             context,
             game_type,
+            topic,
             language,
             difficulty_percentage,
             num_questions,
@@ -153,6 +161,69 @@ def test_persistent_cache_stats_and_reset_use_cache_index(tmp_path) -> None:
 
     stats_after = service.cache_stats()
     assert stats_after["persistent_entries"] == 0
+
+
+def test_cache_key_differs_by_category_and_content_fingerprint(tmp_path) -> None:
+    cache_file = tmp_path / "generation_cache.json"
+    rag = _StubRAGPipeline()
+    service_a = GenerationOptimizationService(
+        generator=_StubGenerator(),
+        rag_pipeline=rag,
+        cache_max_entries=0,
+        embedding_model="embed-a",
+        corpus_signature="corpus-a",
+        persistent_cache_path=str(cache_file),
+    )
+    service_b = GenerationOptimizationService(
+        generator=_StubGenerator(),
+        rag_pipeline=rag,
+        cache_max_entries=0,
+        embedding_model="embed-b",
+        corpus_signature="corpus-b",
+        persistent_cache_path=str(cache_file),
+    )
+
+    req_base = GenerateRequest(query="water", category_id="17", category_name="Science & Nature")
+    req_other_category = GenerateRequest(query="water", category_id="23", category_name="History")
+
+    assert service_a._cache_key(req_base) != service_a._cache_key(req_other_category)
+    assert service_a._cache_key(req_base) != service_b._cache_key(req_base)
+
+
+def test_generate_passes_category_preferences_into_rag() -> None:
+    rag = _StubRAGPipeline()
+    service = GenerationOptimizationService(
+        generator=_StubGenerator(),
+        rag_pipeline=rag,
+        cache_max_entries=0,
+        embedding_model="embed-a",
+        corpus_signature="corpus-a",
+        persistent_cache_path=None,
+    )
+
+    result = _run(
+        service.generate(
+            GenerateRequest(
+                query="water",
+                language="es",
+                game_type="quiz",
+                category_id="17",
+                category_name="Science & Nature",
+            )
+        )
+    )
+
+    assert result.metrics["category_id"] == "17"
+    assert result.metrics["category_name"] == "Science & Nature"
+    assert result.metrics["embedding_model"] == "embed-a"
+    assert result.metrics["corpus_signature"] == "corpus-a"
+    assert rag.calls
+    assert rag.calls[0]["metadata_preferences"] == {
+        "language": "es",
+        "game_type": "quiz",
+        "category": "Science & Nature",
+    }
+    assert "Science & Nature" in str(rag.calls[0]["query"])
 
 
 def test_redis_backend_falls_back_to_tinydb_when_unavailable(tmp_path) -> None:

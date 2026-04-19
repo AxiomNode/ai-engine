@@ -15,6 +15,7 @@ Two document families:
 
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any
 
@@ -1396,3 +1397,17 @@ def get_full_corpus() -> list[dict[str, Any]]:
     return (
         QUIZ_EXAMPLES + WORD_PASS_EXAMPLES + TRUE_FALSE_EXAMPLES + EDUCATIONAL_RESOURCES
     )
+
+
+def get_corpus_signature() -> str:
+    """Return a stable content signature for the curated corpus."""
+    normalized = [
+        {
+            "doc_id": entry.get("doc_id"),
+            "content": entry.get("content"),
+            "metadata": entry.get("metadata", {}),
+        }
+        for entry in get_full_corpus()
+    ]
+    payload = json.dumps(normalized, ensure_ascii=True, sort_keys=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]

@@ -52,6 +52,8 @@ class GenerateRequest(BaseModel):
     language: str = "es"
     num_questions: int = Field(default=5, ge=1, le=50)
     difficulty_percentage: int = Field(default=50, ge=0, le=100)
+    category_id: str | None = None
+    category_name: str | None = None
     letters: str = "A,B,C,D,E,F,G,H,I,J,L,M,N,O,P,R,S,T,V,Z"
     max_tokens: int = Field(default=1024, ge=64, le=4096)
     use_cache: bool = True

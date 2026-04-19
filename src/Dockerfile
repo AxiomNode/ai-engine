@@ -108,5 +108,6 @@ COPY --from=builder-stats /install /usr/local
 CMD uvicorn ai_engine.observability.api:app --host 0.0.0.0 --port ${PORT:-8000} --workers ${UVICORN_WORKERS:-1}
 
 
-# Backward-compatible target name used by older compose configs.
-FROM runtime-stats AS runtime
+# Default no-target builds should produce the generation API image.
+# This avoids accidentally publishing the observability image as ai-engine-api.
+FROM runtime-api AS runtime

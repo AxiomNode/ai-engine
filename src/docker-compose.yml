@@ -9,7 +9,7 @@
 #
 # Prerequisites:
 #   1. Download at least one model:
-#        python -m ai_engine.llm.model_manager download qwen2.5-3b
+#        python -m ai_engine.llm.model_manager download qwen2.5-7b
 #   2. Inject runtime secrets from the private vault:
 #        node ../secrets/scripts/prepare-runtime-secrets.mjs dev ai-engine
 #   3. Use a tracked distribution file plus src/.env.secrets for private values.
@@ -97,7 +97,7 @@ services:
   # ---------------------------------------------------------------------------
   llama-server-gpu:
     profiles: ["gpu"]
-    image: ghcr.io/ggerganov/llama.cpp:server-cuda
+    image: "${LLAMA_GPU_IMAGE:-ghcr.io/ggerganov/llama.cpp:server-cuda-b4719}"
     container_name: "ai_engine_llama_gpu_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
     restart: unless-stopped
     gpus: all
@@ -224,7 +224,7 @@ services:
     environment:
       # Point to the llama.cpp server – no local model needed in this container.
       AI_ENGINE_LLAMA_URL: "http://llama-server:8080/v1/completions"
-      AI_ENGINE_EMBEDDING_MODEL: "${AI_ENGINE_EMBEDDING_MODEL:-all-MiniLM-L6-v2}"
+      AI_ENGINE_EMBEDDING_MODEL: "${AI_ENGINE_EMBEDDING_MODEL:-paraphrase-multilingual-MiniLM-L12-v2}"
       AI_ENGINE_LLAMA_TIMEOUT_SECONDS: "${AI_ENGINE_LLAMA_TIMEOUT_SECONDS:-600}"
       AI_ENGINE_MODELS_DIR: /app/models
       AI_ENGINE_GENERATION_CACHE_PATH: /app/data/generation_cache.json
@@ -232,6 +232,10 @@ services:
       AI_ENGINE_GENERATION_CACHE_REDIS_URL: "${AI_ENGINE_GENERATION_CACHE_REDIS_URL:-redis://ai-cache:6379/0}"
       AI_ENGINE_GENERATION_CACHE_REDIS_PREFIX: "${AI_ENGINE_GENERATION_CACHE_REDIS_PREFIX:-ai-engine:generation-cache}"
       AI_ENGINE_GENERATION_CACHE_NAMESPACE: "${AI_ENGINE_GENERATION_CACHE_NAMESPACE:-v1}"
+      AI_ENGINE_LLAMA_MAX_CONCURRENT_REQUESTS: "${AI_ENGINE_LLAMA_MAX_CONCURRENT_REQUESTS:-1}"
+      AI_ENGINE_GENERATION_MAX_IN_FLIGHT: "${AI_ENGINE_GENERATION_MAX_IN_FLIGHT:-1}"
+      AI_ENGINE_GENERATION_MAX_QUEUE_SIZE: "${AI_ENGINE_GENERATION_MAX_QUEUE_SIZE:-1}"
+      AI_ENGINE_CACHE_WARMUP_ENABLED: "${AI_ENGINE_CACHE_WARMUP_ENABLED:-false}"
       AI_ENGINE_RATE_LIMIT_ENABLED: "${AI_ENGINE_RATE_LIMIT_ENABLED:-false}"
       AI_ENGINE_RATE_LIMIT_REQUESTS: "${AI_ENGINE_RATE_LIMIT_REQUESTS:-60}"
       AI_ENGINE_RATE_LIMIT_WINDOW_SECONDS: "${AI_ENGINE_RATE_LIMIT_WINDOW_SECONDS:-60}"

@@ -6,8 +6,10 @@ embedding model is required during testing.
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 
 try:
@@ -207,7 +209,36 @@ class TestGenerate:
         assert call_kwargs["game_type"] == "true_false"
         assert call_kwargs["language"] == "en"
         assert call_kwargs["num_questions"] == 3
-        assert call_kwargs["max_tokens"] == 512
+        assert call_kwargs["max_tokens"] == 192
+
+    def test_generate_preserves_lower_requested_max_tokens(self) -> None:
+        client, mock_gen, *_ = _make_client()
+        client.post(
+            "/generate",
+            json={
+                "query": "photosynthesis",
+                "game_type": "quiz",
+                "language": "en",
+                "num_questions": 8,
+                "max_tokens": 128,
+            },
+        )
+        call_kwargs = mock_gen.generate_from_context.call_args.kwargs
+        assert call_kwargs["max_tokens"] == 128
+
+    def test_generate_resolves_category_name_from_catalog(self) -> None:
+        client, _, mock_pipeline, _ = _make_client()
+        resp = client.post(
+            "/generate",
+            json={
+                "query": "biology",
+                "game_type": "quiz",
+                "category_id": "17",
+            },
+        )
+        assert resp.status_code == 200
+        retrieve_kwargs = mock_pipeline.retrieve.call_args.kwargs
+        assert retrieve_kwargs["metadata_preferences"]["category"] == "Science & Nature"
 
     def test_generate_word_pass(self) -> None:
         """WordPass game type is handled correctly."""
@@ -259,7 +290,98 @@ class TestGenerate:
         assert event["metadata"]["event_type"] == "generation"
         assert event["metadata"]["correlation_id"]
         assert event["metadata"]["requested_max_tokens"] == 512
+        assert event["metadata"]["effective_max_tokens"] == 296
         assert event["metadata"]["query_chars"] == len("water")
+
+    def test_generate_timeout_returns_504_and_records_upstream_metadata(self) -> None:
+        """Upstream llama timeouts should surface as HTTP 504, not raw 500s."""
+        client, _, _, collector = _make_client(
+            gen_side_effect=httpx.ReadTimeout("llama request timed out"),
+            raise_server_exceptions=False,
+        )
+        resp = client.post("/generate", json={"query": "water", "max_tokens": 512})
+        assert resp.status_code == 504
+        assert resp.json()["detail"] == "Upstream LLM request timed out."
+
+        events = collector.history(last_n=1)
+        assert len(events) == 1
+        event = events[0]
+        assert event["success"] is False
+        assert event["error"] == "llama request timed out"
+        assert event["metadata"]["upstream_service"] == "llama"
+        assert event["metadata"]["error_type"] == "ReadTimeout"
+
+    def test_generate_connect_error_returns_503_and_records_upstream_metadata(self) -> None:
+        """Upstream connection failures should not leak as raw 500s."""
+        client, _, _, collector = _make_client(
+            gen_side_effect=httpx.ConnectError("llama unavailable"),
+            raise_server_exceptions=False,
+        )
+        resp = client.post("/generate", json={"query": "water", "max_tokens": 512})
+        assert resp.status_code == 503
+        assert resp.json()["detail"] == "Upstream LLM request failed."
+
+        events = collector.history(last_n=1)
+        assert len(events) == 1
+        event = events[0]
+        assert event["success"] is False
+        assert event["error"] == "llama unavailable"
+        assert event["metadata"]["upstream_service"] == "llama"
+        assert event["metadata"]["error_type"] == "ConnectError"
+
+    def test_generate_returns_503_when_capacity_queue_is_full(self) -> None:
+        from ai_engine.api.app import _GenerationCapacityLimiter
+
+        client, *_ = _make_client(raise_server_exceptions=False)
+
+        class RejectingLimiter(_GenerationCapacityLimiter):
+            async def acquire(self, caller_tier: str = "interactive") -> bool:
+                return False
+
+        client.app.state.generation_capacity_limiter = RejectingLimiter(1, 0)
+        resp = client.post("/generate", json={"query": "water"})
+        assert resp.status_code == 503
+        assert resp.json()["detail"] == "Generation service is busy. Please retry shortly."
+
+    def test_background_generation_rejects_when_slot_is_busy(self) -> None:
+        from ai_engine.api.app import _GenerationCapacityLimiter
+
+        limiter = _GenerationCapacityLimiter(max_in_flight=1, max_queue_size=1)
+
+        async def _scenario() -> None:
+            assert await limiter.acquire("interactive") is True
+            assert await limiter.acquire("background") is False
+            limiter.release()
+
+        asyncio.run(_scenario())
+
+    def test_background_generation_rejects_when_interactive_queue_exists(self) -> None:
+        from ai_engine.api.app import _GenerationCapacityLimiter
+
+        limiter = _GenerationCapacityLimiter(max_in_flight=1, max_queue_size=1)
+
+        async def _occupy_slot() -> None:
+            acquired = await limiter.acquire("interactive")
+            assert acquired is True
+            await asyncio.sleep(0.05)
+            limiter.release()
+
+        async def _queued_interactive() -> bool:
+            acquired = await limiter.acquire("interactive")
+            if acquired:
+                limiter.release()
+            return acquired
+
+        async def _scenario() -> None:
+            holder = asyncio.create_task(_occupy_slot())
+            await asyncio.sleep(0.01)
+            queued = asyncio.create_task(_queued_interactive())
+            await asyncio.sleep(0.01)
+            assert await limiter.acquire("background") is False
+            await holder
+            assert await queued is True
+
+        asyncio.run(_scenario())
 
     def test_generate_uses_default_language_es(self) -> None:
         """Default language is Spanish when not specified."""
@@ -280,6 +402,67 @@ class TestGenerate:
         assert "metadata" in data
         assert "data" in data
         assert "metrics" in data
+
+    def test_generate_sdk_timeout_returns_504(self) -> None:
+        """SDK endpoint should also map upstream llama timeouts to HTTP 504."""
+        client, _, _, collector = _make_client(
+            gen_side_effect=httpx.ReadTimeout("sdk llama request timed out"),
+            raise_server_exceptions=False,
+        )
+        resp = client.post("/generate/sdk", json={"query": "water cycle", "language": "en"})
+        assert resp.status_code == 504
+        assert resp.json()["detail"] == "Upstream LLM request timed out."
+
+        events = collector.history(last_n=1)
+        assert len(events) == 1
+        event = events[0]
+        assert event["error"] == "sdk llama request timed out"
+        assert event["metadata"]["upstream_service"] == "llama"
+
+    def test_generate_sdk_connect_error_returns_503(self) -> None:
+        """SDK endpoint should also map upstream connection failures to HTTP 503."""
+        client, _, _, collector = _make_client(
+            gen_side_effect=httpx.ConnectError("sdk llama unavailable"),
+            raise_server_exceptions=False,
+        )
+        resp = client.post("/generate/sdk", json={"query": "water cycle", "language": "en"})
+        assert resp.status_code == 503
+        assert resp.json()["detail"] == "Upstream LLM request failed."
+
+        events = collector.history(last_n=1)
+        assert len(events) == 1
+        event = events[0]
+        assert event["error"] == "sdk llama unavailable"
+        assert event["metadata"]["upstream_service"] == "llama"
+        assert event["metadata"]["error_type"] == "ConnectError"
+
+    def test_generate_sdk_returns_503_when_capacity_queue_is_full(self) -> None:
+        from ai_engine.api.app import _GenerationCapacityLimiter
+
+        client, *_ = _make_client(raise_server_exceptions=False)
+
+        class RejectingLimiter(_GenerationCapacityLimiter):
+            async def acquire(self, caller_tier: str = "interactive") -> bool:
+                return False
+
+        client.app.state.generation_capacity_limiter = RejectingLimiter(1, 0)
+        resp = client.post(
+            "/generate/sdk",
+            json={"query": "water cycle", "language": "en"},
+        )
+        assert resp.status_code == 503
+        assert resp.json()["detail"] == "Generation service is busy. Please retry shortly."
+
+    def test_health_reports_generation_capacity(self) -> None:
+        client, *_ = _make_client()
+        resp = client.get("/health")
+        assert resp.status_code == 200
+        capacity = resp.json()["dependencies"]["generation_capacity"]
+        assert capacity["status"] == "ready"
+        assert capacity["max_in_flight"] == 2
+        assert capacity["max_queue_size"] == 2
+        assert capacity["active"] == 0
+        assert capacity["queued"] == 0
 
     def test_generate_applies_language_and_difficulty_headers(self) -> None:
         """Header overrides must be propagated to the generator call."""
@@ -311,6 +494,16 @@ class TestGenerate:
         assert call_kwargs["num_questions"] == 4
         assert call_kwargs["language"] == "en"
         assert call_kwargs["difficulty_percentage"] == 65
+
+    def test_generate_quiz_model_specific_endpoint_accepts_category(self) -> None:
+        client, _, mock_pipeline, _ = _make_client()
+        resp = client.post(
+            "/generate/quiz",
+            params={"query": "cells", "category_id": "17"},
+        )
+        assert resp.status_code == 200
+        retrieve_kwargs = mock_pipeline.retrieve.call_args.kwargs
+        assert retrieve_kwargs["metadata_preferences"]["category"] == "Science & Nature"
 
     def test_generate_word_pass_model_specific_endpoint(self) -> None:
         """/generate/word-pass should pass letters and force word-pass game type."""
@@ -558,6 +751,42 @@ class TestAPIKeyAuth:
         resp = client.get("/health")
         assert resp.status_code == 200
 
+    def test_ready_is_public_even_with_keys(self) -> None:
+        """Readiness remains public so Kubernetes probes can mark pods Ready."""
+        client, _ = self._make_secured_client()
+        resp = client.get("/ready")
+        assert resp.status_code == 200
+
+    def test_ready_with_prefixed_path_stays_public(self) -> None:
+        """Public probe routes should stay exempt even when a path prefix is present."""
+        from ai_engine.api.middleware import APIKeyMiddleware
+
+        middleware = APIKeyMiddleware(
+            lambda scope, receive, send: None,
+            api_key="secret",
+            games_api_key="games-secret",
+            service="generation",
+            public_paths={"/health", "/ready"},
+        )
+
+        assert middleware._is_public_path("/internal/ready") is True
+        assert middleware._is_public_path("/internal/health") is True
+        assert middleware._is_public_path("/internal/generate") is False
+
+    def test_generation_scope_resolves_bridge_for_backoffice_calls(self) -> None:
+        from ai_engine.api.middleware import APIKeyMiddleware
+
+        middleware = APIKeyMiddleware(
+            lambda scope, receive, send: None,
+            api_key="secret",
+            games_api_key="games-secret",
+            bridge_api_key="bridge-secret",
+            service="generation",
+        )
+
+        assert middleware._resolve_auth_scope("bridge-secret") == "bridge"
+        assert middleware._resolve_auth_scope("games-secret") == "games"
+
     def test_generate_wrong_key_returns_403(self) -> None:
         """Generation endpoints reject an invalid key when games key is set."""
         client, _ = self._make_secured_client()
@@ -569,12 +798,25 @@ class TestAPIKeyAuth:
         assert resp.status_code == 403
 
     def test_generate_requires_games_key(self) -> None:
-        """Generation endpoints require the games key."""
+        """Generation endpoints accept the games key for microservice callers."""
         client, _ = self._make_secured_client(games_api_key="games-key")
         resp = client.post(
             "/generate",
             json={"query": "water"},
             headers={"X-API-Key": "games-key"},
+        )
+        assert resp.status_code == 200
+
+    def test_generate_accepts_bridge_key_for_backoffice_calls(self) -> None:
+        """Generation endpoints also accept the bridge key for backoffice workflows."""
+        client, _ = self._make_secured_client(
+            games_api_key="games-key",
+            bridge_api_key="bridge-key",
+        )
+        resp = client.post(
+            "/generate",
+            json={"query": "water"},
+            headers={"X-API-Key": "bridge-key"},
         )
         assert resp.status_code == 200
 
@@ -585,7 +827,7 @@ class TestAPIKeyAuth:
         assert resp.status_code == 401
 
     def test_generate_succeeds_with_correct_key(self) -> None:
-        """POST /generate succeeds with the configured games API key."""
+        """POST /generate succeeds with an allowed generation API key."""
         client, _ = self._make_secured_client(games_api_key="mykey")
         resp = client.post(
             "/generate",

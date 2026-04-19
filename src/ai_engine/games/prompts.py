@@ -36,9 +36,13 @@ QUIZ_TEMPLATE = (
     "Using the following educational context, create a multiple-choice quiz.\n\n"
     "### Context\n{context}\n\n"
     "### Requirements\n"
+    "{topic_clause}"
     "- Language for all content: {language}\n"
     "- Difficulty percentage: {difficulty_percentage}% (0 easy, 100 hard)\n"
     "- Number of questions: {num_questions}\n"
+    "- Title must be a short, non-empty string relevant to the topic.\n"
+    "- Every question, option set, and explanation must stay directly related to the requested topic.\n"
+    "- Do not include unrelated general-knowledge filler, even if it appears in the context.\n"
     "- Each question has exactly 4 options, only one correct.\n"
     "- Include a short pedagogical explanation for each answer.\n\n"
     "### Output JSON schema\n"
@@ -68,9 +72,13 @@ WORD_PASS_TEMPLATE = (
     "Using the following educational context, create a WordPass (rosco) game.\n\n"
     "### Context\n{context}\n\n"
     "### Requirements\n"
+    "{topic_clause}"
     "- Language for all content: {language}\n"
     "- Difficulty percentage: {difficulty_percentage}% (0 easy, 100 hard)\n"
     "- Cover these letters: {letters}\n"
+    "- Title must be a short, non-empty string relevant to the topic.\n"
+    "- Every hint and answer must stay directly related to the requested topic.\n"
+    "- Do not include unrelated general-knowledge filler, even if it appears in the context.\n"
     "- For each letter provide a hint (definition/clue) and the answer word.\n"
     '- Set "starts_with" to true if the answer starts with the letter, false if it only contains it.\n\n'
     "### Output JSON schema\n"
@@ -100,9 +108,13 @@ TRUE_FALSE_TEMPLATE = (
     "Using the following educational context, create a true/false game.\n\n"
     "### Context\n{context}\n\n"
     "### Requirements\n"
+    "{topic_clause}"
     "- Language for all content: {language}\n"
     "- Difficulty percentage: {difficulty_percentage}% (0 easy, 100 hard)\n"
     "- Number of statements: {num_questions}\n"
+    "- Title must be a short, non-empty string relevant to the topic.\n"
+    "- Every statement and explanation must stay directly related to the requested topic.\n"
+    "- Do not include unrelated general-knowledge filler, even if it appears in the context.\n"
     "- Mix of true and false statements (roughly balanced).\n"
     "- Include a short pedagogical explanation for each.\n\n"
     "### Output JSON schema\n"
@@ -134,6 +146,7 @@ TEMPLATES: dict[str, str] = {
 def get_prompt(
     game_type: str,
     context: str,
+    topic: str | None = None,
     language: str = "es",
     difficulty_percentage: int = 50,
     num_questions: int = 5,
@@ -162,6 +175,11 @@ def get_prompt(
     return template.format(
         system=_SYSTEM,
         context=context,
+        topic_clause=(
+            f"- Focus specifically on this topic/request: {topic.strip()}\\n"
+            if isinstance(topic, str) and topic.strip()
+            else ""
+        ),
         language=language,
         difficulty_percentage=difficulty_percentage,
         num_questions=num_questions,

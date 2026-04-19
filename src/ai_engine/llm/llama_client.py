@@ -75,6 +75,7 @@ class LlamaClient:
         seed: int = -1,
         json_mode: bool = False,
         request_timeout_seconds: float = 600.0,
+        max_concurrent_requests: int = 1,
     ) -> None:
         if api_url is None and model_path is None:
             raise ValueError("At least one of api_url or model_path must be provided")
@@ -90,12 +91,14 @@ class LlamaClient:
         self.seed = seed
         self.json_mode = json_mode
         self.request_timeout_seconds = max(1.0, float(request_timeout_seconds))
+        self.max_concurrent_requests = max(1, int(max_concurrent_requests))
 
         # Lazy-loaded local model
         self._local_model: Any = None
 
         # Reusable async HTTP client with connection pooling
         self._http_client: httpx.AsyncClient | None = None
+        self._api_semaphore: asyncio.Semaphore | None = None
 
     # ------------------------------------------------------------------
     # Async HTTP client lifecycle
@@ -107,12 +110,18 @@ class LlamaClient:
             self._http_client = httpx.AsyncClient(
                 timeout=httpx.Timeout(self.request_timeout_seconds, connect=10.0),
                 limits=httpx.Limits(
-                    max_connections=20,
-                    max_keepalive_connections=10,
+                    max_connections=self.max_concurrent_requests,
+                    max_keepalive_connections=self.max_concurrent_requests,
                     keepalive_expiry=30.0,
                 ),
             )
         return self._http_client
+
+    def _get_api_semaphore(self) -> asyncio.Semaphore:
+        """Return the shared concurrency gate for upstream API requests."""
+        if self._api_semaphore is None:
+            self._api_semaphore = asyncio.Semaphore(self.max_concurrent_requests)
+        return self._api_semaphore
 
     async def close(self) -> None:
         """Close the underlying HTTP client (call on shutdown)."""
@@ -199,10 +208,11 @@ class LlamaClient:
             payload["grammar"] = JSON_GRAMMAR
 
         client = self._get_http_client()
-        response = await client.post(
-            self.api_url,  # type: ignore[arg-type]
-            json=payload,
-        )
+        async with self._get_api_semaphore():
+            response = await client.post(
+                self.api_url,  # type: ignore[arg-type]
+                json=payload,
+            )
         response.raise_for_status()
         data = response.json()
 

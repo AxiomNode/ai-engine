@@ -2,7 +2,7 @@ param(
     [ValidateSet("dev", "stg", "pro")]
     [string]$Stage = "dev",
 
-    [ValidateSet("windows", "vps-cpu", "vps-gpu")]
+    [ValidateSet("windows", "windows-gpu", "vps-cpu", "vps-gpu")]
     [string]$Environment = "windows"
 )
 
@@ -23,7 +23,7 @@ if (-not (Test-Path $SecretsFile)) {
 }
 
 $ComposeMode = "cpu"
-if ($Environment -eq "vps-gpu") {
+if ($Environment -eq "vps-gpu" -or $Environment -eq "windows-gpu") {
     $ComposeMode = "gpu"
 }
 

@@ -11,8 +11,9 @@ class SentenceTransformersEmbedder(Embedder):
 
     Args:
         model_name: Name or path of the sentence-transformers model.
-            Defaults to ``"all-MiniLM-L6-v2"`` which is small, fast,
-            and produces 384-dimensional embeddings.
+            Defaults to ``"paraphrase-multilingual-MiniLM-L12-v2"``
+            which offers stronger multilingual retrieval quality while
+            remaining practical for CPU-bound deployments.
 
     Example:
         >>> emb = SentenceTransformersEmbedder()
@@ -21,7 +22,9 @@ class SentenceTransformersEmbedder(Embedder):
         384
     """
 
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
+    def __init__(
+        self, model_name: str = "paraphrase-multilingual-MiniLM-L12-v2"
+    ) -> None:
         try:
             from sentence_transformers import (
                 SentenceTransformer,  # type: ignore[import-untyped]

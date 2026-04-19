@@ -208,7 +208,7 @@ def _cli() -> None:
         print()
         print("Commands:")
         print("  list                    List available models and download status")
-        print("  download [model_name]   Download a model (default: phi-3.5-mini)")
+        print("  download [model_name]   Download a model (default: qwen2.5-7b)")
         print("  path [model_name]       Print the path to a downloaded model")
         return
 

@@ -9,7 +9,7 @@ Full documentation is available in the [`docs/`](docs/) folder:
 | Guide | Description |
 |---|---|
 | [Architecture Index](docs/architecture/README.md) | Context, system design, technologies, ADRs, and repository layout |
-| [Distributions Matrix](src/distributions/README.md) | Stage/environment deployment matrix (dev/stg/pro x windows/vps-cpu/vps-gpu) |
+| [Distributions Matrix](src/distributions/README.md) | Stage/environment deployment matrix (dev/stg/pro x windows/windows-gpu/vps-cpu/vps-gpu) |
 | [Guides Index](docs/guides/README.md) | Getting started, RAG, KBD, SDK, and metrics usage guides |
 | [Operations Index](docs/operations/README.md) | Deployment, incident runbook, and continuous improvement logs |
 

@@ -23,6 +23,9 @@ Environment variables
 ``AI_ENGINE_LLAMA_TIMEOUT_SECONDS``
     Timeout (seconds) for upstream HTTP calls from ai-api to llama.cpp.
 
+``AI_ENGINE_LLAMA_MAX_CONCURRENT_REQUESTS``
+    Maximum simultaneous upstream HTTP calls from ai-api to llama.cpp.
+
 ``AI_ENGINE_API_KEY``
     Shared secret propagated to ``X-API-Key`` header validation.  When
     absent, authentication is disabled.
@@ -32,7 +35,7 @@ Environment variables
     (``/generate*``).
 
 ``AI_ENGINE_BRIDGE_API_KEY``
-    API key used for bridge microservice integration on ingest and
+    API key used for bridge/backoffice integration on generation, ingest and
     observability endpoints.
 
 ``AI_ENGINE_STATS_API_KEY``
@@ -49,7 +52,7 @@ Environment variables
 
 ``AI_ENGINE_MODELS_DIR``
     Directory where GGUF model files are stored.  Defaults to the
-    ``models/`` folder at the project root.
+    ``src/models/`` folder used by the tracked deployment distributions.
 
 ``AI_ENGINE_GENERATION_CACHE_PATH``
     File path used by the generation optimizer for persistent cache storage.
@@ -77,6 +80,12 @@ Environment variables
 ``AI_ENGINE_RATE_LIMIT_WINDOW_SECONDS``
     Fixed time window in seconds used for generation request limiting.
 
+``AI_ENGINE_GENERATION_MAX_IN_FLIGHT``
+    Maximum number of generation requests actively executing at once.
+
+``AI_ENGINE_GENERATION_MAX_QUEUE_SIZE``
+    Maximum number of additional generation requests allowed to wait for capacity.
+
 ``AI_ENGINE_DISTRIBUTION``
     Deployment distribution label (e.g. ``dev``, ``stg``, ``pro``).
 
@@ -101,8 +110,8 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Default models directory: <project_root>/models/
-_DEFAULT_MODELS_DIR = str(Path(__file__).resolve().parent.parent.parent / "models")
+# Default models directory: <project_root>/src/models/
+_DEFAULT_MODELS_DIR = str(Path(__file__).resolve().parent.parent / "models")
 
 
 class AIEngineSettings(BaseSettings):
@@ -116,9 +125,10 @@ class AIEngineSettings(BaseSettings):
         model_path: Path to a local GGUF model file.
         embedding_model: Sentence-transformers model name for RAG.
         llama_timeout_seconds: Timeout for upstream llama HTTP calls.
+        llama_max_concurrent_requests: Maximum simultaneous upstream llama HTTP calls.
         api_key: Shared secret for ``X-API-Key`` header auth.
         games_api_key: API key for game microservice generation routes.
-        bridge_api_key: API key for bridge microservice routes.
+        bridge_api_key: API key for bridge/backoffice routes.
         stats_api_key: API key for internal ai-api -> ai-stats events.
         stats_url: Base URL for observability event ingestion.
         generation_api_url: Base URL for generation API monitoring queries.
@@ -131,6 +141,8 @@ class AIEngineSettings(BaseSettings):
         rate_limit_enabled: Whether generation rate limiting is enabled.
         rate_limit_requests: Maximum requests allowed per window.
         rate_limit_window_seconds: Window size in seconds for limiting.
+        generation_max_in_flight: Maximum concurrently executing generation requests.
+        generation_max_queue_size: Maximum queued generation requests waiting for capacity.
         distribution: Deployment distribution label.
         release_version: Deployment release version label.
     """
@@ -151,7 +163,7 @@ class AIEngineSettings(BaseSettings):
         validation_alias="AI_ENGINE_MODEL_PATH",
     )
     embedding_model: str = Field(
-        default="all-MiniLM-L6-v2",
+        default="paraphrase-multilingual-MiniLM-L12-v2",
         alias="AI_ENGINE_EMBEDDING_MODEL",
         validation_alias="AI_ENGINE_EMBEDDING_MODEL",
     )
@@ -160,6 +172,12 @@ class AIEngineSettings(BaseSettings):
         ge=1.0,
         alias="AI_ENGINE_LLAMA_TIMEOUT_SECONDS",
         validation_alias="AI_ENGINE_LLAMA_TIMEOUT_SECONDS",
+    )
+    llama_max_concurrent_requests: int = Field(
+        default=1,
+        ge=1,
+        alias="AI_ENGINE_LLAMA_MAX_CONCURRENT_REQUESTS",
+        validation_alias="AI_ENGINE_LLAMA_MAX_CONCURRENT_REQUESTS",
     )
     api_key: str | None = Field(
         default=None,
@@ -237,6 +255,18 @@ class AIEngineSettings(BaseSettings):
         ge=1,
         alias="AI_ENGINE_RATE_LIMIT_WINDOW_SECONDS",
         validation_alias="AI_ENGINE_RATE_LIMIT_WINDOW_SECONDS",
+    )
+    generation_max_in_flight: int = Field(
+        default=2,
+        ge=1,
+        alias="AI_ENGINE_GENERATION_MAX_IN_FLIGHT",
+        validation_alias="AI_ENGINE_GENERATION_MAX_IN_FLIGHT",
+    )
+    generation_max_queue_size: int = Field(
+        default=2,
+        ge=0,
+        alias="AI_ENGINE_GENERATION_MAX_QUEUE_SIZE",
+        validation_alias="AI_ENGINE_GENERATION_MAX_QUEUE_SIZE",
     )
     cache_warmup_enabled: bool = Field(
         default=True,

@@ -38,6 +38,8 @@ except ImportError as _err:  # pragma: no cover
     ) from _err
 
 _HEADER_NAME = "x-api-key"
+_PROBE_PUBLIC_PATHS = frozenset({"/health", "/ready"})
+_DEFAULT_AUTH_SCOPE = "anonymous"
 
 
 class APIKeyMiddleware(BaseHTTPMiddleware):
@@ -68,7 +70,38 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         self._bridge_api_key: str | None = bridge_api_key or None
         self._stats_api_key: str | None = stats_api_key or None
         self._service = service
-        self._public_paths = set(public_paths or set())
+        self._public_paths = {
+            self._normalize_path(path) for path in (public_paths or set())
+        }
+
+    @staticmethod
+    def _normalize_path(path: str) -> str:
+        """Normalize paths so public-route checks survive trailing slashes."""
+        normalized = (path or "").strip()
+        if not normalized:
+            return "/"
+        if normalized != "/":
+            normalized = normalized.rstrip("/")
+        return normalized or "/"
+
+    def _is_public_path(self, path: str) -> bool:
+        """Return whether the request path should bypass API key checks."""
+        normalized = self._normalize_path(path)
+        if normalized in self._public_paths:
+            return True
+        if any(
+            normalized.endswith(public_path)
+            for public_path in self._public_paths
+            if public_path != "/"
+        ):
+            return True
+        if self._service == "generation" and normalized in _PROBE_PUBLIC_PATHS:
+            return True
+        if self._service == "generation" and any(
+            normalized.endswith(public_path) for public_path in _PROBE_PUBLIC_PATHS
+        ):
+            return True
+        return False
 
     @staticmethod
     def _normalized_keys(*keys: str | None) -> tuple[str, ...]:
@@ -85,7 +118,11 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         """Resolve accepted API keys according to service and endpoint path."""
         if self._service == "generation":
             if path.startswith("/generate"):
-                return self._normalized_keys(self._games_api_key, self._api_key)
+                return self._normalized_keys(
+                    self._bridge_api_key,
+                    self._games_api_key,
+                    self._api_key,
+                )
             if path.startswith("/ingest"):
                 return self._normalized_keys(self._bridge_api_key, self._api_key)
             return self._normalized_keys(
@@ -105,6 +142,21 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
         return self._normalized_keys(self._api_key)
 
+    def _resolve_auth_scope(self, provided: str | None) -> str:
+        """Classify the authenticated caller based on the matched API key."""
+        normalized = (provided or "").strip()
+        if not normalized:
+            return _DEFAULT_AUTH_SCOPE
+        if self._bridge_api_key and normalized == self._bridge_api_key.strip():
+            return "bridge"
+        if self._games_api_key and normalized == self._games_api_key.strip():
+            return "games"
+        if self._stats_api_key and normalized == self._stats_api_key.strip():
+            return "stats"
+        if self._api_key and normalized == self._api_key.strip():
+            return "api"
+        return _DEFAULT_AUTH_SCOPE
+
     async def dispatch(self, request: Request, call_next):  # type: ignore[override]
         """Check the X-API-Key header before forwarding the request.
 
@@ -116,12 +168,14 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             A 401/403 JSON response when authentication fails, or the normal
             application response when it succeeds (or no key is configured).
         """
-        if request.url.path in self._public_paths:
+        if self._is_public_path(request.url.path):
+            request.state.auth_scope = _DEFAULT_AUTH_SCOPE
             return await call_next(request)
 
         allowed_keys = self._resolve_allowed_keys(request.url.path)
         if not allowed_keys:
             # No key configured — pass through.
+            request.state.auth_scope = _DEFAULT_AUTH_SCOPE
             return await call_next(request)
 
         provided = request.headers.get(_HEADER_NAME)
@@ -135,6 +189,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 status_code=403,
                 content={"detail": "Invalid API key."},
             )
+        request.state.auth_scope = self._resolve_auth_scope(provided)
         return await call_next(request)
 
 
