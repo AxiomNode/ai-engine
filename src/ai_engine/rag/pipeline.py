@@ -35,12 +35,14 @@ class RAGPipeline:
         chunker: Chunker | None = None,
         top_k: int = 5,
         llm_client: LlamaClient | None = None,
+        context_char_limit: int = 3500,
     ) -> None:
         self.embedder = embedder
         self.vector_store = vector_store
         self.chunker = chunker or Chunker()
         self.retriever = Retriever(embedder, vector_store, top_k=top_k)
         self.llm_client = llm_client
+        self.context_char_limit = context_char_limit
 
     # ------------------------------------------------------------------
     # Ingestion
@@ -66,7 +68,14 @@ class RAGPipeline:
     # Querying
     # ------------------------------------------------------------------
 
-    def retrieve(self, query: str, top_k: int | None = None) -> list[Document]:
+    def retrieve(
+        self,
+        query: str,
+        top_k: int | None = None,
+        *,
+        metadata_filter: dict[str, Any] | None = None,
+        metadata_preferences: dict[str, Any] | None = None,
+    ) -> list[Document]:
         """Retrieve the most relevant chunks for *query*.
 
         Args:
@@ -76,9 +85,22 @@ class RAGPipeline:
         Returns:
             Ordered list of relevant :class:`Document` chunks.
         """
-        return self.retriever.retrieve(query, top_k=top_k)
+        return self.retriever.retrieve(
+            query,
+            top_k=top_k,
+            metadata_filter=metadata_filter,
+            metadata_preferences=metadata_preferences,
+        )
 
-    def build_context(self, query: str, top_k: int | None = None) -> str:
+    def build_context(
+        self,
+        query: str,
+        top_k: int | None = None,
+        *,
+        metadata_filter: dict[str, Any] | None = None,
+        metadata_preferences: dict[str, Any] | None = None,
+        max_chars: int | None = None,
+    ) -> str:
         """Return a context string built from retrieved chunks.
 
         Concatenates the content of the top relevant chunks, separated by
@@ -91,8 +113,56 @@ class RAGPipeline:
         Returns:
             A single string combining the retrieved chunk contents.
         """
-        docs = self.retrieve(query, top_k=top_k)
-        return "\n\n".join(doc.content for doc in docs)
+        docs = self.retrieve(
+            query,
+            top_k=top_k,
+            metadata_filter=metadata_filter,
+            metadata_preferences=metadata_preferences,
+        )
+        return self._format_context(docs, max_chars=max_chars)
+
+    def _format_context(
+        self, docs: list[Document], *, max_chars: int | None = None
+    ) -> str:
+        limit = max_chars if max_chars is not None else self.context_char_limit
+        remaining = max(0, limit)
+        sections: list[str] = []
+        seen_signatures: set[tuple[str | None, str]] = set()
+
+        for index, doc in enumerate(docs, start=1):
+            normalized_content = doc.content.strip()
+            signature = (doc.doc_id, normalized_content)
+            if not normalized_content or signature in seen_signatures:
+                continue
+
+            header = self._format_document_header(index, doc)
+            section_body = normalized_content
+            section = f"{header}\n{section_body}"
+            if remaining and len(section) > remaining:
+                available_for_body = max(0, remaining - len(header) - 1)
+                if available_for_body <= 0:
+                    break
+                trimmed_body = section_body[:available_for_body].rstrip()
+                if len(trimmed_body) < len(section_body):
+                    trimmed_body = f"{trimmed_body}..."
+                section = f"{header}\n{trimmed_body}"
+
+            sections.append(section)
+            seen_signatures.add(signature)
+            if remaining:
+                remaining = max(0, remaining - len(section) - 2)
+                if remaining == 0:
+                    break
+
+        return "\n\n".join(sections)
+
+    def _format_document_header(self, index: int, doc: Document) -> str:
+        parts = [str(index)]
+        for key in ("kind", "language", "game_type", "category", "topic", "subject"):
+            value = doc.metadata.get(key)
+            if value:
+                parts.append(f"{key}={value}")
+        return "Source " + " | ".join(parts)
 
     # ------------------------------------------------------------------
     # Generation
@@ -119,7 +189,11 @@ class RAGPipeline:
             raw = generate_sync(prompt, max_tokens=max_tokens)
         else:
             raw_result: Any = self.llm_client.generate(prompt, max_tokens=max_tokens)
-            raw = asyncio.run(raw_result) if asyncio.iscoroutine(raw_result) else raw_result
+            raw = (
+                asyncio.run(raw_result)
+                if asyncio.iscoroutine(raw_result)
+                else raw_result
+            )
         json_text = extract_json_from_text(raw)
         if not json_text:
             # If extraction fails, raise with the raw model output for debugging
