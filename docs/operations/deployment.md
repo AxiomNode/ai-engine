@@ -240,8 +240,18 @@ docker compose \
   up -d --build
 ```
 
-`src/docker-compose.yml` currently publishes fixed host ports (`7002`, `7001`,
-`7000`) mapped to container ports (`8080`, `8001`, `8000`).
+`src/docker-compose.yml` publishes host ports from the distribution env file.
+Default mappings remain `7002 -> 8080`, `7001 -> 8001`, and `7000 -> 8000`.
+On Windows workstation deployments, `src/scripts/install/deploy.ps1` can also
+configure stable public TCP listeners through firewall rules plus
+`netsh interface portproxy` when `AUTO_EXPOSE_PUBLIC_PORTS=true` is set in the
+distribution env file.
+
+For the staging topology where ai-engine runs on a workstation and the rest of
+the platform runs on the VPS Kubernetes cluster, prefer `AUTO_EXPOSE_VPS_RELAY`
+instead. That mode opens a reverse SSH tunnel from the workstation to the VPS
+and starts a tiny TCP relay on the VPS, so STG reaches ai-engine through the
+VPS relay host instead of requiring inbound access directly to the workstation.
 
 If you want the stack to consume more host resources, raise the limits in
 `.env` before starting Compose. Example:
@@ -266,9 +276,9 @@ With `--profile cpu` this starts four services:
 
 | Service | Port | Description |
 |---|---|---|
-| `llama-server` | 7002 -> 8080 | llama.cpp HTTP inference server |
-| `ai-stats` | 7000 -> 8000 | Monitoring/backoffice API (`/health`, `/stats*`, `/cache/*`, `/metrics`) |
-| `ai-api` | 7001 -> 8001 | Game API for microservices (`/generate*`, `/ingest*`, `/health`) |
+| `llama-server` | `${LLAMA_PORT:-7002}` -> 8080 | llama.cpp HTTP inference server |
+| `ai-stats` | `${STATS_PORT:-7000}` -> 8000 | Monitoring/backoffice API (`/health`, `/stats*`, `/cache/*`, `/metrics`) |
+| `ai-api` | `${API_PORT:-7001}` -> 8001 | Game API for microservices (`/generate*`, `/ingest*`, `/health`) |
 | `ai-cache` | (internal) | Redis cache backend with AOF persistence volume (`ai_cache_data`) |
 
 Without any profile, only `ai-api` and `ai-stats` are started (llama services
@@ -324,6 +334,36 @@ docker compose -f src/docker-compose.yml --profile cpu down
 # Rebuild after code changes
 docker compose -f src/docker-compose.yml --profile cpu up --build --force-recreate ai-stats
 ```
+
+For Windows workstations, prefer the wrapper script so host exposure is kept in
+sync with the distribution env file:
+
+```powershell
+./src/scripts/install/deploy.ps1 -Stage stg -Environment windows-gpu
+```
+
+Relevant Windows exposure variables in the env file:
+
+- `AUTO_EXPOSE_PUBLIC_PORTS=true` enables firewall + portproxy automation.
+- `STATS_PUBLIC_PORT=27000` exposes `ai-stats` externally on TCP 27000.
+- `API_PUBLIC_PORT=27001` exposes `ai-api` externally on TCP 27001.
+- `LLAMA_PUBLIC_PORT` is optional and usually not needed for backoffice flows.
+
+Relevant VPS relay variables in the env file:
+
+- `AUTO_EXPOSE_VPS_RELAY=true` enables reverse-tunnel + VPS relay automation.
+- `VPS_RELAY_SSH_HOST` sets the SSH destination of the VPS.
+- `VPS_RELAY_PUBLIC_HOST` is the host that STG should use as ai-engine target.
+- `VPS_RELAY_STATS_PUBLIC_PORT=27000` publishes stats on the VPS.
+- `VPS_RELAY_API_PUBLIC_PORT=27001` publishes api on the VPS.
+- `VPS_RELAY_STATS_TUNNEL_PORT=27100` and `VPS_RELAY_API_TUNNEL_PORT=27101`
+  are loopback-only ports on the VPS used by the reverse tunnel.
+
+Those settings configure the Windows host only. If the workstation is behind a
+router or carrier NAT, you still need upstream forwarding or a tunnel so the
+internet can reach the machine.
+
+In the current staging topology, the relay mode is the preferred tunnel.
 
 ### Linux VPS (CPU-only) optimized profile
 

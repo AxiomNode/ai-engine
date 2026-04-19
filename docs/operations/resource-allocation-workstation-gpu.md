@@ -96,6 +96,32 @@ Then start the stack:
 ./scripts/install/install_windows.ps1 -Stage stg -Environment windows-gpu
 ```
 
+The Windows deploy script now supports two exposure modes from the tracked
+distribution env file:
+
+- direct Windows host exposure with firewall + `netsh interface portproxy`
+- VPS relay exposure for the staging topology where ai-engine runs on this PC
+	and the rest of the platform runs on the VPS Kubernetes cluster
+
+For staging, the tracked `windows-gpu` profile now prefers the VPS relay mode.
+It opens an SSH reverse tunnel from the workstation to the VPS and publishes
+stable TCP relay ports on the VPS, so cluster services can reach ai-engine
+without depending on this workstation's router/NAT.
+
+For the tracked STG workstation profile, this means:
+
+- `27000 -> 7000` for `ai-stats`
+- `27001 -> 7001` for `ai-api`
+
+The recommended STG target host is the VPS relay host IP, not the public
+gateway domain, because the gateway domain may sit behind an HTTP proxy that
+does not pass arbitrary TCP ports. In the tracked profile this host is
+`195.35.48.40`.
+
+If you deliberately choose direct Windows exposure instead of the VPS relay,
+run the script from an elevated PowerShell session so those host-level rules
+can be applied.
+
 ---
 
 ## 7. First Validation Checks
@@ -107,6 +133,13 @@ curl -sS http://localhost:7000/health
 curl -sS http://localhost:7001/health
 docker ps
 docker stats
+```
+
+For the VPS relay mode, validate from the VPS relay host:
+
+```bash
+curl -sS http://195.35.48.40:27000/health
+curl -sS http://195.35.48.40:27001/health
 ```
 
 During real generation runs, also watch:

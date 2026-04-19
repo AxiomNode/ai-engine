@@ -247,6 +247,11 @@ class AIEngineSettings(BaseSettings):
         alias="AI_ENGINE_STATS_URL",
         validation_alias="AI_ENGINE_STATS_URL",
     )
+    llama_target_state_file: str = Field(
+        default="data/llama-target-state.json",
+        alias="AI_ENGINE_LLAMA_TARGET_STATE_FILE",
+        validation_alias="AI_ENGINE_LLAMA_TARGET_STATE_FILE",
+    )
     generation_api_url: str = Field(
         default="http://ai-api:8001",
         alias="AI_ENGINE_GENERATION_API_URL",

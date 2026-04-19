@@ -59,7 +59,7 @@ services:
     mem_reservation: "${LLAMA_MEMORY_RESERVATION:-6g}"
     shm_size: "${LLAMA_SHM_SIZE:-1g}"
     ports:
-      - "7002:8080"
+      - "${LLAMA_PORT:-7002}:8080"
     volumes:
       - ./models:/models:ro
     command:
@@ -106,7 +106,7 @@ services:
     mem_reservation: "${LLAMA_MEMORY_RESERVATION:-10g}"
     shm_size: "${LLAMA_SHM_SIZE:-2g}"
     ports:
-      - "7002:8080"
+      - "${LLAMA_PORT:-7002}:8080"
     volumes:
       - ./models:/models:ro
     command:
@@ -160,7 +160,7 @@ services:
     mem_limit: "${STATS_MEMORY_LIMIT:-512m}"
     mem_reservation: "${STATS_MEMORY_RESERVATION:-256m}"
     ports:
-      - "7000:8000"
+      - "${STATS_PORT:-7000}:8000"
     env_file:
       - ./.env.secrets
     environment:
@@ -218,7 +218,7 @@ services:
     mem_reservation: "${API_MEMORY_RESERVATION:-2g}"
     shm_size: "${API_SHM_SIZE:-512m}"
     ports:
-      - "7001:8001"
+      - "${API_PORT:-7001}:8001"
     env_file:
       - ./.env.secrets
     environment:

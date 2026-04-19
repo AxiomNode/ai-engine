@@ -46,6 +46,7 @@ from contextlib import asynccontextmanager, suppress
 from typing import Any
 
 import httpx
+from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(name)s  %(message)s")
 logger = logging.getLogger(__name__)
@@ -101,6 +102,7 @@ from ai_engine.api.diagnostics import (  # noqa: E402
     get_test_status,
     start_test_run,
 )
+from ai_engine.api.llama_target_store import LlamaTargetStore, PersistedLlamaTarget  # noqa: E402
 from ai_engine.api.middleware import add_api_key_middleware  # noqa: E402
 from ai_engine.api.optimization import GenerationOptimizationService  # noqa: E402
 from ai_engine.api.schemas import (  # noqa: E402
@@ -184,6 +186,71 @@ def _build_from_env() -> tuple[Any, Any]:
     tracked = TrackedGameGenerator(raw_gen, collector)
 
     return tracked, pipeline
+
+
+class LlamaTargetUpdateRequest(BaseModel):
+    host: str = Field(min_length=1, max_length=255)
+    protocol: str = Field(default="http", pattern="^(http|https)$")
+    port: int = Field(default=7002, ge=1, le=65535)
+    label: str | None = Field(default=None, max_length=80)
+
+
+def _normalize_llama_host(raw: str) -> str:
+    trimmed = raw.strip().replace("http://", "").replace("https://", "").rstrip("/")
+    host = (trimmed.split("/", 1)[0] or "").split(":", 1)[0]
+    if not host or not all(ch.isalnum() or ch in ".-" for ch in host):
+      raise ValueError("host must be a valid hostname or IPv4 address")
+    return host
+
+
+def _build_llama_url(protocol: str, host: str, port: int) -> str:
+    return f"{protocol}://{host}:{port}/v1/completions"
+
+
+def _parse_llama_url(url: str | None) -> tuple[str | None, str | None, int | None]:
+    if not url:
+        return None, None, None
+    try:
+        parsed = httpx.URL(url)
+    except Exception:
+        return None, None, None
+    protocol = parsed.scheme if parsed.scheme in {"http", "https"} else None
+    port = parsed.port
+    if port is None and protocol == "http":
+        port = 80
+    if port is None and protocol == "https":
+        port = 443
+    return parsed.host or None, protocol, port
+
+
+def _unwrap_llama_client(generator: Any) -> Any | None:
+    raw_generator = _unwrap_generator(generator) if generator is not None else None
+    return getattr(raw_generator, "llm_client", None)
+
+
+async def _apply_runtime_llama_url(app: FastAPI, url: str | None) -> None:
+    llm_client = _unwrap_llama_client(app.state.generator)
+    if llm_client is None or not hasattr(llm_client, "set_api_url"):
+        raise RuntimeError("Runtime llama target update is unavailable")
+    await llm_client.set_api_url(url)
+    app.state.llama_url = url
+
+
+def _get_llama_target_payload(app: FastAPI) -> dict[str, Any]:
+    current_url = getattr(app.state, "llama_url", None)
+    env_url = getattr(app.state, "llama_env_url", None)
+    override = getattr(app.state, "llama_target_override", None)
+    host, protocol, port = _parse_llama_url(current_url)
+    return {
+        "source": "override" if override is not None else "env",
+        "label": override.label if override is not None else None,
+        "host": host,
+        "protocol": protocol,
+        "port": port,
+        "llamaBaseUrl": current_url,
+        "envLlamaBaseUrl": env_url,
+        "updatedAt": override.updated_at if override is not None else None,
+    }
 
 
 # ── Cache warm-up ─────────────────────────────────────────────────────
@@ -965,6 +1032,11 @@ def create_app(
                     app.state.generator = _state["generator"]
                     app.state.rag_pipeline = _state["rag_pipeline"]
 
+                override = await app.state.llama_target_store.load()
+                app.state.llama_target_override = override
+                effective_llama_url = override.url if override is not None else app.state.llama_env_url
+                await _apply_runtime_llama_url(app, effective_llama_url)
+
                 if (
                     app.state.optimizer is None
                     and app.state.generator is not None
@@ -1067,6 +1139,10 @@ def create_app(
     app.state.bootstrap_task = None
     app.state.warmup_task = None
     app.state.stats_url = settings.stats_url
+    app.state.llama_env_url = settings.llama_url
+    app.state.llama_url = settings.llama_url
+    app.state.llama_target_store = LlamaTargetStore(settings.llama_target_state_file)
+    app.state.llama_target_override = None
     app.state.stats_api_key = (
         settings.stats_api_key or settings.bridge_api_key or settings.api_key
     )
@@ -1203,6 +1279,31 @@ def create_app(
                 },
             }
         return optimizer.cache_stats()
+
+    @app.get("/internal/admin/llama-target", tags=["internal"], include_in_schema=False)
+    def get_internal_llama_target(request: Request) -> dict[str, Any]:
+        return _get_llama_target_payload(request.app)
+
+    @app.put("/internal/admin/llama-target", tags=["internal"], include_in_schema=False)
+    async def put_internal_llama_target(request: Request, payload: LlamaTargetUpdateRequest) -> dict[str, Any]:
+        host = _normalize_llama_host(payload.host)
+        url = _build_llama_url(payload.protocol, host, payload.port)
+        override = PersistedLlamaTarget(
+            url=url,
+            label=payload.label.strip() if isinstance(payload.label, str) and payload.label.strip() else None,
+            updated_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        )
+        await _apply_runtime_llama_url(request.app, override.url)
+        await request.app.state.llama_target_store.save(override)
+        request.app.state.llama_target_override = override
+        return _get_llama_target_payload(request.app)
+
+    @app.delete("/internal/admin/llama-target", tags=["internal"], include_in_schema=False)
+    async def delete_internal_llama_target(request: Request) -> dict[str, Any]:
+        await request.app.state.llama_target_store.reset()
+        request.app.state.llama_target_override = None
+        await _apply_runtime_llama_url(request.app, request.app.state.llama_env_url)
+        return _get_llama_target_payload(request.app)
 
     @app.post("/internal/cache/reset", tags=["internal"], include_in_schema=False)
     def reset_internal_cache(

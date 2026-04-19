@@ -14,3 +14,7 @@ Backward-compatible wrappers are kept at the top level (`scripts/demo_suite.py`,
 
 From repository root, invoke scripts using the `src/` prefix (for example,
 `./src/scripts/install/deploy.sh dev windows`).
+
+For the staging workstation topology, `scripts/install/deploy.ps1` can also
+bootstrap the VPS relay path that exposes local `ai-engine` services to the
+Kubernetes cluster through a reverse SSH tunnel.

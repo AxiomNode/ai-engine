@@ -139,6 +139,13 @@ class LlamaClient:
             await self._http_client.aclose()
             self._http_client = None
 
+    async def set_api_url(self, api_url: str | None) -> None:
+        """Update the upstream llama.cpp URL without rebuilding the client object."""
+        self.api_url = api_url
+        if self._http_client is not None and not self._http_client.is_closed:
+            await self._http_client.aclose()
+            self._http_client = None
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
