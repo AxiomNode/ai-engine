@@ -102,10 +102,10 @@ from ai_engine.api.diagnostics import (  # noqa: E402
     get_test_status,
     start_test_run,
 )
-from ai_engine.api.llama_target_store import (
+from ai_engine.api.llama_target_store import (  # noqa: E402
     LlamaTargetStore,
     PersistedLlamaTarget,
-)  # noqa: E402
+)
 from ai_engine.api.middleware import add_api_key_middleware  # noqa: E402
 from ai_engine.api.optimization import GenerationOptimizationService  # noqa: E402
 from ai_engine.api.schemas import (  # noqa: E402
