@@ -614,4 +614,43 @@ def summary_to_prometheus(summary: dict[str, Any]) -> str:
         lines.append(_metric("cache_persistent_entries", persistent_entries))
         lines.append(_metric("cache_memory_saturation_ratio", saturation_ratio))
 
+    # ------------------------------------------------------------------
+    # LLMOps metrics (ADR 0009 step 3)
+    # ------------------------------------------------------------------
+    # Stable, ADR-mandated metric names for LLM runtime observability.
+    # Token counts are character-derived approximations until the LLM
+    # client surfaces real token usage on each call.
+
+    avg_llm_latency_ms = float(summary.get("avg_llm_latency_ms", 0.0) or 0.0)
+    p95_latency_ms = float(summary.get("p95_latency_ms", 0.0) or 0.0)
+    failed_calls = int(summary.get("failed_calls", 0) or 0)
+    persistent_fallback_total = int(summary.get("persistent_fallback_total", 0) or 0)
+    total_prompt_chars = int(summary.get("total_prompt_chars", 0) or 0)
+    total_response_chars = int(summary.get("total_response_chars", 0) or 0)
+
+    # Approximate tokens as chars / 4 (industry rule of thumb for English/Spanish).
+    approx_tokens_in = total_prompt_chars // 4
+    approx_tokens_out = total_response_chars // 4
+
+    lines.extend(
+        [
+            "# HELP ai_engine_llm_latency_seconds Average LLM call latency in seconds.",
+            "# TYPE ai_engine_llm_latency_seconds gauge",
+            _metric("llm_latency_seconds", round(avg_llm_latency_ms / 1000.0, 6)),
+            "# HELP ai_engine_llm_latency_p95_seconds p95 LLM latency in seconds.",
+            "# TYPE ai_engine_llm_latency_p95_seconds gauge",
+            _metric("llm_latency_p95_seconds", round(p95_latency_ms / 1000.0, 6)),
+            "# HELP ai_engine_llm_fallback_total Total fallback events across runtimes.",
+            "# TYPE ai_engine_llm_fallback_total counter",
+            _metric("llm_fallback_total", persistent_fallback_total),
+            "# HELP ai_engine_llm_tokens_total Approximate token volume by direction.",
+            "# TYPE ai_engine_llm_tokens_total counter",
+            f'ai_engine_llm_tokens_total{{direction="in"}} {approx_tokens_in}',
+            f'ai_engine_llm_tokens_total{{direction="out"}} {approx_tokens_out}',
+            "# HELP ai_engine_llm_errors_total LLM call failures grouped by kind.",
+            "# TYPE ai_engine_llm_errors_total counter",
+            f'ai_engine_llm_errors_total{{kind="generation"}} {failed_calls}',
+        ]
+    )
+
     return "\n".join(lines) + "\n"
