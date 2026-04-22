@@ -73,9 +73,7 @@ class GenerateRequest(BaseModel):
             self.category_id.strip() if isinstance(self.category_id, str) else None
         )
         self.category_name = (
-            self.category_name.strip()
-            if isinstance(self.category_name, str)
-            else None
+            self.category_name.strip() if isinstance(self.category_name, str) else None
         )
         if not self.query and not self.category_id and not self.category_name:
             raise ValueError("query or category_id/category_name is required")

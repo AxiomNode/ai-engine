@@ -37,7 +37,9 @@ def test_normalize_path_handles_blank_and_trailing_slash() -> None:
 
 
 def test_normalized_keys_strips_and_deduplicates() -> None:
-    assert APIKeyMiddleware._normalized_keys(" secret ", None, "secret", "", "games") == (
+    assert APIKeyMiddleware._normalized_keys(
+        " secret ", None, "secret", "", "games"
+    ) == (
         "secret",
         "games",
     )
@@ -96,12 +98,16 @@ def test_dispatch_rejects_missing_api_key_when_protected() -> None:
     middleware = APIKeyMiddleware(lambda scope, receive, send: None, api_key="secret")
     request = _request("/generate")
 
-    response = _run(middleware.dispatch(request, lambda request: JSONResponse({"ok": True})))
+    response = _run(
+        middleware.dispatch(request, lambda request: JSONResponse({"ok": True}))
+    )
 
     assert response.status_code == 401
 
 
-def test_add_api_key_middleware_skips_when_settings_have_no_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_add_api_key_middleware_skips_when_settings_have_no_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     calls: list[tuple[object, dict[str, object]]] = []
 
     class _App:
@@ -123,7 +129,9 @@ def test_add_api_key_middleware_skips_when_settings_have_no_keys(monkeypatch: py
     assert calls == []
 
 
-def test_add_api_key_middleware_registers_when_any_key_exists(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_add_api_key_middleware_registers_when_any_key_exists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     calls: list[tuple[object, dict[str, object]]] = []
 
     class _App:

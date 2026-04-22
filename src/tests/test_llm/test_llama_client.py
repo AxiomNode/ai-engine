@@ -256,7 +256,9 @@ class TestLlamaClientGenerateAPI:
                         500,
                         text="Input prompt is too big compared to KV size.",
                     )
-                return _RetryResponse(200, {"choices": [{"text": "ok after reduction"}]})
+                return _RetryResponse(
+                    200, {"choices": [{"text": "ok after reduction"}]}
+                )
 
             async def aclose(self):
                 pass
@@ -269,7 +271,9 @@ class TestLlamaClientGenerateAPI:
         assert result == "ok after reduction"
         assert client._http_client.max_tokens_seen == [504, 504, 252, 252, 126]
 
-    def test_generate_reduces_max_tokens_when_upstream_returns_budget_400(self, monkeypatch):
+    def test_generate_reduces_max_tokens_when_upstream_returns_budget_400(
+        self, monkeypatch
+    ):
         class _RetryResponse:
             def __init__(self, status_code, payload=None, text=""):
                 self.status_code = status_code
@@ -300,7 +304,9 @@ class TestLlamaClientGenerateAPI:
                 self.max_tokens_seen.append(requested)
                 if requested > 192:
                     return _RetryResponse(400, text="")
-                return _RetryResponse(200, {"choices": [{"text": "ok after reduction"}]})
+                return _RetryResponse(
+                    200, {"choices": [{"text": "ok after reduction"}]}
+                )
 
             async def aclose(self):
                 pass
@@ -333,7 +339,9 @@ class TestLlamaClientGenerateAPI:
             async def aclose(self):
                 self.is_closed = True
 
-        monkeypatch.setattr("ai_engine.llm.llama_client.httpx.AsyncClient", _FakeAsyncClient)
+        monkeypatch.setattr(
+            "ai_engine.llm.llama_client.httpx.AsyncClient", _FakeAsyncClient
+        )
         client = LlamaClient(
             api_url="http://localhost:8080/completion",
             max_concurrent_requests=3,
@@ -344,7 +352,9 @@ class TestLlamaClientGenerateAPI:
         assert limits.max_keepalive_connections == 3
 
     def test_get_api_semaphore_is_reused(self):
-        client = LlamaClient(api_url="http://localhost:8080/completion", max_concurrent_requests=4)
+        client = LlamaClient(
+            api_url="http://localhost:8080/completion", max_concurrent_requests=4
+        )
 
         semaphore = client._get_api_semaphore()
 
@@ -398,13 +408,32 @@ class TestLlamaClientGenerateAPI:
 
         client = LlamaClient(api_url="http://localhost:8080/completion")
 
-        assert client._should_retry_with_smaller_budget(_Response(503, "retryable but not budget"), requested_tokens=256) is False
-        assert client._should_retry_with_smaller_budget(_Response(500, "different failure"), requested_tokens=256) is False
-        assert client._should_retry_with_smaller_budget(_Response(500, "KV cache is full"), requested_tokens=16) is False
+        assert (
+            client._should_retry_with_smaller_budget(
+                _Response(503, "retryable but not budget"), requested_tokens=256
+            )
+            is False
+        )
+        assert (
+            client._should_retry_with_smaller_budget(
+                _Response(500, "different failure"), requested_tokens=256
+            )
+            is False
+        )
+        assert (
+            client._should_retry_with_smaller_budget(
+                _Response(500, "KV cache is full"), requested_tokens=16
+            )
+            is False
+        )
 
     def test_generate_sync_uses_local_backend_directly(self, monkeypatch):
         client = LlamaClient(model_path="/fake/model.gguf")
-        monkeypatch.setattr(client, "_generate_local", lambda prompt, tokens, use_json: f"{prompt}-{tokens}-{use_json}")
+        monkeypatch.setattr(
+            client,
+            "_generate_local",
+            lambda prompt, tokens, use_json: f"{prompt}-{tokens}-{use_json}",
+        )
 
         result = client.generate_sync("hello", max_tokens=64, json_mode=True)
 
@@ -512,7 +541,9 @@ class TestLlamaClientGenerateLocal:
         result = asyncio.run(client.generate("test"))
         assert result == ""
 
-    def test_get_or_load_model_requires_model_path_when_local_backend_is_used(self, monkeypatch):
+    def test_get_or_load_model_requires_model_path_when_local_backend_is_used(
+        self, monkeypatch
+    ):
         import builtins
         import types
 

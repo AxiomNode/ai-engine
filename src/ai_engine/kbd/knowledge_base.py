@@ -102,7 +102,11 @@ class KnowledgeBase:
         """
         tag_lower = tag.lower()
         entry_ids = self._tag_index.get(tag_lower, set())
-        return [self._entries[entry_id] for entry_id in entry_ids if entry_id in self._entries]
+        return [
+            self._entries[entry_id]
+            for entry_id in entry_ids
+            if entry_id in self._entries
+        ]
 
     def search_by_keyword(self, keyword: str) -> list[KnowledgeEntry]:
         """Return entries whose title or content contains *keyword*.
@@ -131,7 +135,9 @@ class KnowledgeBase:
             if score > 0:
                 ranked.append((score, entry))
 
-        ranked.sort(key=lambda item: (-item[0], item[1].title.lower(), item[1].entry_id))
+        ranked.sort(
+            key=lambda item: (-item[0], item[1].title.lower(), item[1].entry_id)
+        )
         return [entry for _, entry in ranked]
 
     def _index_entry(self, entry: KnowledgeEntry) -> None:

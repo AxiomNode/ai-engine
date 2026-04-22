@@ -9,7 +9,11 @@ from ai_engine.sdk import (
     get_language_info,
     parse_generate_response,
 )
-from ai_engine.sdk.models import BestAnswerQuestion, GenerationMetadata, MultipleChoiceQuestion
+from ai_engine.sdk.models import (
+    BestAnswerQuestion,
+    GenerationMetadata,
+    MultipleChoiceQuestion,
+)
 
 
 def test_parse_quiz_payload_to_generated_quiz() -> None:
@@ -151,10 +155,14 @@ def test_generated_quiz_parses_best_answer_and_true_false_variants() -> None:
 
 def test_generated_quiz_rejects_unsupported_game_type() -> None:
     with pytest.raises(ValueError, match="cannot be mapped to GeneratedQuiz"):
-        GeneratedQuiz.from_generate_payload({"game_type": "word-pass", "game": {}}, language="es")
+        GeneratedQuiz.from_generate_payload(
+            {"game_type": "word-pass", "game": {}}, language="es"
+        )
 
 
-def test_generated_quiz_falls_back_to_top_level_payload_when_game_is_not_a_mapping() -> None:
+def test_generated_quiz_falls_back_to_top_level_payload_when_game_is_not_a_mapping() -> (
+    None
+):
     result = GeneratedQuiz.from_generate_payload(
         {
             "game_type": "quiz",
@@ -177,7 +185,9 @@ def test_generated_quiz_falls_back_to_top_level_payload_when_game_is_not_a_mappi
 
 def test_generated_word_pass_rejects_wrong_type_and_non_mapping_game() -> None:
     with pytest.raises(ValueError, match="cannot be mapped to GeneratedWordPass"):
-        GeneratedWordPass.from_generate_payload({"game_type": "quiz", "game": {}}, language="es")
+        GeneratedWordPass.from_generate_payload(
+            {"game_type": "quiz", "game": {}}, language="es"
+        )
 
     result = GeneratedWordPass.from_generate_payload(
         {

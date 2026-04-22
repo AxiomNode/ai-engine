@@ -295,10 +295,15 @@ class LlamaClient:
         *,
         requested_tokens: int,
     ) -> bool:
-        if response.status_code not in {400, 500} or requested_tokens <= _MIN_KV_CACHE_RETRY_TOKENS:
+        if (
+            response.status_code not in {400, 500}
+            or requested_tokens <= _MIN_KV_CACHE_RETRY_TOKENS
+        ):
             return False
         message = str(getattr(response, "text", "") or "")
-        return not message or any(marker in message for marker in _KV_CACHE_RETRY_MARKERS)
+        return not message or any(
+            marker in message for marker in _KV_CACHE_RETRY_MARKERS
+        )
 
     def _generate_local(self, prompt: str, max_tokens: int, json_mode: bool) -> str:
         """Generate using a locally loaded GGUF model via llama-cpp-python."""

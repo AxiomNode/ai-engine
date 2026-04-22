@@ -84,7 +84,9 @@ def count_requested_items(
         return max(1, int(item_count))
     normalized = normalize_game_type(game_type)
     if normalized == "word-pass" and isinstance(letters, str) and letters.strip():
-        parsed_letters = [entry.strip() for entry in letters.split(",") if entry.strip()]
+        parsed_letters = [
+            entry.strip() for entry in letters.split(",") if entry.strip()
+        ]
         if parsed_letters:
             return max(1, len(parsed_letters))
     return max(1, int(num_questions))
@@ -107,7 +109,10 @@ def estimate_effective_max_tokens(
         num_questions=num_questions,
         letters=letters,
     )
-    budget = max(profile.min_tokens, profile.base_tokens + (profile.per_item_tokens * requested_items))
+    budget = max(
+        profile.min_tokens,
+        profile.base_tokens + (profile.per_item_tokens * requested_items),
+    )
     return min(requested, budget)
 
 

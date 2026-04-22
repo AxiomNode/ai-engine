@@ -176,7 +176,9 @@ class _FakeRedis:
         return removed
 
 
-def test_lru_cache_evicts_oldest_and_expires_entries(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_lru_cache_evicts_oldest_and_expires_entries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     cache = _LRUCache(max_entries=1, ttl_seconds=10)
     cache.set("first", {"value": 1})
     cache.set("second", {"value": 2})
@@ -192,7 +194,9 @@ def test_lru_cache_evicts_oldest_and_expires_entries(monkeypatch: pytest.MonkeyP
     assert cache.get("expiring") is None
 
 
-def test_generate_falls_back_to_legacy_generator_without_generate_from_context() -> None:
+def test_generate_falls_back_to_legacy_generator_without_generate_from_context() -> (
+    None
+):
     generator = _LegacyGenerator()
     service = GenerationOptimizationService(
         generator=generator,
@@ -235,7 +239,9 @@ def test_on_ingest_skips_blank_documents_and_uses_fallback_title() -> None:
     service.on_ingest(
         [
             type("Doc", (), {"content": "   ", "doc_id": "blank", "metadata": {}})(),
-            type("Doc", (), {"content": "Useful context", "doc_id": "", "metadata": {}})(),
+            type(
+                "Doc", (), {"content": "Useful context", "doc_id": "", "metadata": {}}
+            )(),
         ]
     )
 
@@ -245,7 +251,9 @@ def test_on_ingest_skips_blank_documents_and_uses_fallback_title() -> None:
     assert hits[0].title.startswith("doc-")
 
 
-def test_read_persistent_cache_handles_invalid_redis_payloads(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_read_persistent_cache_handles_invalid_redis_payloads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import ai_engine.api.optimization as optimization_module
 
     monkeypatch.setattr(optimization_module, "_RedisClient", _FakeRedis)
@@ -309,8 +317,12 @@ def test_cache_key_differs_by_category_and_content_fingerprint(tmp_path) -> None
         persistent_cache_path=str(cache_file),
     )
 
-    req_base = GenerateRequest(query="water", category_id="17", category_name="Science & Nature")
-    req_other_category = GenerateRequest(query="water", category_id="23", category_name="History")
+    req_base = GenerateRequest(
+        query="water", category_id="17", category_name="Science & Nature"
+    )
+    req_other_category = GenerateRequest(
+        query="water", category_id="23", category_name="History"
+    )
 
     assert service_a._cache_key(req_base) != service_a._cache_key(req_other_category)
     assert service_a._cache_key(req_base) != service_b._cache_key(req_base)
@@ -384,17 +396,19 @@ def test_on_ingest_populates_kbd_even_without_tinydb_backend() -> None:
         persistent_cache_path=None,
     )
 
-    service.on_ingest([
-        type(
-            "Doc",
-            (),
-            {
-                "content": "The water cycle includes evaporation and condensation.",
-                "doc_id": "w1",
-                "metadata": {"title": "Water Cycle"},
-            },
-        )()
-    ])
+    service.on_ingest(
+        [
+            type(
+                "Doc",
+                (),
+                {
+                    "content": "The water cycle includes evaporation and condensation.",
+                    "doc_id": "w1",
+                    "metadata": {"title": "Water Cycle"},
+                },
+            )()
+        ]
+    )
 
     hits = service._kbd_search_sync("water cycle")
     assert len(hits) == 1
@@ -557,7 +571,9 @@ def test_persistent_index_stays_consistent_under_concurrency(tmp_path) -> None:
     assert stats_after["persistent_entries"] == 0
 
 
-def test_generate_falls_back_when_format_context_signature_or_type_is_incompatible() -> None:
+def test_generate_falls_back_when_format_context_signature_or_type_is_incompatible() -> (
+    None
+):
     """Generation should fall back to joined document content when _format_context is incompatible."""
 
     class _RAGWithOddFormatter(_StubRAGPipeline):
@@ -654,7 +670,10 @@ def test_write_persistent_cache_without_backend_returns_false() -> None:
         persistent_cache_path=None,
     )
 
-    assert service._write_persistent_cache("k", {"payload": {}, "sdk_payload": {}}) is False
+    assert (
+        service._write_persistent_cache("k", {"payload": {}, "sdk_payload": {}})
+        is False
+    )
 
 
 def test_bootstrap_persistent_cache_index_filters_non_cache_entries() -> None:
@@ -674,9 +693,14 @@ def test_bootstrap_persistent_cache_index_filters_non_cache_entries() -> None:
                 type(
                     "Entry",
                     (),
-                    {"entry_id": "other-entry", "metadata": {"kind": "generation_cache"}},
+                    {
+                        "entry_id": "other-entry",
+                        "metadata": {"kind": "generation_cache"},
+                    },
                 )(),
-                type("Entry", (), {"entry_id": "plain", "metadata": {"kind": "note"}})(),
+                type(
+                    "Entry", (), {"entry_id": "plain", "metadata": {"kind": "note"}}
+                )(),
             ]
 
     service._db_cache = _FakeDBCache()

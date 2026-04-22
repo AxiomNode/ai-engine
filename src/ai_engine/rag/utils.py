@@ -35,7 +35,9 @@ def extract_json_from_text(text: str) -> str | None:
         if start != -1:
             candidates_by_start.append((start, open_char, close_char))
 
-    for start, open_char, close_char in sorted(candidates_by_start, key=lambda item: item[0]):
+    for start, open_char, close_char in sorted(
+        candidates_by_start, key=lambda item: item[0]
+    ):
 
         # Walk from the end backwards to find the matching close bracket
         for end in range(len(text), start, -1):

@@ -30,8 +30,7 @@ def _build_generator(payload: str) -> GameGenerator:
 
 
 def test_quiz_generation_rejects_missing_question_text() -> None:
-    generator = _build_generator(
-        """
+    generator = _build_generator("""
         {
           "game_type": "quiz",
           "title": "Quiz de prueba",
@@ -44,16 +43,18 @@ def test_quiz_generation_rejects_missing_question_text() -> None:
             }
           ]
         }
-        """
-    )
+        """)
 
     with pytest.raises(ValueError, match="missing text"):
-        asyncio.run(generator.generate_from_context(context="contexto", game_type="quiz"))
+        asyncio.run(
+            generator.generate_from_context(context="contexto", game_type="quiz")
+        )
 
 
-def test_quiz_generation_rejects_missing_options_instead_of_using_placeholders() -> None:
-    generator = _build_generator(
-        """
+def test_quiz_generation_rejects_missing_options_instead_of_using_placeholders() -> (
+    None
+):
+    generator = _build_generator("""
         {
           "game_type": "quiz",
           "title": "Quiz de prueba",
@@ -66,16 +67,16 @@ def test_quiz_generation_rejects_missing_options_instead_of_using_placeholders()
             }
           ]
         }
-        """
-    )
+        """)
 
     with pytest.raises(ValueError, match="at least 2 options"):
-        asyncio.run(generator.generate_from_context(context="contexto", game_type="quiz"))
+        asyncio.run(
+            generator.generate_from_context(context="contexto", game_type="quiz")
+        )
 
 
 def test_word_pass_generation_allows_duplicate_letters_for_individual_entries() -> None:
-    generator = _build_generator(
-        """
+    generator = _build_generator("""
         {
           "game_type": "word-pass",
           "title": "Pack de prueba",
@@ -84,8 +85,7 @@ def test_word_pass_generation_allows_duplicate_letters_for_individual_entries() 
             {"letter": "A", "hint": "Duplicada", "answer": "Avion", "starts_with": true}
           ]
         }
-        """
-    )
+        """)
 
     result = asyncio.run(
         generator.generate_from_context(context="contexto", game_type="word-pass")
@@ -95,8 +95,7 @@ def test_word_pass_generation_allows_duplicate_letters_for_individual_entries() 
 
 
 def test_word_pass_generation_infers_letter_from_answer_when_missing() -> None:
-    generator = _build_generator(
-        """
+    generator = _build_generator("""
         {
           "game_type": "word-pass",
           "title": "Pack de prueba",
@@ -104,8 +103,7 @@ def test_word_pass_generation_infers_letter_from_answer_when_missing() -> None:
             {"hint": "Planeta rojo", "answer": "Marte", "starts_with": true}
           ]
         }
-        """
-    )
+        """)
 
     result = asyncio.run(
         generator.generate_from_context(context="contexto", game_type="word-pass")
@@ -115,8 +113,7 @@ def test_word_pass_generation_infers_letter_from_answer_when_missing() -> None:
 
 
 def test_word_pass_generation_normalizes_long_letter_alias() -> None:
-    generator = _build_generator(
-        """
+    generator = _build_generator("""
         {
           "game_type": "word-pass",
           "title": "Pack de prueba",
@@ -124,8 +121,7 @@ def test_word_pass_generation_normalizes_long_letter_alias() -> None:
             {"letter": "P - representative letter", "hint": "Light-driven plant process", "answer": "Photosynthesis", "starts_with": true}
           ]
         }
-        """
-    )
+        """)
 
     result = asyncio.run(
         generator.generate_from_context(context="contexto", game_type="word-pass")
@@ -135,8 +131,7 @@ def test_word_pass_generation_normalizes_long_letter_alias() -> None:
 
 
 def test_true_false_generation_requires_boolean_is_true() -> None:
-    generator = _build_generator(
-        """
+    generator = _build_generator("""
         {
           "game_type": "true_false",
           "title": "Verdadero o falso",
@@ -144,8 +139,7 @@ def test_true_false_generation_requires_boolean_is_true() -> None:
             {"statement": "Texto valido", "is_true": "perhaps", "explanation": ""}
           ]
         }
-        """
-    )
+        """)
 
     with pytest.raises(ValueError, match="invalid is_true"):
         asyncio.run(
@@ -154,8 +148,7 @@ def test_true_false_generation_requires_boolean_is_true() -> None:
 
 
 def test_true_false_generation_accepts_string_boolean_values() -> None:
-    generator = _build_generator(
-        """
+    generator = _build_generator("""
         {
           "game_type": "true_false",
           "title": "Verdadero o falso",
@@ -163,8 +156,7 @@ def test_true_false_generation_accepts_string_boolean_values() -> None:
             {"statement": "Texto valido", "is_true": "true", "explanation": ""}
           ]
         }
-        """
-    )
+        """)
 
     result = asyncio.run(
         generator.generate_from_context(context="contexto", game_type="true_false")
@@ -174,8 +166,7 @@ def test_true_false_generation_accepts_string_boolean_values() -> None:
 
 
 def test_quiz_generation_prunes_off_topic_question_after_retry() -> None:
-    generator = _build_generator(
-        """
+    generator = _build_generator("""
         {
           "game_type": "quiz",
           "title": "Fotosintesis",
@@ -194,8 +185,7 @@ def test_quiz_generation_prunes_off_topic_question_after_retry() -> None:
             }
           ]
         }
-        """
-    )
+        """)
 
     result = asyncio.run(
         generator.generate_from_context(
@@ -210,94 +200,101 @@ def test_quiz_generation_prunes_off_topic_question_after_retry() -> None:
 
 
 def test_normalize_title_falls_back_to_english_for_unknown_language() -> None:
-  generator = _build_generator("{}")
+    generator = _build_generator("{}")
 
-  assert generator._normalize_title("", "quiz", "fr") == "Educational Quiz"
+    assert generator._normalize_title("", "quiz", "fr") == "Educational Quiz"
 
 
 def test_flatten_generated_payload_handles_nested_lists_and_rejects_scalars() -> None:
-  generator = _build_generator("{}")
+    generator = _build_generator("{}")
 
-  flattened = generator._flatten_generated_payload(
-    {"game_type": "quiz", "game": [{"question": "Q", "options": ["A", "B"], "correct_index": 0}]},
-    "quiz",
-  )
+    flattened = generator._flatten_generated_payload(
+        {
+            "game_type": "quiz",
+            "game": [{"question": "Q", "options": ["A", "B"], "correct_index": 0}],
+        },
+        "quiz",
+    )
 
-  assert flattened == {
-    "game_type": "quiz",
-    "questions": [{"question": "Q", "options": ["A", "B"], "correct_index": 0}],
-  }
+    assert flattened == {
+        "game_type": "quiz",
+        "questions": [{"question": "Q", "options": ["A", "B"], "correct_index": 0}],
+    }
 
-  with pytest.raises(ValueError, match="payload is not an object"):
-    generator._flatten_generated_payload("invalid", "quiz")
+    with pytest.raises(ValueError, match="payload is not an object"):
+        generator._flatten_generated_payload("invalid", "quiz")
 
 
 def test_resolve_payload_items_wraps_single_question_object() -> None:
-  generator = _build_generator("{}")
+    generator = _build_generator("{}")
 
-  items = generator._resolve_payload_items(
-    {
-      "question": "Pregunta",
-      "options": ["A", "B"],
-      "correct_index": 0,
-    },
-    "questions",
-  )
+    items = generator._resolve_payload_items(
+        {
+            "question": "Pregunta",
+            "options": ["A", "B"],
+            "correct_index": 0,
+        },
+        "questions",
+    )
 
-  assert items == [{"question": "Pregunta", "options": ["A", "B"], "correct_index": 0}]
+    assert items == [
+        {"question": "Pregunta", "options": ["A", "B"], "correct_index": 0}
+    ]
 
 
 def test_resolve_correct_index_accepts_letter_text_and_numeric_strings() -> None:
-  generator = _build_generator("{}")
-  options = ["Photosynthesis", "Respiration", "Condensation"]
+    generator = _build_generator("{}")
+    options = ["Photosynthesis", "Respiration", "Condensation"]
 
-  assert generator._resolve_correct_index({"correct_answer": "B"}, options, 0) == 1
-  assert (
-    generator._resolve_correct_index(
-      {"correct_answer": "Photosynthesis"},
-      options,
-      0,
+    assert generator._resolve_correct_index({"correct_answer": "B"}, options, 0) == 1
+    assert (
+        generator._resolve_correct_index(
+            {"correct_answer": "Photosynthesis"},
+            options,
+            0,
+        )
+        == 0
     )
-    == 0
-  )
-  assert generator._resolve_correct_index({"correct_answer": "2"}, options, 0) == 2
+    assert generator._resolve_correct_index({"correct_answer": "2"}, options, 0) == 2
 
 
 def test_should_skip_topic_alignment_for_broad_instruction_topics() -> None:
-  generator = _build_generator("{}")
-  topic = "trivia sobre science and history"
-  keywords = generator._extract_topic_keywords(topic)
+    generator = _build_generator("{}")
+    topic = "trivia sobre science and history"
+    keywords = generator._extract_topic_keywords(topic)
 
-  assert generator._should_skip_topic_alignment(topic, keywords) is True
+    assert generator._should_skip_topic_alignment(topic, keywords) is True
 
 
 def test_ensure_word_pass_topic_signal_prefixes_missing_topic_reference() -> None:
-  generator = _build_generator("{}")
+    generator = _build_generator("{}")
 
-  enriched = generator._ensure_word_pass_topic_signal(
-    [{"letter": "A", "hint": "Proceso biologico", "answer": "ATP"}],
-    topic="fotosintesis",
-    language="es",
-  )
+    enriched = generator._ensure_word_pass_topic_signal(
+        [{"letter": "A", "hint": "Proceso biologico", "answer": "ATP"}],
+        topic="fotosintesis",
+        language="es",
+    )
 
-  assert enriched[0]["hint"].startswith("En fotosintesis, ")
+    assert enriched[0]["hint"].startswith("En fotosintesis, ")
 
 
 def test_generate_json_with_retry_skips_second_attempt_when_first_call_is_too_slow(
-  monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-  class _SlowBrokenLLM:
-    async def generate(self, prompt: str, max_tokens: int | None = None) -> str:
-      return "not-json"
+    class _SlowBrokenLLM:
+        async def generate(self, prompt: str, max_tokens: int | None = None) -> str:
+            return "not-json"
 
-  generator = GameGenerator(
-    rag_pipeline=_StaticPipeline(),
-    llm_client=_SlowBrokenLLM(),
-    default_language="es",
-  )
+    generator = GameGenerator(
+        rag_pipeline=_StaticPipeline(),
+        llm_client=_SlowBrokenLLM(),
+        default_language="es",
+    )
 
-  perf_values = iter([0.0, 91.0, 91.0, 91.0])
-  monkeypatch.setattr(generator_module.time, "perf_counter", lambda: next(perf_values))
+    perf_values = iter([0.0, 91.0, 91.0, 91.0])
+    monkeypatch.setattr(
+        generator_module.time, "perf_counter", lambda: next(perf_values)
+    )
 
-  with pytest.raises(ValueError, match="exceeded retry latency budget"):
-    asyncio.run(generator._generate_json_with_retry("prompt", 256))
+    with pytest.raises(ValueError, match="exceeded retry latency budget"):
+        asyncio.run(generator._generate_json_with_retry("prompt", 256))

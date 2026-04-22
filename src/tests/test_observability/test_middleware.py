@@ -185,7 +185,9 @@ class TestTrackedGameGenerator:
         gen = FakeGenerator(result={"game_type": "quiz"})
         tracked = TrackedGameGenerator(gen, collector)
 
-        result = _run(tracked.generate_from_context(context="ctx", game_type="word-pass"))
+        result = _run(
+            tracked.generate_from_context(context="ctx", game_type="word-pass")
+        )
 
         assert result == {"game_type": "quiz"}
         h = collector.history()

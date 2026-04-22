@@ -102,7 +102,10 @@ from ai_engine.api.diagnostics import (  # noqa: E402
     get_test_status,
     start_test_run,
 )
-from ai_engine.api.llama_target_store import LlamaTargetStore, PersistedLlamaTarget  # noqa: E402
+from ai_engine.api.llama_target_store import (
+    LlamaTargetStore,
+    PersistedLlamaTarget,
+)  # noqa: E402
 from ai_engine.api.middleware import add_api_key_middleware  # noqa: E402
 from ai_engine.api.optimization import GenerationOptimizationService  # noqa: E402
 from ai_engine.api.schemas import (  # noqa: E402
@@ -199,7 +202,7 @@ def _normalize_llama_host(raw: str) -> str:
     trimmed = raw.strip().replace("http://", "").replace("https://", "").rstrip("/")
     host = (trimmed.split("/", 1)[0] or "").split(":", 1)[0]
     if not host or not all(ch.isalnum() or ch in ".-" for ch in host):
-      raise ValueError("host must be a valid hostname or IPv4 address")
+        raise ValueError("host must be a valid hostname or IPv4 address")
     return host
 
 
@@ -557,7 +560,11 @@ def _build_model_generate_request(
     force_refresh: bool,
 ) -> GenerateRequest:
     """Build a validated GenerateRequest from query params and headers."""
-    resolved_category_id = category_id.strip() if isinstance(category_id, str) and category_id.strip() else None
+    resolved_category_id = (
+        category_id.strip()
+        if isinstance(category_id, str) and category_id.strip()
+        else None
+    )
     resolved_category_name = _resolve_category_name(
         resolved_category_id,
         category_name,
@@ -703,7 +710,9 @@ class _GenerationCapacityLimiter:
     async def acquire(self, caller_tier: str = "interactive") -> bool:
         """Reserve execution capacity using a tier-aware admission policy."""
         normalized_tier = (
-            caller_tier.strip().lower() if isinstance(caller_tier, str) else "interactive"
+            caller_tier.strip().lower()
+            if isinstance(caller_tier, str)
+            else "interactive"
         )
         if normalized_tier == "background":
             return await self._acquire_background()
@@ -816,7 +825,9 @@ def _enforce_generation_rate_limit(request: Request) -> None:
         raise HTTPException(status_code=429, detail="Rate limit exceeded.")
 
 
-async def _acquire_generation_capacity(request: Request) -> _GenerationCapacityLimiter | None:
+async def _acquire_generation_capacity(
+    request: Request,
+) -> _GenerationCapacityLimiter | None:
     """Reserve a generation capacity slot or reject early when the queue is full."""
     limiter = _get_generation_capacity_limiter(request)
     if limiter is None:
@@ -1034,7 +1045,9 @@ def create_app(
 
                 override = await app.state.llama_target_store.load()
                 app.state.llama_target_override = override
-                effective_llama_url = override.url if override is not None else app.state.llama_env_url
+                effective_llama_url = (
+                    override.url if override is not None else app.state.llama_env_url
+                )
                 await _apply_runtime_llama_url(app, effective_llama_url)
 
                 if (
@@ -1285,12 +1298,18 @@ def create_app(
         return _get_llama_target_payload(request.app)
 
     @app.put("/internal/admin/llama-target", tags=["internal"], include_in_schema=False)
-    async def put_internal_llama_target(request: Request, payload: LlamaTargetUpdateRequest) -> dict[str, Any]:
+    async def put_internal_llama_target(
+        request: Request, payload: LlamaTargetUpdateRequest
+    ) -> dict[str, Any]:
         host = _normalize_llama_host(payload.host)
         url = _build_llama_url(payload.protocol, host, payload.port)
         override = PersistedLlamaTarget(
             url=url,
-            label=payload.label.strip() if isinstance(payload.label, str) and payload.label.strip() else None,
+            label=(
+                payload.label.strip()
+                if isinstance(payload.label, str) and payload.label.strip()
+                else None
+            ),
             updated_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         )
         await _apply_runtime_llama_url(request.app, override.url)
@@ -1298,7 +1317,9 @@ def create_app(
         request.app.state.llama_target_override = override
         return _get_llama_target_payload(request.app)
 
-    @app.delete("/internal/admin/llama-target", tags=["internal"], include_in_schema=False)
+    @app.delete(
+        "/internal/admin/llama-target", tags=["internal"], include_in_schema=False
+    )
     async def delete_internal_llama_target(request: Request) -> dict[str, Any]:
         await request.app.state.llama_target_store.reset()
         request.app.state.llama_target_override = None
@@ -1352,7 +1373,9 @@ def create_app(
             )
 
             try:
-                result = await optimizer.generate(effective_req, correlation_id=correlation_id)
+                result = await optimizer.generate(
+                    effective_req, correlation_id=correlation_id
+                )
                 result.metrics["requested_max_tokens"] = req.max_tokens
                 result.metrics["effective_max_tokens"] = effective_max_tokens
                 await _record_observability_event(
@@ -1520,7 +1543,9 @@ def create_app(
             )
             started = time.perf_counter()
             try:
-                result = await optimizer.generate(effective_req, correlation_id=correlation_id)
+                result = await optimizer.generate(
+                    effective_req, correlation_id=correlation_id
+                )
                 result.metrics["requested_max_tokens"] = req.max_tokens
                 result.metrics["effective_max_tokens"] = effective_max_tokens
                 sdk_payload = result.sdk_payload
@@ -1806,7 +1831,9 @@ def create_app(
         request: Request,
         query_text: str | None = Query(default=None, alias="query"),
         item_count: int | None = Query(default=None, ge=1, le=50),
-        num_questions: int | None = Query(default=None, ge=1, le=50, include_in_schema=False),
+        num_questions: int | None = Query(
+            default=None, ge=1, le=50, include_in_schema=False
+        ),
         max_tokens: int = Query(default=1024, ge=64, le=4096),
         use_cache: bool = Query(default=True),
         force_refresh: bool = Query(default=False),
@@ -1847,7 +1874,9 @@ def create_app(
         request: Request,
         query_text: str | None = Query(default=None, alias="query"),
         item_count: int | None = Query(default=None, ge=1, le=50),
-        num_questions: int | None = Query(default=None, ge=1, le=50, include_in_schema=False),
+        num_questions: int | None = Query(
+            default=None, ge=1, le=50, include_in_schema=False
+        ),
         max_tokens: int = Query(default=1024, ge=64, le=4096),
         use_cache: bool = Query(default=True),
         force_refresh: bool = Query(default=False),
@@ -1888,7 +1917,9 @@ def create_app(
         request: Request,
         query_text: str | None = Query(default=None, alias="query"),
         item_count: int | None = Query(default=None, ge=1, le=50),
-        num_questions: int | None = Query(default=None, ge=1, le=50, include_in_schema=False),
+        num_questions: int | None = Query(
+            default=None, ge=1, le=50, include_in_schema=False
+        ),
         max_tokens: int = Query(default=1024, ge=64, le=4096),
         use_cache: bool = Query(default=True),
         force_refresh: bool = Query(default=False),

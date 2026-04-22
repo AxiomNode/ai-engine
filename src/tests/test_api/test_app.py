@@ -148,7 +148,10 @@ def test_llama_url_helpers_and_target_payload() -> None:
     with pytest.raises(ValueError, match="valid hostname"):
         _normalize_llama_host("bad host!")
 
-    assert _build_llama_url("https", "llama.local", 8443) == "https://llama.local:8443/v1/completions"
+    assert (
+        _build_llama_url("https", "llama.local", 8443)
+        == "https://llama.local:8443/v1/completions"
+    )
     assert _parse_llama_url("https://llama.local/v1/completions") == (
         "llama.local",
         "https",
@@ -184,7 +187,9 @@ def test_apply_runtime_llama_url_updates_state_and_validates_runtime_support() -
     mutable_client = types.SimpleNamespace(set_api_url=AsyncMock())
     app = MagicMock()
     app.state = types.SimpleNamespace(
-        generator=types.SimpleNamespace(_generator=types.SimpleNamespace(llm_client=mutable_client)),
+        generator=types.SimpleNamespace(
+            _generator=types.SimpleNamespace(llm_client=mutable_client)
+        ),
         llama_url=None,
     )
 
@@ -253,7 +258,9 @@ def test_generation_request_helpers_normalize_metadata_and_headers() -> None:
     assert metadata["effective_max_tokens"] >= 0
 
 
-def test_rate_limit_and_request_identity_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_rate_limit_and_request_identity_helpers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from ai_engine.api.app import (
         _FixedWindowRateLimiter,
         _GenerationCapacityLimiter,
@@ -286,7 +293,9 @@ def test_rate_limit_and_request_identity_helpers(monkeypatch: pytest.MonkeyPatch
     assert _resolve_rate_limit_identity(request) == "ip:127.0.0.1"
     assert _get_correlation_id(request) == "corr-state"
 
-    monkeypatch.setattr(uuid, "uuid4", lambda: types.SimpleNamespace(hex="generated-corr"))
+    monkeypatch.setattr(
+        uuid, "uuid4", lambda: types.SimpleNamespace(hex="generated-corr")
+    )
     request.state = types.SimpleNamespace(auth_scope="api", correlation_id="")
     request.client = None
     assert _get_correlation_id(request) == "generated-corr"
@@ -315,8 +324,16 @@ def test_warmup_cache_tracks_generated_cached_and_failed_paths(
     sleep_calls: list[float] = []
     monkeypatch.setattr(app_module, "_WARMUP_GAME_TYPES", ["quiz"])
     monkeypatch.setattr(app_module, "_WARMUP_LANGUAGES", ["es"])
-    monkeypatch.setattr(app_module, "_WARMUP_CATEGORIES", [("17", "Science"), ("23", "History"), ("27", "Animals")])
-    monkeypatch.setattr(app_module.asyncio, "sleep", AsyncMock(side_effect=lambda delay: sleep_calls.append(delay)))
+    monkeypatch.setattr(
+        app_module,
+        "_WARMUP_CATEGORIES",
+        [("17", "Science"), ("23", "History"), ("27", "Animals")],
+    )
+    monkeypatch.setattr(
+        app_module.asyncio,
+        "sleep",
+        AsyncMock(side_effect=lambda delay: sleep_calls.append(delay)),
+    )
 
     optimizer = _Optimizer()
     asyncio.run(app_module._warmup_cache(optimizer))
@@ -334,7 +351,10 @@ def test_prime_runtime_content_ingests_examples_and_runs_optional_warmup(
 ) -> None:
     import ai_engine.api.app as app_module
 
-    docs = [types.SimpleNamespace(content="water"), types.SimpleNamespace(content="plants")]
+    docs = [
+        types.SimpleNamespace(content="water"),
+        types.SimpleNamespace(content="plants"),
+    ]
     rag_pipeline = MagicMock()
     optimizer = MagicMock()
     warmup_calls: list[object] = []
@@ -351,7 +371,11 @@ def test_prime_runtime_content_ingests_examples_and_runs_optional_warmup(
     async def fake_warmup(passed_optimizer):
         warmup_calls.append(passed_optimizer)
 
-    monkeypatch.setitem(sys.modules, "ai_engine.examples", types.SimpleNamespace(ExampleInjector=_FakeExampleInjector))
+    monkeypatch.setitem(
+        sys.modules,
+        "ai_engine.examples",
+        types.SimpleNamespace(ExampleInjector=_FakeExampleInjector),
+    )
     monkeypatch.setattr(app_module, "get_full_corpus", lambda: ["corpus"])
     monkeypatch.setattr(app_module.asyncio, "to_thread", fake_to_thread)
     monkeypatch.setattr(app_module, "_warmup_cache", fake_warmup)
@@ -386,7 +410,11 @@ def test_prime_runtime_content_stops_after_bootstrap_failure(
     async def fake_warmup(passed_optimizer):
         warmup_calls.append(passed_optimizer)
 
-    monkeypatch.setitem(sys.modules, "ai_engine.examples", types.SimpleNamespace(ExampleInjector=_BrokenExampleInjector))
+    monkeypatch.setitem(
+        sys.modules,
+        "ai_engine.examples",
+        types.SimpleNamespace(ExampleInjector=_BrokenExampleInjector),
+    )
     monkeypatch.setattr(app_module, "get_full_corpus", lambda: ["corpus"])
     monkeypatch.setattr(app_module, "_warmup_cache", fake_warmup)
 
@@ -428,7 +456,9 @@ def test_install_api_key_openapi_marks_only_protected_routes() -> None:
     assert app.openapi() is schema
 
 
-def test_publish_and_record_observability_event_bridge(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_publish_and_record_observability_event_bridge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import ai_engine.api.app as app_module
 
     posted: list[dict[str, object]] = []
@@ -443,7 +473,9 @@ def test_publish_and_record_observability_event_bridge(monkeypatch: pytest.Monke
         async def __aexit__(self, exc_type, exc, tb) -> None:
             return None
 
-        async def post(self, url: str, json: dict[str, object], headers: dict[str, str]) -> None:
+        async def post(
+            self, url: str, json: dict[str, object], headers: dict[str, str]
+        ) -> None:
             posted.append({"url": url, "json": json, "headers": headers})
 
     monkeypatch.setattr(app_module.httpx, "AsyncClient", _FakeAsyncClient)
@@ -498,7 +530,9 @@ def test_publish_event_to_stats_noops_without_url() -> None:
     request = MagicMock()
     request.app.state = types.SimpleNamespace(stats_url=" ", stats_api_key=None)
 
-    asyncio.run(app_module._publish_event_to_stats(request, {"event_type": "generation"}))
+    asyncio.run(
+        app_module._publish_event_to_stats(request, {"event_type": "generation"})
+    )
 
 
 # ------------------------------------------------------------------
@@ -679,7 +713,9 @@ class TestGenerate:
         assert event["metadata"]["upstream_service"] == "llama"
         assert event["metadata"]["error_type"] == "ReadTimeout"
 
-    def test_generate_connect_error_returns_503_and_records_upstream_metadata(self) -> None:
+    def test_generate_connect_error_returns_503_and_records_upstream_metadata(
+        self,
+    ) -> None:
         """Upstream connection failures should not leak as raw 500s."""
         client, _, _, collector = _make_client(
             gen_side_effect=httpx.ConnectError("llama unavailable"),
@@ -709,7 +745,9 @@ class TestGenerate:
         client.app.state.generation_capacity_limiter = RejectingLimiter(1, 0)
         resp = client.post("/generate", json={"query": "water"})
         assert resp.status_code == 503
-        assert resp.json()["detail"] == "Generation service is busy. Please retry shortly."
+        assert (
+            resp.json()["detail"] == "Generation service is busy. Please retry shortly."
+        )
 
     def test_background_generation_rejects_when_slot_is_busy(self) -> None:
         from ai_engine.api.app import _GenerationCapacityLimiter
@@ -777,7 +815,9 @@ class TestGenerate:
             gen_side_effect=httpx.ReadTimeout("sdk llama request timed out"),
             raise_server_exceptions=False,
         )
-        resp = client.post("/generate/sdk", json={"query": "water cycle", "language": "en"})
+        resp = client.post(
+            "/generate/sdk", json={"query": "water cycle", "language": "en"}
+        )
         assert resp.status_code == 504
         assert resp.json()["detail"] == "Upstream LLM request timed out."
 
@@ -793,7 +833,9 @@ class TestGenerate:
             gen_side_effect=httpx.ConnectError("sdk llama unavailable"),
             raise_server_exceptions=False,
         )
-        resp = client.post("/generate/sdk", json={"query": "water cycle", "language": "en"})
+        resp = client.post(
+            "/generate/sdk", json={"query": "water cycle", "language": "en"}
+        )
         assert resp.status_code == 503
         assert resp.json()["detail"] == "Upstream LLM request failed."
 
@@ -819,7 +861,9 @@ class TestGenerate:
             json={"query": "water cycle", "language": "en"},
         )
         assert resp.status_code == 503
-        assert resp.json()["detail"] == "Generation service is busy. Please retry shortly."
+        assert (
+            resp.json()["detail"] == "Generation service is busy. Please retry shortly."
+        )
 
     def test_health_reports_generation_capacity(self) -> None:
         client, *_ = _make_client()
@@ -1031,7 +1075,9 @@ class TestIngest:
         events = collector.history(last_n=1)
         assert events[-1]["metadata"].get("ingest_model") == "quiz"
 
-    def test_rag_stats_cache_is_reused_and_invalidated_after_ingest(self, monkeypatch) -> None:
+    def test_rag_stats_cache_is_reused_and_invalidated_after_ingest(
+        self, monkeypatch
+    ) -> None:
         """RAG stats should reuse short-lived cache and invalidate it after ingest."""
         import ai_engine.api.app as app_module
 
@@ -1066,7 +1112,11 @@ class TestIngest:
 
         ingest = client.post(
             "/ingest",
-            json={"documents": [{"content": "Invalidate diagnostics cache.", "doc_id": "doc-1"}]},
+            json={
+                "documents": [
+                    {"content": "Invalidate diagnostics cache.", "doc_id": "doc-1"}
+                ]
+            },
         )
         assert ingest.status_code == 200
 

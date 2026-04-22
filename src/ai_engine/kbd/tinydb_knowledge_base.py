@@ -156,7 +156,10 @@ class TinyDBKnowledgeBase:
             tag: The tag to filter by.
         """
         tag_lower = tag.lower()
-        rows = [self._table.get(where("entry_id") == entry_id) for entry_id in self._tag_index.get(tag_lower, set())]
+        rows = [
+            self._table.get(where("entry_id") == entry_id)
+            for entry_id in self._tag_index.get(tag_lower, set())
+        ]
         entries: list[KnowledgeEntry] = []
         for row in rows:
             data = _as_entry_dict(row)
@@ -193,7 +196,9 @@ class TinyDBKnowledgeBase:
             if score > 0:
                 ranked.append((score, entry))
 
-        ranked.sort(key=lambda item: (-item[0], item[1].title.lower(), item[1].entry_id))
+        ranked.sort(
+            key=lambda item: (-item[0], item[1].title.lower(), item[1].entry_id)
+        )
         return [entry for _, entry in ranked]
 
     def _rebuild_indexes(self) -> None:

@@ -444,7 +444,9 @@ class GameGenerator:
             language_key = (language or "en").strip().lower()
             if language_key not in {"es", "en"}:
                 language_key = "en"
-            return _FALLBACK_TITLES.get(game_type, {}).get(language_key, "Educational Game")
+            return _FALLBACK_TITLES.get(game_type, {}).get(
+                language_key, "Educational Game"
+            )
         return normalized_title
 
     def _normalize_quiz_questions(self, raw_questions: Any) -> list[dict[str, Any]]:
@@ -465,11 +467,15 @@ class GameGenerator:
             if not options:
                 raise ValueError(f"Quiz question {index} is missing options")
             if len(options) < 2:
-                raise ValueError(f"Quiz question {index} must contain at least 2 options")
+                raise ValueError(
+                    f"Quiz question {index} must contain at least 2 options"
+                )
 
             correct_index = self._resolve_correct_index(item, options, index)
             if correct_index < 0 or correct_index >= len(options):
-                raise ValueError(f"Quiz question {index} has out-of-range correct_index")
+                raise ValueError(
+                    f"Quiz question {index} has out-of-range correct_index"
+                )
 
             cleaned_questions.append(
                 {
@@ -494,13 +500,17 @@ class GameGenerator:
             letter = self._extract_word_pass_letter(
                 item.get("letter", item.get("initial", item.get("key_letter", "")))
             )
-            answer = str(item.get("answer", item.get("word", item.get("solution", "")))).strip()
+            answer = str(
+                item.get("answer", item.get("word", item.get("solution", "")))
+            ).strip()
             if not letter and answer:
                 letter = self._extract_word_pass_letter(answer)
             if len(letter) != 1 or not letter.isalpha():
                 raise ValueError(f"Word-pass entry {index} has invalid letter")
 
-            hint = str(item.get("hint", item.get("definition", item.get("clue", "")))).strip()
+            hint = str(
+                item.get("hint", item.get("definition", item.get("clue", "")))
+            ).strip()
             if not hint:
                 raise ValueError(f"Word-pass entry {index} is missing hint")
 
@@ -584,7 +594,9 @@ class GameGenerator:
             flattened = dict(nested_game)
             flattened.setdefault(
                 "game_type",
-                normalized.get("game_type") or nested_game.get("game_type") or fallback_game_type,
+                normalized.get("game_type")
+                or nested_game.get("game_type")
+                or fallback_game_type,
             )
             if "metadata" in normalized:
                 flattened["metadata"] = normalized["metadata"]
@@ -610,7 +622,9 @@ class GameGenerator:
             value = normalized.get(key)
             if isinstance(value, list) and value:
                 return value
-            if isinstance(value, dict) and self._looks_like_single_item(value, primary_key):
+            if isinstance(value, dict) and self._looks_like_single_item(
+                value, primary_key
+            ):
                 return [value]
         if self._looks_like_single_item(normalized, primary_key):
             return [normalized]
@@ -658,7 +672,9 @@ class GameGenerator:
         options: list[str] = []
         for raw_option in raw_options:
             if isinstance(raw_option, dict):
-                text = raw_option.get("text", raw_option.get("label", raw_option.get("option", "")))
+                text = raw_option.get(
+                    "text", raw_option.get("label", raw_option.get("option", ""))
+                )
             else:
                 text = raw_option
             normalized = self._normalize_option_text(str(text or ""))
@@ -683,7 +699,9 @@ class GameGenerator:
                     "answer_index",
                     item.get(
                         "correct_option_index",
-                        item.get("best_index", item.get("correct_answer", item.get("answer"))),
+                        item.get(
+                            "best_index", item.get("correct_answer", item.get("answer"))
+                        ),
                     ),
                 ),
             ),
@@ -699,11 +717,18 @@ class GameGenerator:
             raise ValueError(f"Quiz question {index} has invalid correct_index")
 
         normalized_text = self._normalize_option_text(text_value)
-        if len(normalized_text) == 1 and normalized_text.upper() in {"A", "B", "C", "D"}:
+        if len(normalized_text) == 1 and normalized_text.upper() in {
+            "A",
+            "B",
+            "C",
+            "D",
+        }:
             return ord(normalized_text.upper()) - ord("A")
 
         for option_index, option in enumerate(options):
-            if self._normalize_match_text(option) == self._normalize_match_text(normalized_text):
+            if self._normalize_match_text(option) == self._normalize_match_text(
+                normalized_text
+            ):
                 return option_index
 
         if text_value.isdigit():
@@ -891,7 +916,9 @@ class GameGenerator:
         roots: list[str] | None = None,
     ) -> bool:
         return bool(
-            self._matched_topic_signals(text, keywords, roots or self._extract_topic_roots(keywords))
+            self._matched_topic_signals(
+                text, keywords, roots or self._extract_topic_roots(keywords)
+            )
         )
 
     def _matched_topic_signals(
@@ -1214,7 +1241,11 @@ class GameGenerator:
 
         questions: list[dict[str, Any]] = []
         for match in _QUIZ_LOOSE_ENTRY_RE.finditer(raw_output):
-            options = [option.strip() for option in _QUIZ_LOOSE_OPTION_RE.findall(match.group("options")) if option.strip()]
+            options = [
+                option.strip()
+                for option in _QUIZ_LOOSE_OPTION_RE.findall(match.group("options"))
+                if option.strip()
+            ]
             if len(options) < 2:
                 continue
             questions.append(
@@ -1249,7 +1280,10 @@ class GameGenerator:
         selected = tokens[: max(1, min(2, num_questions))]
         words: list[dict[str, Any]] = []
         for token in selected:
-            answer = " ".join(part.capitalize() for part in token.split()) or normalized_topic
+            answer = (
+                " ".join(part.capitalize() for part in token.split())
+                or normalized_topic
+            )
             letter = self._extract_word_pass_letter(answer) or "W"
             if (language or "").lower() == "es":
                 hint = f"En {normalized_topic}, termino clave: {answer}."
@@ -1289,7 +1323,11 @@ class GameGenerator:
             return words
 
         enriched: list[dict[str, Any]] = []
-        prefix = f"En {normalized_topic}, " if (language or "").lower() == "es" else f"In {normalized_topic}, "
+        prefix = (
+            f"En {normalized_topic}, "
+            if (language or "").lower() == "es"
+            else f"In {normalized_topic}, "
+        )
         for item in words:
             bundle = " ".join(
                 [

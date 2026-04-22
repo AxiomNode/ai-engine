@@ -164,7 +164,12 @@ class _MockLLMQuizMalformedRetry:
                     "questions": [
                         {
                             "question": "Que relacion establece el teorema de Pitagoras en un triangulo rectangulo?",
-                            "options": ["La hipotenusa y los catetos", "La capital de Francia", "La tabla periodica", "El sistema solar"],
+                            "options": [
+                                "La hipotenusa y los catetos",
+                                "La capital de Francia",
+                                "La tabla periodica",
+                                "El sistema solar",
+                            ],
                             "correct_index": 0,
                             "explanation": "Relaciona la hipotenusa con los catetos.",
                         },
@@ -270,10 +275,10 @@ class _MockLLMWordPassMalformedRetry:
 
 
 class _MockLLMWordPassAlwaysBroken:
-        """Mock LLM that never produces a valid word-pass payload."""
+    """Mock LLM that never produces a valid word-pass payload."""
 
-        async def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
-                return "[\n \t\t\t\t\t"
+    async def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
+        return "[\n \t\t\t\t\t"
 
 
 class _MockLLMTrueFalse:
@@ -708,29 +713,39 @@ class TestGameGeneratorWordPass:
             llm_client=_MockLLMWordPassMalformedRetry(),
         )
 
-        result = _run(gen.generate(query="photosynthesis", game_type="word-pass", language="en"))
+        result = _run(
+            gen.generate(query="photosynthesis", game_type="word-pass", language="en")
+        )
 
         assert len(result.game.words) == 2
         assert result.game.words[0].letter == "C"
         assert result.game.words[1].answer == "Photosynthesis"
 
-    def test_generate_word_pass_enriches_topic_signal_when_hint_is_too_generic(self, rag_pipeline):
+    def test_generate_word_pass_enriches_topic_signal_when_hint_is_too_generic(
+        self, rag_pipeline
+    ):
         gen = GameGenerator(
             rag_pipeline=rag_pipeline,
             llm_client=_MockLLMRecoverableWordPassAliases(),
         )
 
-        result = _run(gen.generate(query="renaissance art", game_type="word-pass", language="en"))
+        result = _run(
+            gen.generate(query="renaissance art", game_type="word-pass", language="en")
+        )
 
         assert "renaissance art" in result.game.words[0].hint.lower()
 
-    def test_generate_word_pass_uses_fallback_when_model_never_returns_valid_json(self, rag_pipeline):
+    def test_generate_word_pass_uses_fallback_when_model_never_returns_valid_json(
+        self, rag_pipeline
+    ):
         gen = GameGenerator(
             rag_pipeline=rag_pipeline,
             llm_client=_MockLLMWordPassAlwaysBroken(),
         )
 
-        result = _run(gen.generate(query="renaissance art", game_type="word-pass", language="en"))
+        result = _run(
+            gen.generate(query="renaissance art", game_type="word-pass", language="en")
+        )
 
         assert len(result.game.words) >= 1
         assert "renaissance art" in result.game.words[0].hint.lower()
@@ -849,7 +864,9 @@ class TestGameGeneratorErrorHandling:
         )
         assert normalized["title"] == "Quiz educativo"
 
-    def test_retries_once_and_recovers_when_json_is_semantically_invalid(self, rag_pipeline):
+    def test_retries_once_and_recovers_when_json_is_semantically_invalid(
+        self, rag_pipeline
+    ):
         llm = _MockLLMSemanticRetryThenValid()
         gen = GameGenerator(rag_pipeline=rag_pipeline, llm_client=llm)
 
@@ -864,13 +881,18 @@ class TestGameGeneratorErrorHandling:
         assert second_prompt.startswith(first_prompt)
         assert "missing text" in second_prompt
         assert gen.last_run_metrics["semantic_retry_used"] is True
-        assert gen.last_run_metrics["semantic_retry_error"] == "Quiz question 0 is missing text"
+        assert (
+            gen.last_run_metrics["semantic_retry_error"]
+            == "Quiz question 0 is missing text"
+        )
 
     def test_retries_when_quiz_contains_off_topic_question(self, rag_pipeline):
         llm = _MockLLMOffTopicRetryThenValid()
         gen = GameGenerator(rag_pipeline=rag_pipeline, llm_client=llm)
 
-        envelope = _run(gen.generate(query="fotosintesis", game_type="quiz", language="es"))
+        envelope = _run(
+            gen.generate(query="fotosintesis", game_type="quiz", language="es")
+        )
 
         assert envelope.game_type == "quiz"
         assert len(envelope.game.questions) == 2
@@ -878,12 +900,16 @@ class TestGameGeneratorErrorHandling:
         assert gen.last_run_metrics["semantic_retry_used"] is True
         assert "off-topic" in gen.last_run_metrics["semantic_retry_error"]
 
-    def test_prunes_off_topic_retry_residue_when_retry_still_contains_noise(self, rag_pipeline):
+    def test_prunes_off_topic_retry_residue_when_retry_still_contains_noise(
+        self, rag_pipeline
+    ):
         class _MockLLMRetryStillMixed:
             def __init__(self) -> None:
                 self.calls: list[tuple[str, int]] = []
 
-            async def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
+            async def generate(
+                self, prompt: str, max_tokens: int = 256, **kwargs
+            ) -> str:
                 self.calls.append((prompt, max_tokens))
                 return json.dumps(
                     {
@@ -914,7 +940,9 @@ class TestGameGeneratorErrorHandling:
         llm = _MockLLMRetryStillMixed()
         gen = GameGenerator(rag_pipeline=rag_pipeline, llm_client=llm)
 
-        envelope = _run(gen.generate(query="fotosintesis", game_type="quiz", language="es"))
+        envelope = _run(
+            gen.generate(query="fotosintesis", game_type="quiz", language="es")
+        )
 
         assert envelope.game_type == "quiz"
         assert len(envelope.game.questions) == 1
@@ -924,11 +952,15 @@ class TestGameGeneratorErrorHandling:
         assert gen.last_run_metrics["topic_pruning_used"] is True
         assert gen.last_run_metrics["topic_pruning_removed_items"] == 1
 
-    def test_falls_back_to_salvaged_initial_payload_when_retry_is_worse(self, rag_pipeline):
+    def test_falls_back_to_salvaged_initial_payload_when_retry_is_worse(
+        self, rag_pipeline
+    ):
         llm = _MockLLMOffTopicRetryThenBroken()
         gen = GameGenerator(rag_pipeline=rag_pipeline, llm_client=llm)
 
-        envelope = _run(gen.generate(query="fotosintesis", game_type="quiz", language="es"))
+        envelope = _run(
+            gen.generate(query="fotosintesis", game_type="quiz", language="es")
+        )
 
         assert envelope.game_type == "quiz"
         assert len(envelope.game.questions) == 1
@@ -937,15 +969,21 @@ class TestGameGeneratorErrorHandling:
         )
         assert len(llm.calls) == 2
         assert gen.last_run_metrics["semantic_retry_used"] is True
-        assert gen.last_run_metrics["semantic_retry_fallback_to_initial_payload"] is True
+        assert (
+            gen.last_run_metrics["semantic_retry_fallback_to_initial_payload"] is True
+        )
         assert gen.last_run_metrics["topic_pruning_used"] is True
         assert gen.last_run_metrics["topic_pruning_removed_items"] == 1
 
-    def test_falls_back_to_salvaged_initial_payload_when_retry_is_unparseable(self, rag_pipeline):
+    def test_falls_back_to_salvaged_initial_payload_when_retry_is_unparseable(
+        self, rag_pipeline
+    ):
         llm = _MockLLMOffTopicRetryThenUnparseable()
         gen = GameGenerator(rag_pipeline=rag_pipeline, llm_client=llm)
 
-        envelope = _run(gen.generate(query="fotosintesis", game_type="quiz", language="es"))
+        envelope = _run(
+            gen.generate(query="fotosintesis", game_type="quiz", language="es")
+        )
 
         assert envelope.game_type == "quiz"
         assert len(envelope.game.questions) == 1
@@ -954,7 +992,9 @@ class TestGameGeneratorErrorHandling:
         )
         assert len(llm.calls) == 2
         assert gen.last_run_metrics["semantic_retry_used"] is True
-        assert gen.last_run_metrics["semantic_retry_fallback_to_initial_payload"] is True
+        assert (
+            gen.last_run_metrics["semantic_retry_fallback_to_initial_payload"] is True
+        )
         assert gen.last_run_metrics["topic_pruning_used"] is True
         assert gen.last_run_metrics["topic_pruning_removed_items"] == 1
 
@@ -962,26 +1002,38 @@ class TestGameGeneratorErrorHandling:
         llm = _MockLLMQuizMalformedRetry()
         gen = GameGenerator(rag_pipeline=rag_pipeline, llm_client=llm)
 
-        envelope = _run(gen.generate(query="teorema de pitagoras", game_type="quiz", language="es"))
+        envelope = _run(
+            gen.generate(query="teorema de pitagoras", game_type="quiz", language="es")
+        )
 
         assert len(envelope.game.questions) == 2
         assert envelope.game.questions[0].correct_index == 0
         assert "pitagoras" in envelope.game.questions[0].question.lower()
 
-    def test_prunes_off_topic_items_when_retry_is_skipped_after_slow_first_call(self, rag_pipeline):
-        gen = GameGenerator(rag_pipeline=rag_pipeline, llm_client=_MockLLMLongOffTopicMixed())
+    def test_prunes_off_topic_items_when_retry_is_skipped_after_slow_first_call(
+        self, rag_pipeline
+    ):
+        gen = GameGenerator(
+            rag_pipeline=rag_pipeline, llm_client=_MockLLMLongOffTopicMixed()
+        )
 
         async def _fake_generate_json_with_retry(prompt: str, max_tokens: int):
             raw_output = await gen.llm_client.generate(prompt, max_tokens=max_tokens)
-            return raw_output, raw_output, {
-                "llm_total_ms": 95_000.0,
-                "parse_total_ms": 1.0,
-                "retry_used": False,
-            }
+            return (
+                raw_output,
+                raw_output,
+                {
+                    "llm_total_ms": 95_000.0,
+                    "parse_total_ms": 1.0,
+                    "retry_used": False,
+                },
+            )
 
         gen._generate_json_with_retry = _fake_generate_json_with_retry  # type: ignore[method-assign]
 
-        envelope = _run(gen.generate(query="fotosintesis", game_type="quiz", language="es"))
+        envelope = _run(
+            gen.generate(query="fotosintesis", game_type="quiz", language="es")
+        )
 
         assert envelope.game_type == "quiz"
         assert len(envelope.game.questions) == 1
@@ -991,15 +1043,25 @@ class TestGameGeneratorErrorHandling:
         assert gen.last_run_metrics["topic_pruning_removed_items"] == 1
 
     def test_accepts_inflected_topic_matches(self, rag_pipeline):
-        gen = GameGenerator(rag_pipeline=rag_pipeline, llm_client=_MockLLMTopicRootMatch())
+        gen = GameGenerator(
+            rag_pipeline=rag_pipeline, llm_client=_MockLLMTopicRootMatch()
+        )
 
-        envelope = _run(gen.generate(query="matematicas", game_type="quiz", language="es"))
+        envelope = _run(
+            gen.generate(query="matematicas", game_type="quiz", language="es")
+        )
 
         assert envelope.game_type == "quiz"
-        assert envelope.game.questions[0].question.startswith("Que propiedad matematica")
+        assert envelope.game.questions[0].question.startswith(
+            "Que propiedad matematica"
+        )
 
-    def test_skips_lexical_topic_alignment_for_instruction_heavy_broad_category_queries(self, rag_pipeline):
-        gen = GameGenerator(rag_pipeline=rag_pipeline, llm_client=_MockLLMBroadCategoryTopic())
+    def test_skips_lexical_topic_alignment_for_instruction_heavy_broad_category_queries(
+        self, rag_pipeline
+    ):
+        gen = GameGenerator(
+            rag_pipeline=rag_pipeline, llm_client=_MockLLMBroadCategoryTopic()
+        )
 
         envelope = _run(
             gen.generate(
@@ -1021,7 +1083,9 @@ class TestGameGeneratorErrorHandling:
             def __init__(self) -> None:
                 self.calls: list[dict[str, object]] = []
 
-            def build_context(self, query: str, top_k: int | None = None, **kwargs) -> str:
+            def build_context(
+                self, query: str, top_k: int | None = None, **kwargs
+            ) -> str:
                 self.calls.append({"query": query, "top_k": top_k, **kwargs})
                 return "context"
 

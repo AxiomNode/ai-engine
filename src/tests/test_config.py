@@ -120,7 +120,9 @@ class TestAIEngineSettingsDefaults:
 
     def test_retrieval_cache_defaults(self, monkeypatch):
         monkeypatch.delenv("AI_ENGINE_QUERY_EMBEDDING_CACHE_MAX_ENTRIES", raising=False)
-        monkeypatch.delenv("AI_ENGINE_RETRIEVAL_RESULT_CACHE_MAX_ENTRIES", raising=False)
+        monkeypatch.delenv(
+            "AI_ENGINE_RETRIEVAL_RESULT_CACHE_MAX_ENTRIES", raising=False
+        )
         cfg = _reload_config(monkeypatch)
         settings = cfg.AIEngineSettings()
         assert settings.query_embedding_cache_max_entries == 2048

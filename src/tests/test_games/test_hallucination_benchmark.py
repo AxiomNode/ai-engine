@@ -303,7 +303,12 @@ class _InvalidJSONMockLLM:
                 "questions": [
                     {
                         "question": f"¿Qué concepto básico pertenece a {topic}?",
-                        "options": [f"Un principio de {topic}", "Un planeta", "Un animal", "Una capital inventada"],
+                        "options": [
+                            f"Un principio de {topic}",
+                            "Un planeta",
+                            "Un animal",
+                            "Una capital inventada",
+                        ],
                         "correct_index": 0,
                         "explanation": f"Recovered after retry with a question aligned to {topic}.",
                     }

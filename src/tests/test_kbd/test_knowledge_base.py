@@ -80,7 +80,11 @@ def test_search_by_keyword():
 
 def test_search_by_keyword_ranks_multi_term_matches():
     kb = KnowledgeBase()
-    kb.add(_entry("1", title="Water cycle basics", content="Water evaporation condensation"))
+    kb.add(
+        _entry(
+            "1", title="Water cycle basics", content="Water evaporation condensation"
+        )
+    )
     kb.add(_entry("2", title="Water facts", content="Water only"))
     results = kb.search_by_keyword("water cycle")
     assert [entry.entry_id for entry in results] == ["1", "2"]
@@ -95,7 +99,9 @@ def test_search_indexes_are_updated_on_delete():
 
 def test_add_replacing_existing_entry_reindexes_old_tags_and_keywords():
     kb = KnowledgeBase()
-    kb.add(_entry("1", title="Python basics", content="Python is great", tags=["python"]))
+    kb.add(
+        _entry("1", title="Python basics", content="Python is great", tags=["python"])
+    )
     kb.add(_entry("1", title="History basics", content="Rome is old", tags=["history"]))
 
     assert kb.search_by_tag("python") == []

@@ -28,7 +28,9 @@ class MockLLM:
 
 
 class AsyncMockLLM:
-    async def generate(self, prompt: str, max_tokens: int = 256, **kwargs: object) -> str:
+    async def generate(
+        self, prompt: str, max_tokens: int = 256, **kwargs: object
+    ) -> str:
         await asyncio.sleep(0)
         return '{"title": "AsyncGame", "questions": []}'
 
@@ -60,7 +62,9 @@ def test_pipeline_generate_supports_async_llm_without_generate_sync():
     store = InMemoryVectorStore()
     pipeline = RAGPipeline(embedder=emb, vector_store=store, llm_client=AsyncMockLLM())
 
-    pipeline.ingest([Document(content="Async context", metadata={"source": "doc"}, doc_id="a1")])
+    pipeline.ingest(
+        [Document(content="Async context", metadata={"source": "doc"}, doc_id="a1")]
+    )
 
     result = pipeline.generate(query="async?", goal="Create a short quiz")
 
@@ -72,7 +76,9 @@ def test_pipeline_generate_raises_when_model_output_has_no_json():
     store = InMemoryVectorStore()
     pipeline = RAGPipeline(embedder=emb, vector_store=store, llm_client=BrokenMockLLM())
 
-    pipeline.ingest([Document(content="Some context", metadata={"source": "doc"}, doc_id="b1")])
+    pipeline.ingest(
+        [Document(content="Some context", metadata={"source": "doc"}, doc_id="b1")]
+    )
 
     with pytest.raises(ValueError, match="Failed to extract JSON"):
         pipeline.generate(query="broken?", goal="Create a short quiz")

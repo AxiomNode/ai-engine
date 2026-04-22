@@ -414,7 +414,10 @@ class TestCacheMonitoringBridge:
         resp = client.post("/cache/reset")
 
         assert resp.status_code == 503
-        assert resp.json()["detail"] == "Generation API URL not configured for cache reset."
+        assert (
+            resp.json()["detail"]
+            == "Generation API URL not configured for cache reset."
+        )
 
     def test_cache_reset_invalid_payload_returns_503(self, monkeypatch) -> None:
         """Unexpected proxy responses should surface as 503 to the monitoring caller."""
@@ -436,7 +439,10 @@ class TestCacheMonitoringBridge:
         resp = client.post("/cache/reset")
 
         assert resp.status_code == 503
-        assert resp.json()["detail"] == "Unexpected cache-reset response from generation API."
+        assert (
+            resp.json()["detail"]
+            == "Unexpected cache-reset response from generation API."
+        )
 
     def test_cache_reset_forwards_query_params_and_auth_header(
         self, monkeypatch
@@ -469,7 +475,9 @@ class TestCacheMonitoringBridge:
             async def aclose(self) -> None:
                 return None
 
-        monkeypatch.setattr(obs_api.httpx, "AsyncClient", lambda **kw: _FakeAsyncClient())
+        monkeypatch.setattr(
+            obs_api.httpx, "AsyncClient", lambda **kw: _FakeAsyncClient()
+        )
 
         client, _ = _make_client()
         client.app.state.generation_monitor_api_key = "bridge-secret"
@@ -496,7 +504,9 @@ class TestOpenAPISecurity:
 
         schema = client.app.openapi()
 
-        assert schema["components"]["securitySchemes"]["ApiKeyAuth"]["name"] == "X-API-Key"
+        assert (
+            schema["components"]["securitySchemes"]["ApiKeyAuth"]["name"] == "X-API-Key"
+        )
         assert "security" not in schema["paths"]["/health"]["get"]
         assert schema["paths"]["/stats"]["get"]["security"] == [{"ApiKeyAuth": []}]
         assert schema["paths"]["/events"]["post"]["security"] == [{"ApiKeyAuth": []}]

@@ -228,7 +228,9 @@ def test_run_game_demo_prints_generated_quiz(
     """The game demo should format and print quiz questions returned by the generator."""
 
     class _FakeQuestion:
-        def __init__(self, question: str, options: list[str], correct_index: int) -> None:
+        def __init__(
+            self, question: str, options: list[str], correct_index: int
+        ) -> None:
             self.question = question
             self.options = options
             self.correct_index = correct_index
@@ -243,7 +245,9 @@ def test_run_game_demo_prints_generated_quiz(
         def __init__(self) -> None:
             self.game = _FakeQuizGame(
                 [
-                    _FakeQuestion("Que produce la fotosintesis?", ["Glucosa", "Hierro"], 0)
+                    _FakeQuestion(
+                        "Que produce la fotosintesis?", ["Glucosa", "Hierro"], 0
+                    )
                 ]
             )
 

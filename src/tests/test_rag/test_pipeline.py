@@ -65,12 +65,20 @@ def test_retrieve_prefers_matching_metadata():
             Document(
                 content="Python question example in English",
                 doc_id="en-quiz",
-                metadata={"language": "en", "game_type": "quiz", "kind": "game_example"},
+                metadata={
+                    "language": "en",
+                    "game_type": "quiz",
+                    "kind": "game_example",
+                },
             ),
             Document(
                 content="Python question example in Spanish",
                 doc_id="es-quiz",
-                metadata={"language": "es", "game_type": "quiz", "kind": "game_example"},
+                metadata={
+                    "language": "es",
+                    "game_type": "quiz",
+                    "kind": "game_example",
+                },
             ),
         ]
     )
@@ -92,7 +100,11 @@ def test_build_context_adds_headers_and_honors_limit():
             Document(
                 content="Python is great for data science and scripting.",
                 doc_id="1",
-                metadata={"language": "es", "kind": "educational_resource", "topic": "python"},
+                metadata={
+                    "language": "es",
+                    "kind": "educational_resource",
+                    "topic": "python",
+                },
             )
         ]
     )
