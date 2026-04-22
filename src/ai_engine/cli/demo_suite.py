@@ -267,7 +267,7 @@ def demo_api_schemas() -> str:
         query="water",
         game_type="quiz",
         language="en",
-        num_questions=3,
+        item_count=3,
         max_tokens=256,
     )
     ingest_req = IngestRequest(
