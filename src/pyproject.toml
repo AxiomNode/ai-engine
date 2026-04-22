@@ -100,6 +100,11 @@ cache_dir = ".cache/mypy"
 [tool.coverage.run]
 data_file = ".cache/coverage/.coverage"
 source = ["ai_engine"]
+branch = true
 
 [tool.coverage.html]
 directory = ".cache/coverage/htmlcov"
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true

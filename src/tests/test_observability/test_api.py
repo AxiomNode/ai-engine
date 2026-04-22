@@ -353,6 +353,190 @@ class TestCacheMonitoringBridge:
         assert reset_response.status_code == 200
         assert len(created_clients) == 1
 
+    def test_cache_stats_without_generation_url_returns_empty_runtime(self) -> None:
+        """GET /cache/stats should fall back to an empty payload when bridge URL is absent."""
+        client, _ = _make_client()
+        client.app.state.generation_api_url = "  "
+        client.app.state.distribution_version = None
+
+        resp = client.get("/cache/stats")
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "memory_entries": 0,
+            "memory_max_entries": 0,
+            "memory_saturation_ratio": 0.0,
+            "persistent_entries": 0,
+            "memory_enabled": False,
+            "persistent_enabled": False,
+            "persistent_backend": "none",
+            "cache_namespace": "v1",
+            "distribution_version": "unknown-v0",
+            "cache_ttl_seconds": 0,
+            "persistent_backend_errors": {
+                "read": 0,
+                "write": 0,
+                "delete": 0,
+                "stats": 0,
+            },
+        }
+
+    def test_cache_stats_invalid_payload_falls_back_to_empty_runtime(
+        self, monkeypatch
+    ) -> None:
+        """Non-dict proxy payloads should be treated as invalid and replaced by fallback stats."""
+
+        class _FakeResponse:
+            status_code = 200
+
+            @staticmethod
+            def raise_for_status() -> None:
+                return None
+
+            @staticmethod
+            def json() -> list[int]:
+                return [1, 2, 3]
+
+        self._patch_async_client(monkeypatch, _FakeResponse())
+
+        client, _ = _make_client()
+        resp = client.get("/cache/stats")
+
+        assert resp.status_code == 200
+        assert resp.json()["persistent_backend"] == "none"
+        assert resp.json()["memory_entries"] == 0
+
+    def test_cache_reset_without_generation_url_returns_503(self) -> None:
+        """POST /cache/reset should reject requests when bridge URL is not configured."""
+        client, _ = _make_client()
+        client.app.state.generation_api_url = ""
+
+        resp = client.post("/cache/reset")
+
+        assert resp.status_code == 503
+        assert resp.json()["detail"] == "Generation API URL not configured for cache reset."
+
+    def test_cache_reset_invalid_payload_returns_503(self, monkeypatch) -> None:
+        """Unexpected proxy responses should surface as 503 to the monitoring caller."""
+
+        class _FakeResponse:
+            status_code = 200
+
+            @staticmethod
+            def raise_for_status() -> None:
+                return None
+
+            @staticmethod
+            def json() -> list[int]:
+                return [3, 7]
+
+        self._patch_async_client(monkeypatch, _FakeResponse())
+
+        client, _ = _make_client()
+        resp = client.post("/cache/reset")
+
+        assert resp.status_code == 503
+        assert resp.json()["detail"] == "Unexpected cache-reset response from generation API."
+
+    def test_cache_reset_forwards_query_params_and_auth_header(
+        self, monkeypatch
+    ) -> None:
+        """Cache reset should forward namespace flags and monitor auth header to ai-api."""
+        from ai_engine.observability import api as obs_api
+
+        captured: dict[str, object] = {}
+
+        class _FakeResponse:
+            status_code = 200
+
+            @staticmethod
+            def raise_for_status() -> None:
+                return None
+
+            @staticmethod
+            def json() -> dict[str, int]:
+                return {"removed_memory": 1, "removed_persistent": 4}
+
+        class _FakeAsyncClient:
+            async def get(self, *args, **kwargs):
+                return _FakeResponse()
+
+            async def post(self, *args, **kwargs):
+                captured["args"] = args
+                captured["kwargs"] = kwargs
+                return _FakeResponse()
+
+            async def aclose(self) -> None:
+                return None
+
+        monkeypatch.setattr(obs_api.httpx, "AsyncClient", lambda **kw: _FakeAsyncClient())
+
+        client, _ = _make_client()
+        client.app.state.generation_monitor_api_key = "bridge-secret"
+
+        resp = client.post(
+            "/cache/reset",
+            params={"namespace": "quiz", "all_namespaces": True},
+        )
+
+        assert resp.status_code == 200
+        assert captured["kwargs"] == {
+            "headers": {"X-API-Key": "bridge-secret"},
+            "params": {"namespace": "quiz", "all_namespaces": "true"},
+            "timeout": 5.0,
+        }
+
+
+class TestOpenAPISecurity:
+    """Tests for generated OpenAPI security metadata."""
+
+    def test_openapi_marks_only_protected_routes_as_requiring_api_key(self) -> None:
+        """Public health/docs routes stay unsecured while protected routes expose ApiKeyAuth."""
+        client, _ = _make_client()
+
+        schema = client.app.openapi()
+
+        assert schema["components"]["securitySchemes"]["ApiKeyAuth"]["name"] == "X-API-Key"
+        assert "security" not in schema["paths"]["/health"]["get"]
+        assert schema["paths"]["/stats"]["get"]["security"] == [{"ApiKeyAuth": []}]
+        assert schema["paths"]["/events"]["post"]["security"] == [{"ApiKeyAuth": []}]
+
+    def test_openapi_result_is_cached_between_calls(self) -> None:
+        """The custom OpenAPI builder should memoize the generated schema on app state."""
+        client, _ = _make_client()
+
+        schema = client.app.openapi()
+
+        assert client.app.openapi() is schema
+
+
+class TestLifecycle:
+    """Tests for application lifecycle hooks."""
+
+    def test_shutdown_closes_generation_api_client(self) -> None:
+        """App shutdown should close the reusable AsyncClient stored on state."""
+        from ai_engine.observability.api import create_app
+
+        closed: list[bool] = []
+
+        class _FakeAsyncClient:
+            async def get(self, *args, **kwargs):
+                raise AssertionError("unexpected get call")
+
+            async def post(self, *args, **kwargs):
+                raise AssertionError("unexpected post call")
+
+            async def aclose(self) -> None:
+                closed.append(True)
+
+        app = create_app(StatsCollector())
+        app.state.generation_api_client = _FakeAsyncClient()
+
+        with TestClient(app):
+            pass
+
+        assert closed == [True]
+
 
 # ------------------------------------------------------------------
 # API Key authentication (observability API)
@@ -366,21 +550,23 @@ class TestObsAPIKeyAuth:
         self, bridge_api_key: str = "bridge-secret"
     ) -> "TestClient":
         """Return a TestClient with bridge API key enforcement enabled."""
-        import os
-
+        from ai_engine.api.middleware import APIKeyMiddleware
         from ai_engine.observability.api import create_app
 
-        os.environ["AI_ENGINE_BRIDGE_API_KEY"] = bridge_api_key
-        os.environ["AI_ENGINE_GENERATION_API_URL"] = ""
-        _clear_all_settings_caches()
-        try:
-            app = create_app(StatsCollector())
-            # Ensure no real HTTP calls to generation API during tests.
-            app.state.generation_api_url = ""
-        finally:
-            del os.environ["AI_ENGINE_BRIDGE_API_KEY"]
-            os.environ.pop("AI_ENGINE_GENERATION_API_URL", None)
-            _clear_all_settings_caches()
+        app = create_app(StatsCollector())
+        app.state.generation_api_url = ""
+        app.add_middleware(
+            APIKeyMiddleware,
+            bridge_api_key=bridge_api_key,
+            service="observability",
+            public_paths={
+                "/health",
+                "/docs",
+                "/openapi.json",
+                "/docs/oauth2-redirect",
+                "/redoc",
+            },
+        )
         return TestClient(app, raise_server_exceptions=False)
 
     def test_no_key_required_when_env_not_set(self) -> None:

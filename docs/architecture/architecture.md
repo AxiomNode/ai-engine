@@ -8,6 +8,13 @@ public interface. Layers communicate through well-defined contracts (abstract
 base classes and dataclasses) rather than concrete implementations, making it
 easy to swap backends without changing calling code.
 
+At runtime, these logical layers are exposed through separate operational slices:
+
+- `ai-engine-api` for generation and ingest
+- `ai-engine-stats` for observability and cache/statistics APIs
+- llama runtime for model execution
+- optional persistent cache backend such as Redis
+
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                   Application / CLI                      │
@@ -84,6 +91,12 @@ Thin abstraction over local GGUF inference or any llama.cpp-compatible HTTP API.
 | `LlamaClient` | `llama_client.py` | Generate text completions; supports HTTP backend and local GGUF (lazy-loaded). Optional JSON grammar constraint via GBNF. |
 | `model_manager` | `model_manager.py` | Download, verify, and locate GGUF model files. CLI entry point. |
 
+Operationally, `LlamaClient` can point to:
+
+- a direct local GGUF model
+- a llama.cpp-compatible HTTP endpoint
+- a persisted override target resolved by `ai-engine-api`
+
 **Backend selection logic in `LlamaClient.generate()`:**
 ```
 api_url set?
@@ -145,6 +158,12 @@ Non-intrusive monitoring that wraps existing clients without modifying them.
 | `TrackedGameGenerator` | `middleware.py` | Wraps `GameGenerator`; records every `generate()` / `generate_raw()` |
 | FastAPI app | `api.py` | REST endpoints: `/health`, `/stats`, `/stats/history`, `/stats/reset` |
 
+## Runtime control and persistence
+
+Beyond the code-layer decomposition, the API runtime also owns a small operational state plane.
+
+`ai-engine-api` can persist an active llama target override so that model routing survives restart or redeploy. This is part of the effective topology and should be considered during incident analysis.
+
 ---
 
 ## Extension Points
@@ -176,3 +195,9 @@ kbd  (standalone, no deps on rag/llm)
 
 No circular dependencies exist between layers. `observability` is additive —
 the rest of the code does not import from it.
+
+## Failure boundaries
+
+- module-layer correctness can be intact while runtime model reachability is broken
+- API health can be green while the persisted llama target points to an invalid host
+- cache or stats degradation can occur without invalidating the whole generation stack

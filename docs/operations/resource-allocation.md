@@ -26,7 +26,7 @@ API gateway, 2 BFF proxies, and a static frontend.
 | Service | CPU | RAM limit | RAM reserv. | Justification |
 |---------|-----|-----------|-------------|---------------|
 | **llama-server** | 4.0 | 10 GB | 6 GB | Heaviest workload: matrix multiplications for token generation. 4 threads = half the cores, leaving room for ai-api embedding work. 10 GB covers Qwen2.5-3B Q4_K_M (~2 GB weights) + KV cache (2 slots × 2048 ctx) + OS buffers. |
-| **ai-api** | 1.5 | 4 GB | 2 GB | Runs FastAPI + sentence-transformers (all-MiniLM-L6-v2, ~90 MB). 2 Uvicorn workers handle concurrent requests while llama-server does the heavy lifting. 4 GB headroom for RAG vector store in memory. |
+| **ai-api** | 1.5 | 4 GB | 2 GB | Runs FastAPI + sentence-transformers (`paraphrase-multilingual-MiniLM-L12-v2`, ~120 MB). 2 Uvicorn workers handle concurrent requests while llama-server does the heavy lifting. 4 GB headroom for RAG vector store in memory. |
 | **ai-stats** | 0.5 | 512 MB | 256 MB | Lightweight FastAPI collecting observability events. Minimal CPU — only JSON serialization and Redis writes. |
 | **ai-cache** (Redis) | 0.25 | 256 MB | 128 MB | In-memory cache with LRU eviction at 128 MB. Stores serialized game JSON (~2-5 KB each). 128 MB ≈ 25,000+ cached games — more than enough. |
 

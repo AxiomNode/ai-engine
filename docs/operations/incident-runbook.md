@@ -9,6 +9,7 @@ Covers:
 - cache corruption or inconsistency,
 - persistent backend outage (TinyDB/Redis),
 - observability or metrics gaps,
+- llama target override or split-runtime reachability issues,
 - rollback procedures for risky changes.
 
 ## Preconditions
@@ -25,6 +26,7 @@ Useful endpoints:
 - `GET /stats`
 - `GET /cache/stats`
 - `GET /metrics`
+- `GET /internal/llama/target`
 
 ## Incident 1: TinyDB Cache Corruption
 
@@ -91,6 +93,26 @@ Recovery:
 1. Restart affected API instance.
 2. Re-run synthetic requests with explicit `X-Correlation-ID`.
 3. Confirm counters and labels repopulate.
+
+## Incident 4: Split Runtime Or Llama Target Misrouting
+
+Symptoms:
+
+- `ai-engine-api` is healthy but generation requests fail upstream,
+- the configured model host is not the host actually used at runtime,
+- staging traffic reaches API/stats but not the expected llama runtime.
+
+Immediate actions:
+
+1. Inspect the active llama target override.
+2. Compare override state with environment defaults.
+3. Test reachability from the API runtime toward the selected llama endpoint.
+
+Recovery:
+
+1. Correct the persisted llama target override or reset it to environment defaults.
+2. Re-run a synthetic generation request with correlation ID.
+3. Verify that health, generation, and stats agree on the active distribution/runtime path.
 
 ## Rollback Procedure
 

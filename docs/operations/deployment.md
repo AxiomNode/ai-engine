@@ -4,6 +4,16 @@ This guide covers how to run ai-engine's components in different environments:
 the observability API as a standalone service, the RAG pipeline as a library,
 and the game generator from the command line or a web service.
 
+## Runtime topology modes
+
+`ai-engine` supports multiple operational shapes:
+
+1. embedded library mode inside another Python process
+2. split service mode with `ai-engine-api`, `ai-engine-stats`, cache, and an external or separate llama runtime
+3. full composed stack where API, stats, cache, and llama runtime are started together
+
+When split mode is active, the health of `ai-engine-api` and the health of the model runtime must be checked separately.
+
 ---
 
 ## Option A — Library (embedded use)
@@ -123,12 +133,14 @@ deployments or GPU servers.
 from ai_engine.llm import LlamaClient
 
 llm = LlamaClient(
-    api_url="http://localhost:8080/completion",
+  api_url="http://localhost:8080/v1/completions",
     json_mode=True,
     temperature=0.2,
 )
 response = llm.generate("Explain photosynthesis.", max_tokens=256)
 ```
+
+`LlamaClient` also supports legacy `/completion` endpoints when the target server exposes that older path.
 
 ---
 
@@ -252,6 +264,8 @@ the platform runs on the VPS Kubernetes cluster, prefer `AUTO_EXPOSE_VPS_RELAY`
 instead. That mode opens a reverse SSH tunnel from the workstation to the VPS
 and starts a tiny TCP relay on the VPS, so STG reaches ai-engine through the
 VPS relay host instead of requiring inbound access directly to the workstation.
+
+When the API runtime is deployed separately from the llama runtime, also verify the active llama target override state used by `ai-engine-api` if generation requests do not reach the expected model host.
 
 If you want the stack to consume more host resources, raise the limits in
 `.env` before starting Compose. Example:

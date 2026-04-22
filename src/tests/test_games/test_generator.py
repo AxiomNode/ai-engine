@@ -39,11 +39,18 @@ class _MockLLMQuiz:
 
     async def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
         topic = "math"
-        marker = "Focus specifically on this topic/request:"
+        markers = (
+            "Focus specifically on this topic/request:",
+            "- Topic:",
+        )
         for line in prompt.splitlines():
-            if marker in line:
-                topic = line.split(marker, 1)[1].strip() or topic
-                break
+            for marker in markers:
+                if marker in line:
+                    topic = line.split(marker, 1)[1].strip() or topic
+                    break
+            else:
+                continue
+            break
 
         data = {
             "game_type": "quiz",
@@ -668,7 +675,7 @@ class TestGameGeneratorQuiz:
         _run(gen.generate(query="fotosintesis", game_type="quiz", language="es"))
 
         assert llm.prompts
-        assert "Focus specifically on this topic/request: fotosintesis" in llm.prompts[0]
+        assert "- Topic: fotosintesis" in llm.prompts[0]
 
 
 class TestGameGeneratorWordPass:

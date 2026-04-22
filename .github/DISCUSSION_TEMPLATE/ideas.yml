@@ -1,0 +1,73 @@
+title: "[Idea] "
+labels: ["idea"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form to propose an improvement, simplification, or governance change.
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Describe the idea.
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or opportunity
+      description: Explain what this idea solves.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Expected impact
+      description: Explain impact on code, workflow, or operations.
+    validations:
+      required: true
+  - type: input
+    id: affected
+    attributes:
+      label: Affected repositories or areas
+      description: List impacted repositories, if any.
+      placeholder: api-gateway, backoffice, docs
+title: "[Idea] "
+labels: ["discussion", "idea"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this discussion to propose improvements in architecture, workflow, operability, or product behavior before opening a concrete implementation issue.
+  - type: input
+    id: proposal
+    attributes:
+      label: Proposal summary
+      description: Summarize the idea in one line.
+      placeholder: Describe the improvement briefly.
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or opportunity
+      description: Explain what is not working well today or what opportunity exists.
+      placeholder: Describe the current problem, limitation, or opportunity.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Expected impact
+      description: Describe affected repositories, workflows, or users.
+      placeholder: Explain the expected benefit and who is affected.
+    validations:
+      required: true
+  - type: checkboxes
+    attributes:
+      label: Proposal checklist
+      options:
+        - label: I identified the repositories or workflows affected by this idea.
+          required: true
+        - label: I identified whether documentation or governance updates would be needed.
+          required: true

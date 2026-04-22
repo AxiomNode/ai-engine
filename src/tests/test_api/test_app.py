@@ -7,6 +7,9 @@ embedding model is required during testing.
 from __future__ import annotations
 
 import asyncio
+import sys
+import types
+import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -131,6 +134,371 @@ def _make_client(
         mock_pipeline,
         collector,
     )
+
+
+def test_llama_url_helpers_and_target_payload() -> None:
+    from ai_engine.api.app import (
+        _build_llama_url,
+        _get_llama_target_payload,
+        _normalize_llama_host,
+        _parse_llama_url,
+    )
+
+    assert _normalize_llama_host(" https://llama.local:7002/v1 ") == "llama.local"
+    with pytest.raises(ValueError, match="valid hostname"):
+        _normalize_llama_host("bad host!")
+
+    assert _build_llama_url("https", "llama.local", 8443) == "https://llama.local:8443/v1/completions"
+    assert _parse_llama_url("https://llama.local/v1/completions") == (
+        "llama.local",
+        "https",
+        443,
+    )
+    assert _parse_llama_url("not a url") == (None, None, None)
+
+    app = MagicMock()
+    app.state = types.SimpleNamespace(
+        llama_url="http://llama.local:7002/v1/completions",
+        llama_env_url="http://env.local:7002/v1/completions",
+        llama_target_override=types.SimpleNamespace(
+            label="desk",
+            updated_at="2026-04-22T12:00:00Z",
+        ),
+    )
+
+    assert _get_llama_target_payload(app) == {
+        "source": "override",
+        "label": "desk",
+        "host": "llama.local",
+        "protocol": "http",
+        "port": 7002,
+        "llamaBaseUrl": "http://llama.local:7002/v1/completions",
+        "envLlamaBaseUrl": "http://env.local:7002/v1/completions",
+        "updatedAt": "2026-04-22T12:00:00Z",
+    }
+
+
+def test_apply_runtime_llama_url_updates_state_and_validates_runtime_support() -> None:
+    from ai_engine.api.app import _apply_runtime_llama_url
+
+    mutable_client = types.SimpleNamespace(set_api_url=AsyncMock())
+    app = MagicMock()
+    app.state = types.SimpleNamespace(
+        generator=types.SimpleNamespace(_generator=types.SimpleNamespace(llm_client=mutable_client)),
+        llama_url=None,
+    )
+
+    asyncio.run(_apply_runtime_llama_url(app, "http://llama.local:7002/v1/completions"))
+
+    mutable_client.set_api_url.assert_awaited_once_with(
+        "http://llama.local:7002/v1/completions"
+    )
+    assert app.state.llama_url == "http://llama.local:7002/v1/completions"
+
+    app.state.generator = object()
+    with pytest.raises(RuntimeError, match="unavailable"):
+        asyncio.run(_apply_runtime_llama_url(app, None))
+
+
+def test_generation_request_helpers_normalize_metadata_and_headers() -> None:
+    from ai_engine.api.app import (
+        _apply_generate_headers,
+        _build_model_generate_request,
+        _generation_failure_metadata,
+        _resolve_category_name,
+        _resolve_effective_max_tokens,
+    )
+    from ai_engine.api.schemas import GenerateRequest
+
+    req = GenerateRequest(query="biology", game_type="quiz", max_tokens=512)
+    updated = _apply_generate_headers(
+        req,
+        language_header=" EN ",
+        difficulty_header=140,
+    )
+
+    assert updated.language == "en"
+    assert updated.difficulty_percentage == 100
+    assert _resolve_category_name("17", "Custom") == "Science & Nature"
+    assert _resolve_category_name(None, "  Custom  ") == "Custom"
+
+    built = _build_model_generate_request(
+        game_type="word-pass",
+        query_text=None,
+        language_header="ES",
+        difficulty_header=-5,
+        item_count=2,
+        category_id="17",
+        category_name="ignored",
+        letters="A,B",
+        max_tokens=256,
+        use_cache=False,
+        force_refresh=True,
+    )
+    assert built.category_name == "Science & Nature"
+    assert built.language == "es"
+    assert built.difficulty_percentage == 0
+    assert built.force_refresh is True
+
+    metadata = _generation_failure_metadata(
+        built,
+        correlation_id="corr-1",
+        distribution_version="dev-v1",
+        effective_max_tokens=_resolve_effective_max_tokens(built),
+        extra_metadata={"upstream_service": "llama"},
+    )
+    assert metadata["correlation_id"] == "corr-1"
+    assert metadata["distribution_version"] == "dev-v1"
+    assert metadata["upstream_service"] == "llama"
+    assert metadata["effective_max_tokens"] >= 0
+
+
+def test_rate_limit_and_request_identity_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
+    from ai_engine.api.app import (
+        _FixedWindowRateLimiter,
+        _GenerationCapacityLimiter,
+        _get_correlation_id,
+        _resolve_generation_caller_tier,
+        _resolve_rate_limit_identity,
+    )
+
+    limiter = _FixedWindowRateLimiter(max_requests=2, window_seconds=10)
+    time_values = iter([0.0, 1.0, 2.0, 20.0])
+    monkeypatch.setattr("ai_engine.api.app.time.time", lambda: next(time_values))
+
+    assert limiter.allow("client-1") is True
+    assert limiter.allow("client-1") is True
+    assert limiter.allow("client-1") is False
+    assert limiter.allow("client-1") is True
+
+    request = MagicMock()
+    request.headers = {"X-API-Key": "secret", "X-Correlation-ID": "corr-header"}
+    request.client = types.SimpleNamespace(host="127.0.0.1")
+    request.state = types.SimpleNamespace(auth_scope="games", correlation_id="")
+
+    assert _resolve_generation_caller_tier(request) == "background"
+    assert _resolve_rate_limit_identity(request) == "api_key:secret"
+    assert _get_correlation_id(request) == "corr-header"
+
+    request.headers = {}
+    request.state = types.SimpleNamespace(auth_scope="api", correlation_id="corr-state")
+    assert _resolve_generation_caller_tier(request) == "interactive"
+    assert _resolve_rate_limit_identity(request) == "ip:127.0.0.1"
+    assert _get_correlation_id(request) == "corr-state"
+
+    monkeypatch.setattr(uuid, "uuid4", lambda: types.SimpleNamespace(hex="generated-corr"))
+    request.state = types.SimpleNamespace(auth_scope="api", correlation_id="")
+    request.client = None
+    assert _get_correlation_id(request) == "generated-corr"
+
+    capacity = _GenerationCapacityLimiter(max_in_flight=1, max_queue_size=1)
+    assert capacity.stats()["max_in_flight"] == 1
+
+
+def test_warmup_cache_tracks_generated_cached_and_failed_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import ai_engine.api.app as app_module
+
+    class _Optimizer:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str, str]] = []
+
+        async def generate(self, req, correlation_id: str | None = None):
+            self.calls.append((req.game_type, req.language, req.category_name))
+            if len(self.calls) == 1:
+                return types.SimpleNamespace(metrics={"cache_hit": False})
+            if len(self.calls) == 2:
+                return types.SimpleNamespace(metrics={"cache_hit": True})
+            raise RuntimeError("boom")
+
+    sleep_calls: list[float] = []
+    monkeypatch.setattr(app_module, "_WARMUP_GAME_TYPES", ["quiz"])
+    monkeypatch.setattr(app_module, "_WARMUP_LANGUAGES", ["es"])
+    monkeypatch.setattr(app_module, "_WARMUP_CATEGORIES", [("17", "Science"), ("23", "History"), ("27", "Animals")])
+    monkeypatch.setattr(app_module.asyncio, "sleep", AsyncMock(side_effect=lambda delay: sleep_calls.append(delay)))
+
+    optimizer = _Optimizer()
+    asyncio.run(app_module._warmup_cache(optimizer))
+
+    assert optimizer.calls == [
+        ("quiz", "es", "Science"),
+        ("quiz", "es", "History"),
+        ("quiz", "es", "Animals"),
+    ]
+    assert sleep_calls == [0.5, 0.5, 0.5]
+
+
+def test_prime_runtime_content_ingests_examples_and_runs_optional_warmup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import ai_engine.api.app as app_module
+
+    docs = [types.SimpleNamespace(content="water"), types.SimpleNamespace(content="plants")]
+    rag_pipeline = MagicMock()
+    optimizer = MagicMock()
+    warmup_calls: list[object] = []
+
+    class _FakeExampleInjector:
+        @staticmethod
+        def _corpus_to_documents(corpus):
+            assert corpus == ["corpus"]
+            return docs
+
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    async def fake_warmup(passed_optimizer):
+        warmup_calls.append(passed_optimizer)
+
+    monkeypatch.setitem(sys.modules, "ai_engine.examples", types.SimpleNamespace(ExampleInjector=_FakeExampleInjector))
+    monkeypatch.setattr(app_module, "get_full_corpus", lambda: ["corpus"])
+    monkeypatch.setattr(app_module.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(app_module, "_warmup_cache", fake_warmup)
+
+    asyncio.run(
+        app_module._prime_runtime_content(
+            rag_pipeline,
+            optimizer,
+            cache_warmup_enabled=True,
+        )
+    )
+
+    rag_pipeline.ingest.assert_called_once_with(docs)
+    optimizer.on_ingest.assert_called_once_with(docs)
+    assert warmup_calls == [optimizer]
+
+
+def test_prime_runtime_content_stops_after_bootstrap_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import ai_engine.api.app as app_module
+
+    rag_pipeline = MagicMock()
+    optimizer = MagicMock()
+    warmup_calls: list[object] = []
+
+    class _BrokenExampleInjector:
+        @staticmethod
+        def _corpus_to_documents(corpus):
+            raise RuntimeError("inject failed")
+
+    async def fake_warmup(passed_optimizer):
+        warmup_calls.append(passed_optimizer)
+
+    monkeypatch.setitem(sys.modules, "ai_engine.examples", types.SimpleNamespace(ExampleInjector=_BrokenExampleInjector))
+    monkeypatch.setattr(app_module, "get_full_corpus", lambda: ["corpus"])
+    monkeypatch.setattr(app_module, "_warmup_cache", fake_warmup)
+
+    asyncio.run(
+        app_module._prime_runtime_content(
+            rag_pipeline,
+            optimizer,
+            cache_warmup_enabled=True,
+        )
+    )
+
+    rag_pipeline.ingest.assert_not_called()
+    optimizer.on_ingest.assert_not_called()
+    assert warmup_calls == []
+
+
+def test_install_api_key_openapi_marks_only_protected_routes() -> None:
+    from fastapi import FastAPI
+
+    from ai_engine.api.app import _install_api_key_openapi
+
+    app = FastAPI(title="demo", version="1.0.0")
+
+    @app.get("/health")
+    def health() -> dict[str, str]:
+        return {"status": "ok"}
+
+    @app.post("/generate")
+    def generate() -> dict[str, str]:
+        return {"status": "ok"}
+
+    _install_api_key_openapi(app, public_paths={"/health"})
+
+    schema = app.openapi()
+
+    assert schema["components"]["securitySchemes"]["ApiKeyAuth"]["name"] == "X-API-Key"
+    assert "security" not in schema["paths"]["/health"]["get"]
+    assert schema["paths"]["/generate"]["post"]["security"] == [{"ApiKeyAuth": []}]
+    assert app.openapi() is schema
+
+
+def test_publish_and_record_observability_event_bridge(monkeypatch: pytest.MonkeyPatch) -> None:
+    import ai_engine.api.app as app_module
+
+    posted: list[dict[str, object]] = []
+
+    class _FakeAsyncClient:
+        def __init__(self, timeout: float) -> None:
+            assert timeout == 2.0
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def post(self, url: str, json: dict[str, object], headers: dict[str, str]) -> None:
+            posted.append({"url": url, "json": json, "headers": headers})
+
+    monkeypatch.setattr(app_module.httpx, "AsyncClient", _FakeAsyncClient)
+
+    request = MagicMock()
+    request.app.state = types.SimpleNamespace(
+        stats_url="http://stats.local",
+        stats_api_key="stats-secret",
+        collector=StatsCollector(),
+    )
+
+    asyncio.run(
+        app_module._record_observability_event(
+            request,
+            prompt="prompt",
+            response="response",
+            latency_ms=12.5,
+            max_tokens=256,
+            json_mode=True,
+            success=False,
+            game_type="quiz",
+            metadata={"correlation_id": "corr-1"},
+            error="boom",
+        )
+    )
+
+    history = request.app.state.collector.history(last_n=1)
+    assert len(history) == 1
+    assert history[0]["error"] == "boom"
+    assert posted == [
+        {
+            "url": "http://stats.local/events",
+            "json": {
+                "prompt": "prompt",
+                "response": "response",
+                "latency_ms": 12.5,
+                "max_tokens": 256,
+                "json_mode": True,
+                "success": False,
+                "game_type": "quiz",
+                "error": "boom",
+                "metadata": {"correlation_id": "corr-1"},
+            },
+            "headers": {"X-API-Key": "stats-secret"},
+        }
+    ]
+
+
+def test_publish_event_to_stats_noops_without_url() -> None:
+    import ai_engine.api.app as app_module
+
+    request = MagicMock()
+    request.app.state = types.SimpleNamespace(stats_url=" ", stats_api_key=None)
+
+    asyncio.run(app_module._publish_event_to_stats(request, {"event_type": "generation"}))
 
 
 # ------------------------------------------------------------------

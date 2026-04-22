@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import threading
 from dataclasses import dataclass
 from fnmatch import fnmatch
 
-from ai_engine.api.optimization import GenerationOptimizationService
+import pytest
+
+from ai_engine.api.optimization import GenerationOptimizationService, _LRUCache
 from ai_engine.api.schemas import GenerateRequest
+from ai_engine.games.catalog import get_game_type_profile
 from ai_engine.games.schemas import GameEnvelope, QuizGame, QuizQuestion
 
 
@@ -86,6 +90,39 @@ class _StubGenerator:
         )
 
 
+class _LegacyGenerator:
+    def __init__(self) -> None:
+        self.last_run_metrics = {
+            "llm_total_ms": 7.0,
+            "parse_total_ms": 2.0,
+            "retry_used": True,
+        }
+        self.calls: list[dict[str, object]] = []
+
+    async def generate(self, **kwargs) -> GameEnvelope:
+        self.calls.append(kwargs)
+        return GameEnvelope(
+            game_type="quiz",
+            game=QuizGame(
+                title="Legacy Quiz",
+                questions=[
+                    QuizQuestion(
+                        question="Legacy question",
+                        options=["A", "B", "C", "D"],
+                        correct_index=0,
+                        explanation="Legacy path.",
+                    )
+                ],
+            ),
+        )
+
+
+class _FailingGenerator:
+    async def generate_from_context(self, **kwargs) -> GameEnvelope:
+        _ = kwargs
+        raise RuntimeError("generation failed")
+
+
 class _FakeRedis:
     """In-memory Redis test double supporting required operations."""
 
@@ -137,6 +174,95 @@ class _FakeRedis:
                 del self.sets[key]
                 removed += 1
         return removed
+
+
+def test_lru_cache_evicts_oldest_and_expires_entries(monkeypatch: pytest.MonkeyPatch) -> None:
+    cache = _LRUCache(max_entries=1, ttl_seconds=10)
+    cache.set("first", {"value": 1})
+    cache.set("second", {"value": 2})
+
+    assert cache.get("first") is None
+    assert cache.get("second") == {"value": 2}
+
+    monkeypatch.setattr("ai_engine.api.optimization.time.time", lambda: 1_000.0)
+    cache = _LRUCache(max_entries=2, ttl_seconds=5)
+    cache.set("expiring", {"value": 3})
+    monkeypatch.setattr("ai_engine.api.optimization.time.time", lambda: 1_010.0)
+
+    assert cache.get("expiring") is None
+
+
+def test_generate_falls_back_to_legacy_generator_without_generate_from_context() -> None:
+    generator = _LegacyGenerator()
+    service = GenerationOptimizationService(
+        generator=generator,
+        rag_pipeline=_StubRAGPipeline(),
+        cache_max_entries=0,
+        persistent_cache_path=None,
+    )
+
+    result = _run(service.generate(GenerateRequest(query="water", max_tokens=300)))
+
+    assert result.payload["game_type"] == "quiz"
+    assert generator.calls[0]["query"] == "water"
+    assert generator.calls[0]["max_tokens"] == 300
+    assert result.metrics["retry_used"] is True
+
+
+def test_generate_attaches_metrics_when_generator_raises() -> None:
+    service = GenerationOptimizationService(
+        generator=_FailingGenerator(),
+        rag_pipeline=_StubRAGPipeline(),
+        cache_max_entries=0,
+        persistent_cache_path=None,
+    )
+
+    with pytest.raises(RuntimeError, match="generation failed") as exc_info:
+        _run(service.generate(GenerateRequest(query="water")))
+
+    assert exc_info.value.generation_metrics["rag_docs_retrieved"] == 1
+    assert exc_info.value.generation_metrics["total_latency_ms"] >= 0
+
+
+def test_on_ingest_skips_blank_documents_and_uses_fallback_title() -> None:
+    service = GenerationOptimizationService(
+        generator=_StubGenerator(),
+        rag_pipeline=_StubRAGPipeline(),
+        cache_max_entries=0,
+        persistent_cache_path=None,
+    )
+
+    service.on_ingest(
+        [
+            type("Doc", (), {"content": "   ", "doc_id": "blank", "metadata": {}})(),
+            type("Doc", (), {"content": "Useful context", "doc_id": "", "metadata": {}})(),
+        ]
+    )
+
+    hits = service._kbd_search_sync("Useful")
+
+    assert len(hits) == 1
+    assert hits[0].title.startswith("doc-")
+
+
+def test_read_persistent_cache_handles_invalid_redis_payloads(monkeypatch: pytest.MonkeyPatch) -> None:
+    import ai_engine.api.optimization as optimization_module
+
+    monkeypatch.setattr(optimization_module, "_RedisClient", _FakeRedis)
+    service = GenerationOptimizationService(
+        generator=_StubGenerator(),
+        rag_pipeline=_StubRAGPipeline(),
+        cache_max_entries=0,
+        cache_backend="redis",
+        redis_url="redis://local/0",
+        persistent_cache_path=None,
+    )
+    key = service._redis_cache_key("v1", "abc")
+    service._redis_cache.kv[key] = "not-json"
+    assert service._read_persistent_cache("abc") is None
+
+    service._redis_cache.kv[key] = "{}"
+    assert service._read_persistent_cache("abc") is None
 
 
 def test_persistent_cache_stats_and_reset_use_cache_index(tmp_path) -> None:
@@ -247,7 +373,7 @@ def test_generate_uses_category_name_when_query_is_missing() -> None:
         "category": "Science & Nature",
     }
     assert "Science & Nature" in str(rag.calls[0]["query"])
-    assert rag.calls[0]["top_k"] == 10
+    assert rag.calls[0]["top_k"] == get_game_type_profile("word-pass").retrieval_top_k
 
 
 def test_on_ingest_populates_kbd_even_without_tinydb_backend() -> None:
@@ -429,3 +555,131 @@ def test_persistent_index_stays_consistent_under_concurrency(tmp_path) -> None:
 
     stats_after = service.cache_stats()
     assert stats_after["persistent_entries"] == 0
+
+
+def test_generate_falls_back_when_format_context_signature_or_type_is_incompatible() -> None:
+    """Generation should fall back to joined document content when _format_context is incompatible."""
+
+    class _RAGWithOddFormatter(_StubRAGPipeline):
+        def _format_context(self, docs: list[_Doc]) -> dict[str, object]:
+            return {"docs": len(docs)}
+
+    class _CapturingGenerator(_StubGenerator):
+        def __init__(self) -> None:
+            super().__init__()
+            self.last_context = ""
+
+        async def generate_from_context(self, context: str, **kwargs) -> GameEnvelope:
+            self.last_context = context
+            return await super().generate_from_context(context=context, **kwargs)
+
+    generator = _CapturingGenerator()
+    service = GenerationOptimizationService(
+        generator=generator,
+        rag_pipeline=_RAGWithOddFormatter(),
+        cache_max_entries=0,
+        persistent_cache_path=None,
+    )
+
+    result = _run(service.generate(GenerateRequest(query="water")))
+
+    assert result.payload["game_type"] == "quiz"
+    assert generator.last_context == "Water cycle context"
+
+
+def test_cache_stats_tracks_redis_stats_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Redis stats failures should be swallowed and reflected in backend error counters."""
+    import ai_engine.api.optimization as optimization_module
+
+    monkeypatch.setattr(optimization_module, "_RedisClient", _FakeRedis)
+    service = GenerationOptimizationService(
+        generator=_StubGenerator(),
+        rag_pipeline=_StubRAGPipeline(),
+        cache_max_entries=0,
+        cache_backend="redis",
+        redis_url="redis://local/0",
+        persistent_cache_path=None,
+    )
+
+    def fail_scard(_: str) -> int:
+        raise RuntimeError("stats failed")
+
+    service._redis_cache.scard = fail_scard
+
+    stats = service.cache_stats()
+
+    assert stats["persistent_entries"] == 0
+    assert stats["persistent_backend_errors"]["stats"] == 1
+
+
+def test_read_persistent_cache_db_backend_handles_invalid_and_expired_entries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TinyDB-backed reads should reject invalid JSON shapes and expired entries."""
+    service = GenerationOptimizationService(
+        generator=_StubGenerator(),
+        rag_pipeline=_StubRAGPipeline(),
+        cache_max_entries=0,
+        persistent_cache_path=None,
+    )
+
+    class _FakeDBCache:
+        def __init__(self, entries: list[object]) -> None:
+            self.entries = entries
+
+        def get(self, entry_id: str):
+            _ = entry_id
+            return self.entries.pop(0)
+
+    invalid_entry = type("Entry", (), {"content": json.dumps({"expires_at": 0})})()
+    expired_entry = type(
+        "Entry",
+        (),
+        {"content": json.dumps({"payload": {}, "sdk_payload": {}, "expires_at": 1.0})},
+    )()
+
+    service._db_cache = _FakeDBCache([invalid_entry, expired_entry])
+    monkeypatch.setattr("ai_engine.api.optimization.time.time", lambda: 5.0)
+
+    assert service._read_persistent_cache("missing-fields") is None
+    assert service._read_persistent_cache("expired") is None
+
+
+def test_write_persistent_cache_without_backend_returns_false() -> None:
+    """Persistent cache writes should no-op when neither Redis nor TinyDB is configured."""
+    service = GenerationOptimizationService(
+        generator=_StubGenerator(),
+        rag_pipeline=_StubRAGPipeline(),
+        cache_max_entries=0,
+        persistent_cache_path=None,
+    )
+
+    assert service._write_persistent_cache("k", {"payload": {}, "sdk_payload": {}}) is False
+
+
+def test_bootstrap_persistent_cache_index_filters_non_cache_entries() -> None:
+    """Bootstrap should index only cache-prefixed or generation_cache-marked entries."""
+    service = GenerationOptimizationService(
+        generator=_StubGenerator(),
+        rag_pipeline=_StubRAGPipeline(),
+        cache_max_entries=0,
+        persistent_cache_path=None,
+    )
+
+    class _FakeDBCache:
+        @staticmethod
+        def list_all() -> list[object]:
+            return [
+                type("Entry", (), {"entry_id": "cache-v1-a", "metadata": {}})(),
+                type(
+                    "Entry",
+                    (),
+                    {"entry_id": "other-entry", "metadata": {"kind": "generation_cache"}},
+                )(),
+                type("Entry", (), {"entry_id": "plain", "metadata": {"kind": "note"}})(),
+            ]
+
+    service._db_cache = _FakeDBCache()
+    service._bootstrap_persistent_cache_index()
+
+    assert service._persistent_cache_ids == {"cache-v1-a", "other-entry"}

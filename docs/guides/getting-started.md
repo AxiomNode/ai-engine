@@ -21,15 +21,15 @@ cd ai-engine
 cd src
 
 # Create an isolated virtual environment
-python -m venv src/.venv
+python -m venv .venv
 
 # Activate it
 # Linux / macOS
-source src/.venv/bin/activate
+. .venv/bin/activate
 # Windows (PowerShell)
-src\.venv\Scripts\Activate.ps1
+.venv\Scripts\Activate.ps1
 # Windows (Git Bash)
-source src/.venv/Scripts/activate
+source .venv/Scripts/activate
 ```
 
 ### Install in editable mode
@@ -60,6 +60,12 @@ pip install -e ".[dev,rag,llm,games,api]"
 ```
 
 > Tip: For day-to-day development you typically want `[dev,games,api]`.
+
+If you are working on split-runtime or deployment-sensitive behavior, add `redis` as well:
+
+```bash
+pip install -e ".[dev,games,api,redis]"
+```
 
 ---
 
@@ -201,6 +207,16 @@ ai-engine/
 | Variable | Default | Description |
 |---|---|---|
 | `AI_ENGINE_MODELS_DIR` | `<project_root>/src/models/` | Directory where GGUF files are stored and searched. |
+| `AI_ENGINE_EMBEDDING_MODEL` | `paraphrase-multilingual-MiniLM-L12-v2` | Default sentence-transformers model used by the API/runtime path. |
+
+## Local verification checklist
+
+Before treating the environment as ready, verify:
+
+1. `pytest` runs successfully for the slice you are touching
+2. the selected GGUF model is present if local inference is required
+3. any llama HTTP target you use is compatible with `/completion` or `/v1/completions`
+4. the distribution or `.env` files match the intended stage/environment
 
 Set it in your shell or in a `.env` file loaded by your runner:
 

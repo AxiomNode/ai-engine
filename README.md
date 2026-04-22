@@ -1,5 +1,7 @@
 # ai-engine
 
+[![codecov](https://codecov.io/gh/AxiomNode/ai-engine/branch/main/graph/badge.svg)](https://codecov.io/gh/AxiomNode/ai-engine)
+
 AI Engine — RAG, local LLM inference and structured educational game generation.
 
 ## Documentation
@@ -21,7 +23,7 @@ integration with **local language models** (llama.cpp / GGUF), a
 **structured educational game generator** (quiz, word-pass, true/false),
 and an **observability / stats API** (FastAPI) for monitoring model usage — all in Python.
 
-## Integration in the target architecture
+## Integration in the current platform architecture
 
 `ai-engine` runs as an internal AI capability service for domain microservices.
 
@@ -33,11 +35,24 @@ Initial internal contract:
 
 - `contracts-and-schemas/schemas/openapi/internal-ai-engine.v1.yaml`
 
+## Deployment shape
+
+The repository produces multiple runtime components that can be deployed together or in a split topology:
+
+- `ai-engine-api`: generation and ingest surface
+- `ai-engine-stats`: AI observability and cache/statistics surface
+- `llama-server`: model-serving runtime used by `ai-engine-api`
+- Redis cache backend in local or split-runtime environments
+
 ## Core runtime components
 
 - `ai-engine-api`: primary AI generation and ingestion API, with cache and RAG integration.
 - `ai-engine-stats`: AI observability API for events and aggregated runtime metrics.
 - `llama-server`: local LLM inference runtime used by the engine.
+
+## Runtime state and target resolution
+
+`ai-engine-api` can persist runtime model-target information so that the active llama destination survives process restart or pod recreation. Effective model routing can therefore differ from environment defaults during controlled operations.
 
 ## Project Structure
 
@@ -121,6 +136,21 @@ cd src
 pytest
 ```
 
+## Dependency model
+
+Core dependencies vary by runtime slice:
+
+- `ai-engine-api`: llama runtime, embeddings/model assets, cache backend, stats API
+- `ai-engine-stats`: internal collector state and optional bridge to API runtime information
+- `llama-server`: GGUF models and machine-level CPU/GPU resources
+
+Primary consumers:
+
+- `microservice-quizz`
+- `microservice-wordpass`
+- `bff-backoffice` diagnostics and stats flows
+- `api-gateway` internal AI proxy routes
+
 ## CI/CD workflow behavior
 
 - `.github/workflows/ci.yml`
@@ -136,7 +166,16 @@ pytest
 
 ## Deployment automation chain
 
-Push to `main` triggers image rebuilds in `platform-infra`, followed by automatic deployment to `dev`.
+Push to `main` triggers image rebuilds in `platform-infra`, followed by automatic deployment to `stg` for the covered runtime images.
+
+The external llama runtime remains outside that automatic GHCR-to-k3s chain unless the optional fully in-cluster AI overlay is deployed deliberately.
+
+## Failure boundaries
+
+- API or stats healthy but llama target unreachable or overloaded
+- llama runtime healthy but generated payload invalid after validation
+- cache backend unavailable, causing degraded generation behavior
+- model warm-up or resource pressure causing readiness failures despite successful artifact publication
 
 ## Quick Start
 

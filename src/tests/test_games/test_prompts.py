@@ -47,3 +47,14 @@ class TestGetPrompt:
         assert "quiz" in TEMPLATES
         assert "word-pass" in TEMPLATES
         assert "true_false" in TEMPLATES
+
+    def test_topic_clause_is_included_only_when_topic_has_content(self):
+        prompt = get_prompt(game_type="quiz", context="C", topic="  photosynthesis  ")
+        assert "- Topic: photosynthesis" in prompt
+
+        without_topic = get_prompt(game_type="quiz", context="C", topic="   ")
+        assert "- Topic:" not in without_topic
+
+    def test_word_pass_uses_special_system_prompt(self):
+        prompt = get_prompt(game_type="word-pass", context="Biology facts.")
+        assert "Return ONLY valid JSON" in prompt

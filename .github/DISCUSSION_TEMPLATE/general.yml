@@ -1,0 +1,65 @@
+title: "[General] "
+labels: ["discussion"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for cross-cutting technical discussion that does not fit a bug report or change request.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the topic to discuss.
+      placeholder: We need to clarify how this repository should handle...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Architecture
+        - Runtime behavior
+        - CI/CD
+        - Documentation
+        - Cross-repository coordination
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Add references, constraints, or affected repositories.
+    validations:
+      required: true
+title: "[General] "
+labels: ["discussion", "general"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this discussion for cross-cutting technical context, design tradeoffs, or repository-level decisions that are not a bug report or a concrete change request.
+  - type: textarea
+    id: topic
+    attributes:
+      label: Topic
+      description: Describe the subject clearly.
+      placeholder: Summarize the topic, decision, or concern.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Add repository, workflow, architecture, or operational context.
+      placeholder: Explain the current situation and why this discussion matters.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: State what kind of answer, alignment, or decision is needed.
+      placeholder: Clarify the expected outcome of the discussion.
+    validations:
+      required: true

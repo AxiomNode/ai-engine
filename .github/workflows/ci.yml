@@ -50,7 +50,15 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          pytest --cov=ai_engine --cov-report=term-missing --cov-fail-under=80
+          pytest --cov=ai_engine --cov-branch --cov-report=term-missing --cov-report=json:.cache/coverage/coverage.json --cov-report=xml:.cache/coverage/coverage.xml --cov-fail-under=90
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: src/.cache/coverage/coverage.xml
+          flags: ai-engine
+          fail_ci_if_error: false
 
   optional-extras-matrix:
     runs-on: ubuntu-latest

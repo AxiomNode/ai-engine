@@ -103,6 +103,39 @@ def test_build_context_adds_headers_and_honors_limit():
     assert len(context) <= 73
 
 
+def test_format_context_skips_duplicates_and_blank_documents():
+    pipeline = _build_pipeline()
+    docs = [
+        Document(content="Repeated content", doc_id="1", metadata={"language": "es"}),
+        Document(content="Repeated content", doc_id="1", metadata={"language": "es"}),
+        Document(content="   ", doc_id="blank"),
+        Document(content="Unique content", doc_id="2"),
+    ]
+
+    context = pipeline._format_context(docs)
+
+    assert context.count("Repeated content") == 1
+    assert "Unique content" in context
+    assert "blank" not in context
+
+
+def test_format_context_stops_when_header_alone_exhausts_budget():
+    pipeline = _build_pipeline()
+    docs = [Document(content="A useful paragraph", doc_id="1")]
+
+    context = pipeline._format_context(docs, max_chars=1)
+
+    assert context == ""
+
+
+def test_format_document_header_omits_missing_metadata_fields():
+    pipeline = _build_pipeline()
+
+    header = pipeline._format_document_header(3, Document(content="Body", doc_id="doc"))
+
+    assert header == "Source 3"
+
+
 def test_ingest_empty_list():
     pipeline = _build_pipeline()
     pipeline.ingest([])  # should not raise

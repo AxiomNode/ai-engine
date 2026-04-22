@@ -121,6 +121,17 @@ class TestTrackedLlamaClient:
         h = collector.history()
         assert h[0]["json_mode"] is True
 
+    def test_generate_respects_explicit_json_mode_override(self) -> None:
+        collector = StatsCollector()
+        llm = FakeLLM()
+        llm.json_mode = True
+        tracked = TrackedLlamaClient(llm, collector)
+
+        _run(tracked.generate("p", json_mode=False))
+
+        h = collector.history()
+        assert h[0]["json_mode"] is False
+
 
 # ------------------------------------------------------------------
 # TrackedGameGenerator
@@ -168,6 +179,48 @@ class TestTrackedGameGenerator:
         assert result == {"data": 1}
         h = collector.history()
         assert h[0]["game_type"] == "true_false"
+
+    def test_records_generate_from_context(self) -> None:
+        collector = StatsCollector()
+        gen = FakeGenerator(result={"game_type": "quiz"})
+        tracked = TrackedGameGenerator(gen, collector)
+
+        result = _run(tracked.generate_from_context(context="ctx", game_type="word-pass"))
+
+        assert result == {"game_type": "quiz"}
+        h = collector.history()
+        assert h[0]["prompt_chars"] == len("generate_from_context")
+        assert h[0]["game_type"] == "word-pass"
+
+    def test_records_generate_from_context_failure(self) -> None:
+        collector = StatsCollector()
+        gen = FakeGenerator(fail=True)
+        tracked = TrackedGameGenerator(gen, collector)
+
+        try:
+            _run(tracked.generate_from_context(context="ctx", game_type="quiz"))
+            assert False, "Should raise"
+        except ValueError:
+            pass
+
+        h = collector.history()
+        assert h[0]["success"] is False
+        assert h[0]["prompt_chars"] == len("generate_from_context")
+
+    def test_records_generate_raw_failure(self) -> None:
+        collector = StatsCollector()
+        gen = FakeGenerator(fail=True)
+        tracked = TrackedGameGenerator(gen, collector)
+
+        try:
+            _run(tracked.generate_raw(query="ctx", game_type="quiz"))
+            assert False, "Should raise"
+        except ValueError:
+            pass
+
+        h = collector.history()
+        assert h[0]["success"] is False
+        assert h[0]["prompt_chars"] == len("ctx")
 
     def test_forwards_attributes(self) -> None:
         """Attribute access is forwarded to the inner generator."""

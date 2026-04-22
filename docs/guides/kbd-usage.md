@@ -24,7 +24,7 @@ tag or keyword.
 ## Installation
 
 KBD has no external runtime dependencies. The optional `tinydb` extra is
-declared for future persistent storage but the core module works out of
+available for persistent storage variants, but the core module works out of
 the box:
 
 ```bash

@@ -252,21 +252,27 @@ class _HallucinatingMockLLM:
     """Mock LLM that IGNORES context and invents content — simulates hallucination."""
 
     async def generate(self, prompt: str, max_tokens: int = 1024, **kw) -> str:
+        topic = "tema"
+        for line in prompt.splitlines():
+            if "- Topic:" in line:
+                topic = line.split("- Topic:", 1)[1].strip() or topic
+                break
+
         data = {
             "game_type": "quiz",
             "title": "Quiz inventado",
             "questions": [
                 {
-                    "question": "¿Cuál es la capital de Atlantis?",
+                    "question": f"En el tema {topic}, ¿cuál es la capital de Atlantis?",
                     "options": ["Poseidonia", "Neptuno", "Oceania", "Aquapolis"],
                     "correct_index": 0,
-                    "explanation": "Poseidonia fue la capital legendaria de Atlantis.",
+                    "explanation": f"Aunque se menciona {topic}, Poseidonia fue la capital legendaria de Atlantis.",
                 },
                 {
-                    "question": "¿En qué año se descubrió el elemento Unobtanium?",
+                    "question": f"Sobre {topic}, ¿en qué año se descubrió el elemento Unobtanium?",
                     "options": ["2045", "2030", "2099", "1999"],
                     "correct_index": 0,
-                    "explanation": "El Unobtanium fue descubierto en 2045 por Dr. Fiction.",
+                    "explanation": f"En esta respuesta sobre {topic}, el Unobtanium fue descubierto en 2045 por Dr. Fiction.",
                 },
             ],
         }
@@ -283,16 +289,23 @@ class _InvalidJSONMockLLM:
         self._calls += 1
         if self._calls == 1:
             return "Hmm let me think... { broken json here ]["
+
+        topic = "matemáticas"
+        for line in prompt.splitlines():
+            if "- Topic:" in line:
+                topic = line.split("- Topic:", 1)[1].strip() or topic
+                break
+
         return json.dumps(
             {
                 "game_type": "quiz",
                 "title": "Retry Quiz",
                 "questions": [
                     {
-                        "question": "Test question after retry",
-                        "options": ["A", "B", "C", "D"],
+                        "question": f"¿Qué concepto básico pertenece a {topic}?",
+                        "options": [f"Un principio de {topic}", "Un planeta", "Un animal", "Una capital inventada"],
                         "correct_index": 0,
-                        "explanation": "Recovered after retry.",
+                        "explanation": f"Recovered after retry with a question aligned to {topic}.",
                     }
                 ],
             }

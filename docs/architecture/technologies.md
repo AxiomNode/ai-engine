@@ -14,12 +14,14 @@ with its purpose and the minimum required version.
 | **Python** | ≥ 3.10 | Language runtime. Uses `match`, PEP 604 union types (`X \| Y`), and `from __future__ import annotations`. |
 | **requests** | ≥ 2.30 | HTTP client used by `LlamaClient` (API backend) and `model_manager` (model download). |
 
+The current runtime supports llama.cpp-compatible HTTP completion endpoints, including legacy `/completion` and OpenAI-style `/v1/completions` paths.
+
 ### RAG extras (`pip install -e ".[rag]"`)
 
 | Library | Version | Purpose |
 |---|---|---|
-| **sentence-transformers** | ≥ 2.2 | Produces dense vector embeddings from text via `SentenceTransformersEmbedder`. Default model: `all-MiniLM-L6-v2` (384-dim, ~80 MB). |
-| **chromadb** | ≥ 0.3 | Declared as an optional dependency for future persistent `VectorStore` backends. Not yet wired up — use `InMemoryVectorStore` for development. |
+| **sentence-transformers** | ≥ 2.2 | Produces dense vector embeddings from text via `SentenceTransformersEmbedder`. Current default model: `paraphrase-multilingual-MiniLM-L12-v2` (384-dim, multilingual). |
+| **chromadb** | ≥ 0.3 | Optional dependency reserved for alternative persistent `VectorStore` backends. It is not part of the active default runtime path; use `InMemoryVectorStore` unless a persistent backend is explicitly implemented. |
 
 ### LLM extras (`pip install -e ".[llm]"`)
 
@@ -100,7 +102,9 @@ stored in the directory set by the `AI_ENGINE_MODELS_DIR` environment variable
 
 | Model | Dimensions | Size | Source | Purpose |
 |---|---|---|---|---|
-| **all-MiniLM-L6-v2** | 384 | ~80 MB | Hugging Face (sentence-transformers) | Default dense embedder for the RAG pipeline. Fast CPU inference. Apache-2.0 licence. |
+| **paraphrase-multilingual-MiniLM-L12-v2** | 384 | ~120 MB | Hugging Face (sentence-transformers) | Current default dense embedder for the RAG pipeline and distribution env files. Better multilingual fit for Spanish-heavy educational content. |
+
+Legacy references to `all-MiniLM-L6-v2` may still appear in older comments or examples, but current configuration defaults and tests are aligned to `paraphrase-multilingual-MiniLM-L12-v2`.
 
 ---
 

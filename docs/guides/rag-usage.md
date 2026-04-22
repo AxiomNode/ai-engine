@@ -36,7 +36,7 @@ from ai_engine.rag.vector_store import InMemoryVectorStore
 from ai_engine.rag.embedders.sentence_transformers import SentenceTransformersEmbedder
 
 # 1. Build the pipeline
-embedder = SentenceTransformersEmbedder()          # default: all-MiniLM-L6-v2
+embedder = SentenceTransformersEmbedder()          # default: paraphrase-multilingual-MiniLM-L12-v2
 store    = InMemoryVectorStore()
 pipeline = RAGPipeline(embedder=embedder, vector_store=store, top_k=3)
 
@@ -117,7 +117,7 @@ ingestion, use a large `chunk_size` so no split occurs.
 ```python
 from ai_engine.rag.embedders.sentence_transformers import SentenceTransformersEmbedder
 
-# Default model: all-MiniLM-L6-v2 (384-dimensional, ~80 MB)
+# Default model: paraphrase-multilingual-MiniLM-L12-v2 (384-dimensional, multilingual)
 emb = SentenceTransformersEmbedder()
 
 # Custom model

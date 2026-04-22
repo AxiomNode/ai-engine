@@ -27,6 +27,25 @@ It is not application logic — it is the infrastructure that any game
 microservice calls to receive a validated, structured game definition
 (JSON) without knowing anything about the underlying model.
 
+## Current runtime role inside AxiomNode
+
+In the current AxiomNode platform, `ai-engine` is consumed as a private internal capability service.
+
+Primary runtime consumers today:
+
+- `microservice-quizz`
+- `microservice-wordpass`
+- `bff-backoffice` for diagnostics and AI-operational reads
+- `api-gateway` for stable internal AI proxy routes
+
+Current operational topology supports multiple valid modes:
+
+1. split runtime: `ai-engine-api` and `ai-engine-stats` in one runtime location while llama execution is elsewhere
+2. full in-cluster or full local runtime for controlled diagnostics and benchmarking
+3. workstation-hosted model runtime exposed through controlled routing when staging requires it
+
+That means the effective AI topology is partly a runtime-routing concern, not only a deployment-manifest concern.
+
 ---
 
 ## High-Level Architecture
@@ -38,10 +57,10 @@ microservice calls to receive a validated, structured game definition
 └──────────────────────┬──────────────────────────────────────────┘
                        │ REST / WebSocket
 ┌──────────────────────▼──────────────────────────────────────────┐
-│                       Orchestrator                              │
-│   • Routes requests to the correct game microservice            │
-│   • Handles authentication, rate limiting, session state        │
-│   • Aggregates results and leaderboard data                     │
+│              Edge + BFF + Domain Service Layer                  │
+│   • api-gateway routes public and internal AI traffic           │
+│   • BFFs shape mobile/backoffice contracts                      │
+│   • domain services own validation, persistence, and scoring    │
 └────┬──────────────────────┬────────────────────────┬────────────┘
      │                      │                        │
 ┌────▼────────┐   ┌─────────▼──────────┐   ┌────────▼───────────┐
@@ -90,7 +109,7 @@ microservice calls to receive a validated, structured game definition
 User starts a game session in the App
            │
            ▼
-   Orchestrator receives: { game_type, topic, language, num_questions }
+   Edge/BFF/domain layer receives: { game_type, topic, language, num_questions }
            │
            ▼
    Routes to the matching Game Microservice
@@ -118,11 +137,11 @@ User starts a game session in the App
                      → validated dataclass (QuizGame / WordPassGame / TrueFalseGame)
            │
            ▼
-   Microservice applies game rules (scoring, timing, letter tracking, etc.)
-   and returns a structured game session to the Orchestrator
+        Microservice applies game rules (scoring, timing, letter tracking, etc.)
+        and returns a structured game session to the channel layer
            │
            ▼
-   Orchestrator sends the session to the App
+   Edge/BFF layer sends the session to the App
            │
            ▼
    User plays
@@ -160,6 +179,16 @@ User starts a game session in the App
 - Exposes an observability API for monitoring latency, error rates, and usage
   by game type.
 - Has no knowledge of the App, user sessions, or business rules.
+
+### Runtime slice note
+
+Operationally, the repository is split into multiple runtime components:
+
+- `ai-engine-api` handles generation, ingest, cache-aware control flow, and active llama target resolution
+- `ai-engine-stats` exposes observability and cache/statistics endpoints
+- llama runtime executes model inference and may be colocated or externalized
+
+Because `ai-engine-api` can persist the active llama target, a healthy API process does not automatically imply healthy model reachability.
 
 ---
 

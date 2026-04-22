@@ -1,0 +1,57 @@
+title: "[Q&A] "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for usage questions, implementation clarification, or operational questions.
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: Ask the question clearly.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Add code paths, workflows, or runtime context.
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you already checked?
+      description: List docs, workflows, tests, or files already reviewed.
+title: "[Q&A] "
+labels: ["discussion", "question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this discussion for repository usage questions, local workflow questions, or operator-facing clarification.
+  - type: input
+    id: question
+    attributes:
+      label: Question
+      description: Ask the question directly.
+      placeholder: What do you need to clarify?
+    validations:
+      required: true
+  - type: textarea
+    id: attempted
+    attributes:
+      label: What you already checked
+      description: List the files, docs, commands, or workflows you already reviewed.
+      placeholder: Mention the sources you already checked.
+    validations:
+      required: true
+  - type: textarea
+    id: blockers
+    attributes:
+      label: Current blocker
+      description: Explain what is still unclear or blocking.
+      placeholder: Describe the missing information or blocker.
+    validations:
+      required: true

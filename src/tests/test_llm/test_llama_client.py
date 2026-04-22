@@ -83,6 +83,32 @@ class TestLlamaClientGenerateAPI:
         result = asyncio.run(client.generate("Say hi"))
         assert result == "Hello from API"
 
+    def test_generate_reads_legacy_text_payload(self):
+        client = LlamaClient(api_url="http://localhost:8080/completion")
+        client._http_client = self._make_mock_client({"text": "legacy text"})
+
+        result = asyncio.run(client.generate("Say hi"))
+
+        assert result == "legacy text"
+
+    def test_generate_reads_openai_message_content_payload(self):
+        client = LlamaClient(api_url="http://localhost:8080/v1/completions")
+        client._http_client = self._make_mock_client(
+            {"choices": [{"message": {"content": "chat text"}}]}
+        )
+
+        result = asyncio.run(client.generate("Say hi"))
+
+        assert result == "chat text"
+
+    def test_generate_returns_empty_string_for_unrecognized_payload(self):
+        client = LlamaClient(api_url="http://localhost:8080/completion")
+        client._http_client = self._make_mock_client({"choices": ["bad"]})
+
+        result = asyncio.run(client.generate("Say hi"))
+
+        assert result == ""
+
     def test_generate_respects_max_tokens(self, monkeypatch):
         captured = {}
         client = LlamaClient(api_url="http://localhost:8080/completion")
@@ -317,6 +343,73 @@ class TestLlamaClientGenerateAPI:
         assert limits.max_connections == 3
         assert limits.max_keepalive_connections == 3
 
+    def test_get_api_semaphore_is_reused(self):
+        client = LlamaClient(api_url="http://localhost:8080/completion", max_concurrent_requests=4)
+
+        semaphore = client._get_api_semaphore()
+
+        assert semaphore is client._get_api_semaphore()
+        assert getattr(semaphore, "_value", None) == 4
+
+    def test_close_resets_http_client(self):
+        class _ClosableClient:
+            def __init__(self) -> None:
+                self.is_closed = False
+                self.closed = False
+
+            async def aclose(self):
+                self.is_closed = True
+                self.closed = True
+
+        client = LlamaClient(api_url="http://localhost:8080/completion")
+        closable = _ClosableClient()
+        client._http_client = closable
+
+        asyncio.run(client.close())
+
+        assert closable.closed is True
+        assert client._http_client is None
+
+    def test_set_api_url_closes_existing_http_client(self):
+        class _ClosableClient:
+            def __init__(self) -> None:
+                self.is_closed = False
+                self.closed = False
+
+            async def aclose(self):
+                self.is_closed = True
+                self.closed = True
+
+        client = LlamaClient(api_url="http://localhost:8080/completion")
+        closable = _ClosableClient()
+        client._http_client = closable
+
+        asyncio.run(client.set_api_url("http://localhost:8081/completion"))
+
+        assert closable.closed is True
+        assert client.api_url == "http://localhost:8081/completion"
+        assert client._http_client is None
+
+    def test_should_retry_with_smaller_budget_rejects_non_budget_cases(self):
+        class _Response:
+            def __init__(self, status_code, text):
+                self.status_code = status_code
+                self.text = text
+
+        client = LlamaClient(api_url="http://localhost:8080/completion")
+
+        assert client._should_retry_with_smaller_budget(_Response(503, "retryable but not budget"), requested_tokens=256) is False
+        assert client._should_retry_with_smaller_budget(_Response(500, "different failure"), requested_tokens=256) is False
+        assert client._should_retry_with_smaller_budget(_Response(500, "KV cache is full"), requested_tokens=16) is False
+
+    def test_generate_sync_uses_local_backend_directly(self, monkeypatch):
+        client = LlamaClient(model_path="/fake/model.gguf")
+        monkeypatch.setattr(client, "_generate_local", lambda prompt, tokens, use_json: f"{prompt}-{tokens}-{use_json}")
+
+        result = client.generate_sync("hello", max_tokens=64, json_mode=True)
+
+        assert result == "hello-64-True"
+
 
 class TestLlamaClientProtocol:
     """Ensure LlamaClient satisfies the protocol expected by RAGPipeline."""
@@ -418,6 +511,25 @@ class TestLlamaClientGenerateLocal:
         monkeypatch.setattr(client, "_get_or_load_model", lambda: fake_model)
         result = asyncio.run(client.generate("test"))
         assert result == ""
+
+    def test_get_or_load_model_requires_model_path_when_local_backend_is_used(self, monkeypatch):
+        import builtins
+        import types
+
+        real_import = builtins.__import__
+
+        def _fake_import(name, *args, **kwargs):
+            if name == "llama_cpp":
+                return types.SimpleNamespace(Llama=object)
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", _fake_import)
+
+        client = LlamaClient(api_url="http://localhost:8080/completion")
+        client.api_url = None
+
+        with pytest.raises(ValueError, match="model_path is required"):
+            client._get_or_load_model()
 
 
 class TestJsonGrammar:

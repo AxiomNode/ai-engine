@@ -20,6 +20,8 @@ Recommended environment variables in each game microservice:
 - `AI_ENGINE_GAMES_API_KEY`
 - `AI_ENGINE_TIMEOUT_SECONDS` (recommended: 10-20s)
 
+When split-runtime routing is active, the effective llama destination may differ from the environment default configured inside `ai-engine-api`. Game services should therefore treat API success/failure as the contract boundary and not assume where the model runtime lives.
+
 ## Authentication and Required Headers
 
 When `AI_ENGINE_GAMES_API_KEY` is configured in ai-engine, every request to `/generate*` MUST include:
@@ -64,6 +66,8 @@ These routes reduce payload ambiguity and simplify client code.
 - Quiz: `POST /generate/quiz`
 - WordPass: `POST /generate/word-pass`
 - True/False: `POST /generate/true-false`
+
+These model-specific routes are the preferred integration surface for current game services.
 
 Common query parameters:
 - `query` (required)
@@ -138,6 +142,8 @@ Client recommendations:
 - Do not retry on `401`, `403`, `422`.
 - Log `X-Correlation-ID` from response headers for incident tracing.
 
+If the platform uses admission control for generation capacity, short fast-fail `503` responses should still be treated as retriable only when the caller policy explicitly allows queue/backoff behavior.
+
 ## Persistence Responsibility (Game Microservices)
 
 Each game microservice is responsible for:
@@ -151,7 +157,7 @@ ai-engine is responsible for:
 
 ## Security Recommendation (Service-to-Service)
 
-Target architecture recommendation:
+Current platform security recommendation:
 1. TLS everywhere for transport encryption.
 2. mTLS between internal services (service identity + encryption).
 3. OAuth2 Client Credentials with JWT access tokens for authorization.

@@ -3,7 +3,7 @@
 import pytest
 
 from ai_engine.kbd.entry import KnowledgeEntry
-from ai_engine.kbd.knowledge_base import KnowledgeBase
+from ai_engine.kbd.knowledge_base import KnowledgeBase, _normalize_tokens
 
 
 def _entry(
@@ -91,6 +91,42 @@ def test_search_indexes_are_updated_on_delete():
     kb.add(_entry("1", title="Python basics", content="Python is great"))
     kb.delete("1")
     assert kb.search_by_keyword("python") == []
+
+
+def test_add_replacing_existing_entry_reindexes_old_tags_and_keywords():
+    kb = KnowledgeBase()
+    kb.add(_entry("1", title="Python basics", content="Python is great", tags=["python"]))
+    kb.add(_entry("1", title="History basics", content="Rome is old", tags=["history"]))
+
+    assert kb.search_by_tag("python") == []
+    assert [entry.entry_id for entry in kb.search_by_tag("history")] == ["1"]
+    assert kb.search_by_keyword("python") == []
+    assert [entry.entry_id for entry in kb.search_by_keyword("history")] == ["1"]
+
+
+def test_search_by_tag_ignores_stale_index_entries() -> None:
+    kb = KnowledgeBase()
+    kb._tag_index["python"] = {"ghost"}
+
+    assert kb.search_by_tag("python") == []
+
+
+def test_search_by_keyword_returns_empty_for_short_or_blank_queries() -> None:
+    kb = KnowledgeBase()
+
+    assert kb.search_by_keyword("hi") == []
+    assert kb.search_by_keyword("   ") == []
+
+
+def test_search_by_keyword_ignores_stale_candidate_ids() -> None:
+    kb = KnowledgeBase()
+    kb._keyword_index["python"] = {"ghost"}
+
+    assert kb.search_by_keyword("python") == []
+
+
+def test_normalize_tokens_extracts_lowercase_alphanumerics_only() -> None:
+    assert _normalize_tokens("Python, AI! 42 -- py 123") == {"python", "123"}
 
 
 def test_contains_operator():
