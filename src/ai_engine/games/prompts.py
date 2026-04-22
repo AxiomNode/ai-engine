@@ -8,7 +8,7 @@ schemas defined in :mod:`ai_engine.games.schemas`.  Templates use Python
 
 from __future__ import annotations
 
-from ai_engine.games.catalog import get_supported_game_types, get_game_type_profile
+from ai_engine.games.catalog import get_game_type_profile, get_supported_game_types
 
 # ------------------------------------------------------------------
 # System-level instruction shared by every game type

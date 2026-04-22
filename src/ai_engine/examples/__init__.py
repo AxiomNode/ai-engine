@@ -6,7 +6,7 @@ ingests them into the RAG pipeline at application startup so the LLM
 always has high-quality few-shot context.
 """
 
-from ai_engine.examples.injector import ExampleInjector
 from ai_engine.examples.corpus import get_corpus_signature
+from ai_engine.examples.injector import ExampleInjector
 
 __all__ = ["ExampleInjector", "get_corpus_signature"]
