@@ -118,6 +118,10 @@ from ai_engine.examples import get_corpus_signature  # noqa: E402
 from ai_engine.examples.corpus import get_full_corpus  # noqa: E402
 from ai_engine.games.catalog import estimate_effective_max_tokens  # noqa: E402
 from ai_engine.observability.collector import StatsCollector  # noqa: E402
+from ai_engine.safety import (  # noqa: E402
+    SafetyDecision,
+    evaluate_user_prompt,
+)
 
 
 def _build_from_env() -> tuple[Any, Any]:
@@ -474,6 +478,61 @@ def _resolve_effective_max_tokens(req: GenerateRequest) -> int:
         req.max_tokens,
         item_count=req.item_count,
         letters=req.letters,
+    )
+
+
+async def _enforce_prompt_safety(
+    request: Request,
+    req: GenerateRequest,
+    *,
+    correlation_id: str,
+    distribution_version: str,
+) -> SafetyDecision:
+    """Reject prompts that match jailbreak heuristics with HTTP 422.
+
+    Returns the :class:`SafetyDecision` so callers can attach the
+    ``safety_*`` metadata to downstream observability events. When the
+    decision is ``block`` the function records a failed generation event
+    with ``safety_block_reason`` and raises :class:`HTTPException`.
+    """
+    decision = evaluate_user_prompt(req.resolved_topic)
+    if not decision.blocked:
+        return decision
+
+    metadata = _generation_failure_metadata(
+        req,
+        correlation_id=correlation_id,
+        distribution_version=distribution_version,
+        extra_metadata={
+            "safety_block_reason": decision.primary_reason,
+            "safety_score": decision.score,
+            "safety_categories": list(decision.matched_categories),
+            "safety_patterns": list(decision.matched_patterns),
+            "error_type": "prompt_policy_violation",
+        },
+    )
+    await _record_observability_event(
+        request,
+        prompt=req.resolved_topic,
+        response="",
+        latency_ms=0.0,
+        max_tokens=req.max_tokens,
+        json_mode=True,
+        success=False,
+        game_type=req.game_type,
+        error="prompt-policy-violation",
+        metadata=metadata,
+    )
+    logger.warning(
+        "generate prompt rejected by safety policy "
+        "correlation_id=%s reason=%s score=%.2f",
+        correlation_id,
+        decision.primary_reason,
+        decision.score,
+    )
+    raise HTTPException(
+        status_code=422,
+        detail=("Prompt rejected by safety policy " f"({decision.primary_reason})."),
     )
 
 
@@ -1347,6 +1406,13 @@ def create_app(
         """Execute generation request and return normalized payload."""
         _enforce_generation_rate_limit(request)
 
+        await _enforce_prompt_safety(
+            request,
+            req,
+            correlation_id=_get_correlation_id(request),
+            distribution_version=_get_distribution_version(request),
+        )
+
         gen = _get_generator(request)
         if gen is None:
             raise HTTPException(status_code=503, detail="Generator not initialised.")
@@ -1516,6 +1582,13 @@ def create_app(
     ) -> GenerateSDKResponse:
         """Execute generation request and return SDK-shaped response."""
         _enforce_generation_rate_limit(request)
+
+        await _enforce_prompt_safety(
+            request,
+            req,
+            correlation_id=_get_correlation_id(request),
+            distribution_version=_get_distribution_version(request),
+        )
 
         gen = _get_generator(request)
         if gen is None:

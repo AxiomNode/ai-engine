@@ -216,6 +216,8 @@ class StatsCollector:
                 "persistent_error_counts": {},
                 "correlation_id_counts": {},
                 "distribution_version_counts": {},
+                "safety_block_reason_counts": {},
+                "safety_blocks_total": 0,
             }
 
         total = len(events)
@@ -246,6 +248,8 @@ class StatsCollector:
         persistent_error_counts: dict[str, int] = {}
         correlation_id_counts: dict[str, int] = {}
         distribution_version_counts: dict[str, int] = {}
+        safety_block_reason_counts: dict[str, int] = {}
+        safety_blocks_total = 0
 
         for e in events:
             if e.game_type:
@@ -309,6 +313,13 @@ class StatsCollector:
                     distribution_version_counts[distribution_version] = (
                         distribution_version_counts.get(distribution_version, 0) + 1
                     )
+
+                safety_block_reason = str(meta.get("safety_block_reason", "")).strip()
+                if safety_block_reason:
+                    safety_block_reason_counts[safety_block_reason] = (
+                        safety_block_reason_counts.get(safety_block_reason, 0) + 1
+                    )
+                    safety_blocks_total += 1
 
                 generation_count += 1
                 if bool(meta.get("retry_used", False)):
@@ -413,6 +424,8 @@ class StatsCollector:
             "persistent_error_counts": persistent_error_counts,
             "correlation_id_counts": correlation_id_counts,
             "distribution_version_counts": distribution_version_counts,
+            "safety_block_reason_counts": safety_block_reason_counts,
+            "safety_blocks_total": safety_blocks_total,
         }
 
         with self._lock:
@@ -652,5 +665,26 @@ def summary_to_prometheus(summary: dict[str, Any]) -> str:
             f'ai_engine_llm_errors_total{{kind="generation"}} {failed_calls}',
         ]
     )
+
+    # ------------------------------------------------------------------
+    # Prompt safety metrics (jailbreak classifier)
+    # ------------------------------------------------------------------
+    safety_blocks_total = int(summary.get("safety_blocks_total", 0) or 0)
+    safety_block_reasons = summary.get("safety_block_reason_counts") or {}
+
+    lines.extend(
+        [
+            "# HELP ai_engine_prompt_safety_blocks_total "
+            "Prompts rejected by the jailbreak classifier.",
+            "# TYPE ai_engine_prompt_safety_blocks_total counter",
+            _metric("prompt_safety_blocks_total", safety_blocks_total),
+        ]
+    )
+    if isinstance(safety_block_reasons, dict):
+        for reason, count in sorted(safety_block_reasons.items()):
+            lines.append(
+                "ai_engine_prompt_safety_blocks_by_reason_total"
+                f'{{reason="{reason}"}} {int(count)}'
+            )
 
     return "\n".join(lines) + "\n"
