@@ -1,0 +1,52 @@
+# LLMOps baseline dataset for ai-engine eval harness.
+#
+# Each case exercises the generator end-to-end with a canned LLM response.
+# Add cases here when introducing new prompts, languages or topics.
+#
+# Required keys per case:
+#   id: stable identifier (used in result reports)
+#   game_type: one of "quiz", "word-pass", "true_false"
+#   topic: free-text topic / RAG query
+#   language: ISO 639-1 language code expected in the output
+#   num_questions: requested item count
+#   expected_min_items: minimum items the generator MUST produce
+#
+# Optional:
+#   max_latency_ms: soft latency budget per call (default 500)
+cases:
+  - id: quiz-es-history-5
+    game_type: quiz
+    topic: Historia de Roma
+    language: es
+    num_questions: 5
+    expected_min_items: 1
+  - id: quiz-en-science-3
+    game_type: quiz
+    topic: Photosynthesis basics
+    language: en
+    num_questions: 3
+    expected_min_items: 1
+  - id: word-pass-es-geography-6
+    game_type: word-pass
+    topic: Capitales europeas
+    language: es
+    num_questions: 6
+    expected_min_items: 1
+  - id: word-pass-en-animals-4
+    game_type: word-pass
+    topic: African mammals
+    language: en
+    num_questions: 4
+    expected_min_items: 1
+  - id: true_false-es-physics-5
+    game_type: true_false
+    topic: Leyes de Newton
+    language: es
+    num_questions: 5
+    expected_min_items: 1
+  - id: true_false-en-math-3
+    game_type: true_false
+    topic: Prime numbers
+    language: en
+    num_questions: 3
+    expected_min_items: 1

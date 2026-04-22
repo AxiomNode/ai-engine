@@ -60,6 +60,32 @@ jobs:
           flags: ai-engine
           fail_ci_if_error: false
 
+  eval:
+    name: LLMOps eval harness (non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,rag,api]"
+      - name: Run eval harness
+        run: pytest tests/eval/ -v --no-cov
+      - name: Upload eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-engine-eval-report
+          path: src/.cache/eval/results.json
+          if-no-files-found: ignore
+
   optional-extras-matrix:
     runs-on: ubuntu-latest
     defaults:

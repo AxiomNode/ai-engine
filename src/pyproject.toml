@@ -64,6 +64,9 @@ where = ["."]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 cache_dir = ".cache/pytest"
+markers = [
+    "eval: LLMOps eval harness (ADR 0009); excluded from default coverage gate",
+]
 
 [tool.ruff]
 line-length = 88

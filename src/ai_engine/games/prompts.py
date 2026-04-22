@@ -4,11 +4,44 @@ Each template instructs the LLM to produce strict JSON matching the
 schemas defined in :mod:`ai_engine.games.schemas`.  Templates use Python
 :meth:`str.format` placeholders: ``{context}``,
 ``{num_questions}`` and ``{language}``.
+
+Prompt versioning
+-----------------
+
+Prompts are versioned per ``game_type`` via :data:`PROMPT_VERSIONS`.
+Any meaningful change to a template (wording, schema, instruction policy)
+MUST bump the corresponding entry. The version is consumed by the LLMOps
+eval harness (see ``tests/eval/``) and is exported as part of
+:func:`get_prompt_version` so callers can log it for traceability.
 """
 
 from __future__ import annotations
 
 from ai_engine.games.catalog import get_game_type_profile, get_supported_game_types
+
+# ------------------------------------------------------------------
+# Prompt versioning (LLMOps - ADR 0009)
+# ------------------------------------------------------------------
+
+#: Active version of each game-type prompt template. Bump on any change.
+PROMPT_VERSIONS: dict[str, str] = {
+    "quiz": "v1",
+    "word-pass": "v1",
+    "true_false": "v1",
+}
+
+
+def get_prompt_version(game_type: str) -> str:
+    """Return the active prompt template version for *game_type*."""
+    profile = get_game_type_profile(game_type)
+    version = PROMPT_VERSIONS.get(profile.game_type)
+    if version is None:
+        raise ValueError(
+            f"No prompt version registered for {game_type!r}. "
+            f"Supported: {get_supported_game_types()}"
+        )
+    return version
+
 
 # ------------------------------------------------------------------
 # System-level instruction shared by every game type
