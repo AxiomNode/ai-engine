@@ -574,9 +574,7 @@ def _run_retrieval_performance_suite(rag_pipeline: Any) -> dict[str, Any]:
     tests: list[dict[str, Any]] = []
 
     for index, query in enumerate(queries, start=1):
-        _set_progress_message(
-            f"Retrieval performance case {index}/{len(queries)}"
-        )
+        _set_progress_message(f"Retrieval performance case {index}/{len(queries)}")
         started = time.perf_counter()
         docs = rag_pipeline.retrieve(query, top_k=5)
         latency_ms = (time.perf_counter() - started) * 1000.0
@@ -695,9 +693,7 @@ def _run_generation_performance_suite(generator: Any) -> dict[str, Any]:
 
         latency_ms = (time.perf_counter() - started) * 1000.0
         latencies_ms.append(latency_ms)
-        passed_case = (
-            error_message is None and latency_ms <= targets["case_target_ms"]
-        )
+        passed_case = error_message is None and latency_ms <= targets["case_target_ms"]
 
         case_result: dict[str, Any] = {
             "name": f"Generation latency case {index} ({case['game_type']})",
@@ -923,6 +919,7 @@ def _build_recommendations(run_status: dict[str, Any]) -> list[str]:
 
 # ---- runner orchestrator ---------------------------------------------------
 
+
 def _run_all_suites(rag_pipeline: Any, generator: Any | None = None) -> None:
     """Execute all test suites, updating _current_run in place."""
     global _current_run
@@ -1003,12 +1000,12 @@ def _run_all_suites(rag_pipeline: Any, generator: Any | None = None) -> None:
             message=f"Completed {suite_label}",
         )
 
-    retrieval_metrics = _current_run["suites"].get("retrieval_performance", {}).get(
-        "metrics", {}
+    retrieval_metrics = (
+        _current_run["suites"].get("retrieval_performance", {}).get("metrics", {})
     )
-    generation_metrics = _current_run["suites"].get(
-        "generation_performance", {}
-    ).get("metrics", {})
+    generation_metrics = (
+        _current_run["suites"].get("generation_performance", {}).get("metrics", {})
+    )
     _current_run["performance"] = {
         "retrieval": retrieval_metrics,
         "generation": generation_metrics,

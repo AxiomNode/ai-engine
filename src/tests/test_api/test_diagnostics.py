@@ -246,7 +246,9 @@ def test_start_test_run_handles_already_running() -> None:
 def test_start_test_run_completes_and_status_is_available(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_run_all_suites(rag_pipeline: object, generator: object | None = None) -> None:
+    def fake_run_all_suites(
+        rag_pipeline: object, generator: object | None = None
+    ) -> None:
         assert diagnostics._current_run is not None
         diagnostics._current_run["suites"]["fake"] = {
             "suite": "fake",
@@ -278,7 +280,9 @@ def test_start_test_run_marks_error_on_worker_exception(
 ) -> None:
     monkeypatch.setattr(diagnostics.threading, "Thread", ImmediateThread)
 
-    def fail_run_all_suites(rag_pipeline: object, generator: object | None = None) -> None:
+    def fail_run_all_suites(
+        rag_pipeline: object, generator: object | None = None
+    ) -> None:
         raise RuntimeError("boom")
 
     monkeypatch.setattr(diagnostics, "_run_all_suites", fail_run_all_suites)
@@ -393,9 +397,7 @@ def test_build_recommendations_for_slow_metrics() -> None:
                 "generation_performance": {
                     "metrics": {"success_rate": 0.2, "p95_latency_ms": 12000.0}
                 },
-                "retrieval_performance": {
-                    "metrics": {"p95_latency_ms": 1300.0}
-                },
+                "retrieval_performance": {"metrics": {"p95_latency_ms": 1300.0}},
             },
         }
     )
