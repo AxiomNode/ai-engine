@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -305,6 +307,39 @@ def test_generation_performance_suite_returns_metrics() -> None:
     assert result["suite"] == "Generation Performance"
     assert result["metrics"]["success_rate"] == 1.0
     assert result["total"] >= 5
+
+
+def test_generation_performance_suite_times_out_hanging_cases_quickly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class HangingGenerator:
+        async def generate(self, *args, **kwargs):
+            await asyncio.sleep(0.2)
+
+    monkeypatch.setattr(
+        diagnostics,
+        "_generation_performance_targets",
+        lambda: {
+            "case_target_ms": 35_000.0,
+            "p95_target_ms": 40_000.0,
+            "success_rate_target": 0.67,
+            "timeout_seconds": 0.01,
+        },
+    )
+
+    started = time.perf_counter()
+    result = diagnostics._run_generation_performance_suite(HangingGenerator())
+    elapsed_s = time.perf_counter() - started
+
+    assert elapsed_s < 1.0
+    assert result["suite"] == "Generation Performance"
+    generation_cases = [
+        test
+        for test in result["tests"]
+        if str(test.get("name", "")).startswith("Generation latency case")
+    ]
+    assert len(generation_cases) == 3
+    assert all(case["details"].get("timed_out") is True for case in generation_cases)
 
 
 def test_generation_performance_targets_relax_for_stg(

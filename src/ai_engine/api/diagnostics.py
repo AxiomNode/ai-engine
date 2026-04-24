@@ -130,6 +130,7 @@ _GENERATION_CASE_TARGET_MS = 7000.0
 _GENERATION_P95_TARGET_MS = 9000.0
 _GENERATION_SUCCESS_RATE_TARGET = 0.67
 _GENERATION_TIMEOUT_SECONDS = 18.0
+_GENERATION_HARD_TIMEOUT_GRACE_SECONDS = 3.0
 _NON_PROD_DISTRIBUTIONS = {"dev", "stg", "stage", "staging", "sandbox", "local"}
 
 
@@ -684,35 +685,13 @@ def _run_generation_performance_suite(generator: Any) -> dict[str, Any]:
             f"Generation performance case {index}/{len(cases)} ({case['game_type']})"
         )
         started = time.perf_counter()
-        timed_out = False
-        error_message: str | None = None
-
-        try:
-
-            async def _run_case() -> None:
-                await generator.generate(
-                    case["query"],
-                    game_type=case["game_type"],
-                    language="es",
-                    difficulty_percentage=case["difficulty_percentage"],
-                    num_questions=case["num_questions"],
-                    max_tokens=case["max_tokens"],
-                    letters=case["letters"],
-                )
-
-            asyncio.run(
-                asyncio.wait_for(
-                    _run_case(), timeout=targets["timeout_seconds"]
-                )
-            )
+        timed_out, error_message = _run_generation_case_with_hard_timeout(
+            generator=generator,
+            case=case,
+            timeout_seconds=targets["timeout_seconds"],
+        )
+        if error_message is None:
             successful_runs += 1
-        except asyncio.TimeoutError:
-            timed_out = True
-            error_message = (
-                f"generation exceeded {targets['timeout_seconds']:.0f}s timeout"
-            )
-        except Exception as exc:
-            error_message = _format_generation_error(exc, generator)
 
         latency_ms = (time.perf_counter() - started) * 1000.0
         latencies_ms.append(latency_ms)
@@ -776,6 +755,61 @@ def _run_generation_performance_suite(generator: Any) -> dict[str, Any]:
             "throughput_rps": round(throughput_rps, 3),
         },
     }
+
+
+def _run_generation_case_with_hard_timeout(
+    *,
+    generator: Any,
+    case: dict[str, Any],
+    timeout_seconds: float,
+) -> tuple[bool, str | None]:
+    """Run one generation case with a hard guard to prevent indefinite hangs."""
+
+    state: dict[str, Any] = {
+        "timed_out": False,
+        "error_message": None,
+    }
+    finished = threading.Event()
+
+    def _run() -> None:
+        try:
+
+            async def _run_case() -> None:
+                await generator.generate(
+                    case["query"],
+                    game_type=case["game_type"],
+                    language="es",
+                    difficulty_percentage=case["difficulty_percentage"],
+                    num_questions=case["num_questions"],
+                    max_tokens=case["max_tokens"],
+                    letters=case["letters"],
+                )
+
+            asyncio.run(asyncio.wait_for(_run_case(), timeout=timeout_seconds))
+        except asyncio.TimeoutError:
+            state["timed_out"] = True
+            state["error_message"] = (
+                f"generation exceeded {timeout_seconds:.0f}s timeout"
+            )
+        except Exception as exc:
+            state["error_message"] = _format_generation_error(exc, generator)
+        finally:
+            finished.set()
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+
+    hard_timeout = max(1.0, timeout_seconds + _GENERATION_HARD_TIMEOUT_GRACE_SECONDS)
+    if not finished.wait(hard_timeout):
+        return (
+            True,
+            (
+                "generation case exceeded hard timeout guard "
+                f"({hard_timeout:.0f}s); background worker may still be unwinding"
+            ),
+        )
+
+    return bool(state["timed_out"]), state["error_message"]
 
 
 def _extract_generation_llama_url(generator: Any) -> str | None:
