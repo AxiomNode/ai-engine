@@ -478,9 +478,9 @@ def test_generation_performance_suite_uses_lightweight_case_budgets(
 
     assert result["suite"] == "Generation Performance"
     assert len(generator.calls) == 3
-    assert [call["num_questions"] for call in generator.calls] == [2, 2, 4]
-    assert [call["max_tokens"] for call in generator.calls] == [192, 192, 256]
-    assert all(call["top_k"] == 3 for call in generator.calls)
+    assert [call["num_questions"] for call in generator.calls] == [1, 1, 2]
+    assert [call["max_tokens"] for call in generator.calls] == [128, 128, 160]
+    assert all(call["top_k"] == 2 for call in generator.calls)
 
 
 def test_generation_performance_suite_uses_resolved_event_loop(
