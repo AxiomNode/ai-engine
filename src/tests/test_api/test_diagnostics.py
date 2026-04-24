@@ -483,6 +483,61 @@ def test_generation_performance_suite_uses_lightweight_case_budgets(
     assert all(call["top_k"] == 3 for call in generator.calls)
 
 
+def test_generation_performance_suite_uses_resolved_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class LoopLockedGenerator:
+        def __init__(self, expected_loop: asyncio.AbstractEventLoop) -> None:
+            self.expected_loop = expected_loop
+
+        async def generate(self, *args, **kwargs):
+            assert asyncio.get_running_loop() is self.expected_loop
+            await asyncio.sleep(0)
+            return {"ok": True}
+
+    loop = asyncio.new_event_loop()
+
+    def run_loop_forever() -> None:
+        asyncio.set_event_loop(loop)
+        loop.run_forever()
+
+    worker = diagnostics.threading.Thread(target=run_loop_forever, daemon=True)
+    worker.start()
+
+    monkeypatch.setattr(
+        diagnostics,
+        "_generation_performance_targets",
+        lambda: {
+            "case_target_ms": 35_000.0,
+            "p95_target_ms": 40_000.0,
+            "success_rate_target": 0.67,
+            "timeout_seconds": 1.0,
+        },
+    )
+    monkeypatch.setattr(
+        diagnostics,
+        "_resolve_generation_event_loop",
+        lambda generator: loop,
+    )
+
+    try:
+        result = diagnostics._run_generation_performance_suite(
+            LoopLockedGenerator(loop)
+        )
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        worker.join(timeout=1.0)
+        loop.close()
+
+    generation_cases = [
+        test
+        for test in result["tests"]
+        if str(test.get("name", "")).startswith("Generation latency case")
+    ]
+    assert len(generation_cases) == 3
+    assert all(case.get("passed") is True for case in generation_cases)
+
+
 def test_run_all_suites_records_suite_exceptions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

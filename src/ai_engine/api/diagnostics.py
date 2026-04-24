@@ -9,6 +9,7 @@ Provides:
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import logging
 import threading
 import time
@@ -738,7 +739,35 @@ def _run_generation_performance_suite(generator: Any) -> dict[str, Any]:
 
         return latencies_ms, tests, successful_runs
 
-    latencies_ms, tests, successful_runs = asyncio.run(_run_cases())
+    bound_loop = _resolve_generation_event_loop(generator)
+    if (
+        bound_loop is not None
+        and not bound_loop.is_closed()
+        and bound_loop.is_running()
+    ):
+        try:
+            future = asyncio.run_coroutine_threadsafe(_run_cases(), bound_loop)
+            latencies_ms, tests, successful_runs = future.result()
+        except concurrent.futures.CancelledError:
+            latencies_ms, tests, successful_runs = [], [], 0
+            tests.append(
+                {
+                    "name": "Generation performance execution",
+                    "passed": False,
+                    "error": "generation diagnostics coroutine was cancelled",
+                }
+            )
+        except Exception as exc:
+            latencies_ms, tests, successful_runs = [], [], 0
+            tests.append(
+                {
+                    "name": "Generation performance execution",
+                    "passed": False,
+                    "error": _format_generation_error(exc, generator),
+                }
+            )
+    else:
+        latencies_ms, tests, successful_runs = asyncio.run(_run_cases())
 
     avg_latency = sum(latencies_ms) / len(latencies_ms) if latencies_ms else 0.0
     p95_latency = _percentile_ms(latencies_ms, 95.0)
@@ -781,6 +810,48 @@ def _run_generation_performance_suite(generator: Any) -> dict[str, Any]:
             "throughput_rps": round(throughput_rps, 3),
         },
     }
+
+
+def _resolve_generation_event_loop(generator: Any) -> asyncio.AbstractEventLoop | None:
+    """Try to locate the event loop bound to the live generation stack."""
+
+    def _semaphore_loop(candidate: Any) -> asyncio.AbstractEventLoop | None:
+        semaphore = getattr(candidate, "_api_semaphore", None)
+        loop = getattr(semaphore, "_loop", None)
+        if isinstance(loop, asyncio.AbstractEventLoop):
+            return loop
+        return None
+
+    seen: set[int] = set()
+    stack = [generator]
+    relation_attrs = (
+        "_generator",
+        "generator",
+        "_client",
+        "client",
+        "llm_client",
+        "_llm_client",
+    )
+
+    while stack:
+        current = stack.pop()
+        if current is None:
+            continue
+        identity = id(current)
+        if identity in seen:
+            continue
+        seen.add(identity)
+
+        loop = _semaphore_loop(current)
+        if loop is not None:
+            return loop
+
+        for attr in relation_attrs:
+            nested = getattr(current, attr, None)
+            if nested is not None:
+                stack.append(nested)
+
+    return None
 
 
 def _extract_generation_llama_url(generator: Any) -> str | None:
