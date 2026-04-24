@@ -50,6 +50,11 @@ class ImmediateThread:
         self._target()
 
 
+class AsyncFakeGenerator:
+    async def generate(self, *args, **kwargs):
+        return {"ok": True, "args": args, "kwargs": kwargs}
+
+
 @pytest.fixture(autouse=True)
 def reset_diagnostics_state() -> None:
     diagnostics._current_run = None
@@ -148,6 +153,30 @@ def test_run_all_suites_collects_summary(monkeypatch: pytest.MonkeyPatch) -> Non
     diagnostics._current_run = diagnostics._reset_current_run()
     monkeypatch.setattr(
         diagnostics,
+        "_run_retrieval_performance_suite",
+        lambda rag_pipeline: {
+            "suite": "retrieval_performance",
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "tests": [],
+            "metrics": {"p95_latency_ms": 200.0},
+        },
+    )
+    monkeypatch.setattr(
+        diagnostics,
+        "_run_generation_performance_suite",
+        lambda generator: {
+            "suite": "generation_performance",
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "tests": [],
+            "metrics": {"p95_latency_ms": 1200.0, "success_rate": 1.0},
+        },
+    )
+    monkeypatch.setattr(
+        diagnostics,
         "_run_rag_retrieval_suite",
         lambda rag_pipeline: {
             "suite": "rag",
@@ -184,24 +213,28 @@ def test_run_all_suites_collects_summary(monkeypatch: pytest.MonkeyPatch) -> Non
         lambda: {"suite": "metrics", "total": 1, "passed": 1, "failed": 0, "tests": []},
     )
 
-    diagnostics._run_all_suites(SimpleNamespace())
+    diagnostics._run_all_suites(SimpleNamespace(), generator=AsyncFakeGenerator())
 
     assert diagnostics._current_run is not None
     assert diagnostics._current_run["status"] == "completed"
     assert diagnostics._current_run["summary"] == {
-        "total": 6,
-        "passed": 5,
+        "total": 8,
+        "passed": 7,
         "failed": 1,
         "skipped": 0,
         "errors": 0,
     }
+    assert diagnostics._current_run["progress"]["percent"] == 100
+    assert diagnostics._current_run["recommendations"]
 
 
 def test_start_test_run_handles_already_running() -> None:
     acquired = diagnostics._run_lock.acquire(blocking=False)
     assert acquired
     try:
-        result = diagnostics.start_test_run(SimpleNamespace())
+        result = diagnostics.start_test_run(
+            SimpleNamespace(), generator=AsyncFakeGenerator()
+        )
     finally:
         diagnostics._run_lock.release()
 
@@ -211,7 +244,7 @@ def test_start_test_run_handles_already_running() -> None:
 def test_start_test_run_completes_and_status_is_available(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_run_all_suites(rag_pipeline: object) -> None:
+    def fake_run_all_suites(rag_pipeline: object, generator: object | None = None) -> None:
         assert diagnostics._current_run is not None
         diagnostics._current_run["suites"]["fake"] = {
             "suite": "fake",
@@ -228,7 +261,9 @@ def test_start_test_run_completes_and_status_is_available(
     monkeypatch.setattr(diagnostics.threading, "Thread", ImmediateThread)
     monkeypatch.setattr(diagnostics, "_run_all_suites", fake_run_all_suites)
 
-    result = diagnostics.start_test_run(SimpleNamespace())
+    result = diagnostics.start_test_run(
+        SimpleNamespace(), generator=AsyncFakeGenerator()
+    )
     status = diagnostics.get_test_status()
 
     assert result["status"] == "started"
@@ -241,12 +276,14 @@ def test_start_test_run_marks_error_on_worker_exception(
 ) -> None:
     monkeypatch.setattr(diagnostics.threading, "Thread", ImmediateThread)
 
-    def fail_run_all_suites(rag_pipeline: object) -> None:
+    def fail_run_all_suites(rag_pipeline: object, generator: object | None = None) -> None:
         raise RuntimeError("boom")
 
     monkeypatch.setattr(diagnostics, "_run_all_suites", fail_run_all_suites)
 
-    result = diagnostics.start_test_run(SimpleNamespace())
+    result = diagnostics.start_test_run(
+        SimpleNamespace(), generator=AsyncFakeGenerator()
+    )
     status = diagnostics.get_test_status()
 
     assert result["status"] == "started"
@@ -259,3 +296,30 @@ def test_get_test_status_is_idle_without_active_run() -> None:
 
     assert status["status"] == "idle"
     assert status["summary"]["total"] == 0
+    assert status["progress"]["percent"] == 0
+
+
+def test_generation_performance_suite_returns_metrics() -> None:
+    result = diagnostics._run_generation_performance_suite(AsyncFakeGenerator())
+
+    assert result["suite"] == "Generation Performance"
+    assert result["metrics"]["success_rate"] == 1.0
+    assert result["total"] >= 5
+
+
+def test_build_recommendations_for_slow_metrics() -> None:
+    recommendations = diagnostics._build_recommendations(
+        {
+            "summary": {"failed": 2},
+            "suites": {
+                "generation_performance": {
+                    "metrics": {"success_rate": 0.2, "p95_latency_ms": 12000.0}
+                },
+                "retrieval_performance": {
+                    "metrics": {"p95_latency_ms": 1300.0}
+                },
+            },
+        }
+    )
+
+    assert len(recommendations) >= 2

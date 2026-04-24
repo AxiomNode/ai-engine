@@ -8,6 +8,7 @@ Provides:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 import time
@@ -121,6 +122,13 @@ def compute_rag_stats(rag_pipeline: Any) -> dict[str, Any]:
 _run_lock = threading.Lock()
 _current_run: dict[str, Any] | None = None
 
+_RETRIEVAL_CASE_TARGET_MS = 600.0
+_RETRIEVAL_P95_TARGET_MS = 800.0
+_GENERATION_CASE_TARGET_MS = 7000.0
+_GENERATION_P95_TARGET_MS = 9000.0
+_GENERATION_SUCCESS_RATE_TARGET = 0.67
+_GENERATION_TIMEOUT_SECONDS = 18.0
+
 
 def _reset_current_run() -> dict[str, Any]:
     """Initialise a fresh test run state dict."""
@@ -129,6 +137,15 @@ def _reset_current_run() -> dict[str, Any]:
         "started_at": time.time(),
         "finished_at": None,
         "suites": {},
+        "progress": {
+            "total_suites": 0,
+            "completed_suites": 0,
+            "percent": 0,
+            "current_suite": None,
+            "message": "Queued",
+        },
+        "recommendations": [],
+        "performance": {},
         "summary": {
             "total": 0,
             "passed": 0,
@@ -137,6 +154,58 @@ def _reset_current_run() -> dict[str, Any]:
             "errors": 0,
         },
     }
+
+
+def _percentile_ms(samples: list[float], percentile: float) -> float:
+    """Return percentile using linear interpolation between ordered samples."""
+    if not samples:
+        return 0.0
+    ordered = sorted(samples)
+    if len(ordered) == 1:
+        return ordered[0]
+
+    rank = (percentile / 100.0) * (len(ordered) - 1)
+    lower = int(rank)
+    upper = min(lower + 1, len(ordered) - 1)
+    weight = rank - lower
+    return (ordered[lower] * (1.0 - weight)) + (ordered[upper] * weight)
+
+
+def _set_progress(
+    *,
+    total_suites: int,
+    completed_suites: int,
+    current_suite: str | None,
+    message: str,
+) -> None:
+    """Update progress block for the current diagnostics run."""
+    global _current_run
+    if _current_run is None:
+        return
+
+    percent = 0
+    if total_suites > 0:
+        percent = max(0, min(100, int(round((completed_suites / total_suites) * 100))))
+
+    _current_run["progress"] = {
+        "total_suites": total_suites,
+        "completed_suites": completed_suites,
+        "percent": percent,
+        "current_suite": current_suite,
+        "message": message,
+    }
+
+
+def _set_progress_message(message: str) -> None:
+    """Mutate only the progress message while keeping percent counters intact."""
+    global _current_run
+    if _current_run is None:
+        return
+
+    progress = _current_run.get("progress")
+    if not isinstance(progress, dict):
+        return
+    progress["message"] = message
 
 
 # ---- individual test suites ------------------------------------------------
@@ -447,24 +516,307 @@ def _run_metrics_suite() -> dict[str, Any]:
     }
 
 
+def _run_retrieval_performance_suite(rag_pipeline: Any) -> dict[str, Any]:
+    """Measure real retrieval latency with bounded sample queries."""
+    if rag_pipeline is None or not hasattr(rag_pipeline, "retrieve"):
+        return {
+            "suite": "Retrieval Performance",
+            "total": 1,
+            "passed": 0,
+            "failed": 1,
+            "tests": [
+                {
+                    "name": "RAG pipeline availability",
+                    "passed": False,
+                    "error": "rag_pipeline is not available for diagnostics",
+                }
+            ],
+            "metrics": {
+                "avg_latency_ms": 0.0,
+                "p95_latency_ms": 0.0,
+                "max_latency_ms": 0.0,
+            },
+        }
+
+    queries = [
+        "fotosintesis cloroplastos y ciclo de calvin",
+        "revolucion francesa causas y bastilla",
+        "teorema de pitagoras hipotenusa",
+        "programacion concurrente en python",
+    ]
+
+    latencies_ms: list[float] = []
+    tests: list[dict[str, Any]] = []
+
+    for index, query in enumerate(queries, start=1):
+        _set_progress_message(
+            f"Retrieval performance case {index}/{len(queries)}"
+        )
+        started = time.perf_counter()
+        docs = rag_pipeline.retrieve(query, top_k=5)
+        latency_ms = (time.perf_counter() - started) * 1000.0
+        latencies_ms.append(latency_ms)
+
+        tests.append(
+            {
+                "name": f"Retrieval latency case {index}",
+                "passed": latency_ms <= _RETRIEVAL_CASE_TARGET_MS,
+                "details": {
+                    "latency_ms": round(latency_ms, 2),
+                    "target_ms": _RETRIEVAL_CASE_TARGET_MS,
+                    "docs_returned": len(docs),
+                },
+            }
+        )
+
+    avg_latency = sum(latencies_ms) / len(latencies_ms) if latencies_ms else 0.0
+    p95_latency = _percentile_ms(latencies_ms, 95.0)
+    max_latency = max(latencies_ms) if latencies_ms else 0.0
+
+    tests.append(
+        {
+            "name": "Retrieval p95 latency within target",
+            "passed": p95_latency <= _RETRIEVAL_P95_TARGET_MS,
+            "details": {
+                "p95_latency_ms": round(p95_latency, 2),
+                "target_ms": _RETRIEVAL_P95_TARGET_MS,
+            },
+        }
+    )
+
+    passed = sum(1 for result in tests if result.get("passed"))
+    return {
+        "suite": "Retrieval Performance",
+        "total": len(tests),
+        "passed": passed,
+        "failed": len(tests) - passed,
+        "tests": tests,
+        "metrics": {
+            "avg_latency_ms": round(avg_latency, 2),
+            "p95_latency_ms": round(p95_latency, 2),
+            "max_latency_ms": round(max_latency, 2),
+        },
+    }
+
+
+def _run_generation_performance_suite(generator: Any) -> dict[str, Any]:
+    """Measure real end-to-end generation latency with bounded workloads."""
+    if generator is None or not hasattr(generator, "generate"):
+        return {
+            "suite": "Generation Performance",
+            "total": 1,
+            "passed": 0,
+            "failed": 1,
+            "tests": [
+                {
+                    "name": "Generator availability",
+                    "passed": False,
+                    "error": "generator is not available for diagnostics",
+                }
+            ],
+            "metrics": {
+                "success_rate": 0.0,
+                "avg_latency_ms": 0.0,
+                "p95_latency_ms": 0.0,
+                "throughput_rps": 0.0,
+            },
+        }
+
+    cases = [
+        {
+            "query": "fotosintesis en plantas",
+            "game_type": "quiz",
+            "difficulty_percentage": 45,
+            "num_questions": 3,
+            "max_tokens": 320,
+            "letters": "A,B,C,D,E,F,G,H,I,J",
+        },
+        {
+            "query": "revolucion francesa",
+            "game_type": "true_false",
+            "difficulty_percentage": 55,
+            "num_questions": 3,
+            "max_tokens": 320,
+            "letters": "A,B,C,D,E,F,G,H,I,J",
+        },
+        {
+            "query": "teorema de pitagoras",
+            "game_type": "word-pass",
+            "difficulty_percentage": 50,
+            "num_questions": 6,
+            "max_tokens": 420,
+            "letters": "A,B,C,D,E,F,G,H,I,J",
+        },
+    ]
+
+    latencies_ms: list[float] = []
+    tests: list[dict[str, Any]] = []
+    successful_runs = 0
+
+    for index, case in enumerate(cases, start=1):
+        _set_progress_message(
+            f"Generation performance case {index}/{len(cases)} ({case['game_type']})"
+        )
+        started = time.perf_counter()
+        timed_out = False
+        error_message: str | None = None
+
+        try:
+
+            async def _run_case() -> None:
+                await generator.generate(
+                    case["query"],
+                    game_type=case["game_type"],
+                    language="es",
+                    difficulty_percentage=case["difficulty_percentage"],
+                    num_questions=case["num_questions"],
+                    max_tokens=case["max_tokens"],
+                    letters=case["letters"],
+                )
+
+            asyncio.run(
+                asyncio.wait_for(
+                    _run_case(), timeout=_GENERATION_TIMEOUT_SECONDS
+                )
+            )
+            successful_runs += 1
+        except asyncio.TimeoutError:
+            timed_out = True
+            error_message = (
+                f"generation exceeded {_GENERATION_TIMEOUT_SECONDS:.0f}s timeout"
+            )
+        except Exception as exc:
+            error_message = str(exc)
+
+        latency_ms = (time.perf_counter() - started) * 1000.0
+        latencies_ms.append(latency_ms)
+        passed_case = (
+            error_message is None and latency_ms <= _GENERATION_CASE_TARGET_MS
+        )
+
+        case_result: dict[str, Any] = {
+            "name": f"Generation latency case {index} ({case['game_type']})",
+            "passed": passed_case,
+            "details": {
+                "latency_ms": round(latency_ms, 2),
+                "target_ms": _GENERATION_CASE_TARGET_MS,
+                "timeout_s": _GENERATION_TIMEOUT_SECONDS,
+            },
+        }
+        if timed_out:
+            case_result["details"]["timed_out"] = True
+        if error_message is not None:
+            case_result["error"] = error_message
+        tests.append(case_result)
+
+    avg_latency = sum(latencies_ms) / len(latencies_ms) if latencies_ms else 0.0
+    p95_latency = _percentile_ms(latencies_ms, 95.0)
+    success_rate = successful_runs / len(cases) if cases else 0.0
+    total_elapsed_s = max(sum(latencies_ms) / 1000.0, 0.001)
+    throughput_rps = successful_runs / total_elapsed_s
+
+    tests.append(
+        {
+            "name": "Generation success rate within target",
+            "passed": success_rate >= _GENERATION_SUCCESS_RATE_TARGET,
+            "details": {
+                "success_rate": round(success_rate, 3),
+                "target": _GENERATION_SUCCESS_RATE_TARGET,
+            },
+        }
+    )
+    tests.append(
+        {
+            "name": "Generation p95 latency within target",
+            "passed": p95_latency <= _GENERATION_P95_TARGET_MS,
+            "details": {
+                "p95_latency_ms": round(p95_latency, 2),
+                "target_ms": _GENERATION_P95_TARGET_MS,
+            },
+        }
+    )
+
+    passed = sum(1 for result in tests if result.get("passed"))
+    return {
+        "suite": "Generation Performance",
+        "total": len(tests),
+        "passed": passed,
+        "failed": len(tests) - passed,
+        "tests": tests,
+        "metrics": {
+            "success_rate": round(success_rate, 3),
+            "avg_latency_ms": round(avg_latency, 2),
+            "p95_latency_ms": round(p95_latency, 2),
+            "throughput_rps": round(throughput_rps, 3),
+        },
+    }
+
+
+def _build_recommendations(run_status: dict[str, Any]) -> list[str]:
+    """Generate operator recommendations from measured diagnostics metrics."""
+    recommendations: list[str] = []
+    suites = run_status.get("suites", {})
+    generation_metrics = (
+        suites.get("generation_performance", {}).get("metrics", {})
+        if isinstance(suites, dict)
+        else {}
+    )
+    retrieval_metrics = (
+        suites.get("retrieval_performance", {}).get("metrics", {})
+        if isinstance(suites, dict)
+        else {}
+    )
+
+    success_rate = float(generation_metrics.get("success_rate", 0.0) or 0.0)
+    generation_p95 = float(generation_metrics.get("p95_latency_ms", 0.0) or 0.0)
+    retrieval_p95 = float(retrieval_metrics.get("p95_latency_ms", 0.0) or 0.0)
+
+    if success_rate < _GENERATION_SUCCESS_RATE_TARGET:
+        recommendations.append(
+            "Generation stability is below target; review llama runtime logs and increase retry/timeout budgets before peak traffic."
+        )
+    if generation_p95 > _GENERATION_P95_TARGET_MS:
+        recommendations.append(
+            "Generation latency is high; reduce max_tokens/top_k for operational flows or scale the inference node."
+        )
+    if retrieval_p95 > _RETRIEVAL_P95_TARGET_MS:
+        recommendations.append(
+            "RAG retrieval latency is above target; consider lowering retriever top_k or optimizing embedding/vector index resources."
+        )
+
+    summary = run_status.get("summary", {})
+    failed = int(summary.get("failed", 0) or 0)
+    if failed > 0 and not recommendations:
+        recommendations.append(
+            "Some diagnostic checks failed. Review suite details and rerun after applying targeted tuning."
+        )
+
+    if not recommendations:
+        recommendations.append(
+            "Performance baseline is healthy. Keep current runtime profile and monitor regressions over time."
+        )
+    return recommendations
+
+
 # ---- runner orchestrator ---------------------------------------------------
 
-_SUITE_REGISTRY: list[tuple[str, Any]] = [
-    ("rag_retrieval", None),  # requires rag_pipeline
-    ("prompt_grounding", None),
-    ("generation_params", None),
-    ("cache_integrity", None),
-    ("metrics", None),
-]
-
-
-def _run_all_suites(rag_pipeline: Any) -> None:
+def _run_all_suites(rag_pipeline: Any, generator: Any | None = None) -> None:
     """Execute all test suites, updating _current_run in place."""
     global _current_run
     if _current_run is None:
         return
 
     suite_fns = [
+        (
+            "retrieval_performance",
+            "Retrieval Performance",
+            lambda: _run_retrieval_performance_suite(rag_pipeline),
+        ),
+        (
+            "generation_performance",
+            "Generation Performance",
+            lambda: _run_generation_performance_suite(generator),
+        ),
         ("rag_retrieval", lambda: _run_rag_retrieval_suite(rag_pipeline)),
         ("prompt_grounding", _run_prompt_grounding_suite),
         ("generation_params", _run_generation_params_suite),
@@ -472,7 +824,30 @@ def _run_all_suites(rag_pipeline: Any) -> None:
         ("metrics", _run_metrics_suite),
     ]
 
-    for suite_key, fn in suite_fns:
+    normalized_suites: list[tuple[str, str, Any]] = []
+    for entry in suite_fns:
+        if len(entry) == 2:
+            suite_key, fn = entry
+            normalized_suites.append((suite_key, str(suite_key), fn))
+        else:
+            suite_key, suite_label, fn = entry
+            normalized_suites.append((suite_key, suite_label, fn))
+
+    total_suites = len(normalized_suites)
+    _set_progress(
+        total_suites=total_suites,
+        completed_suites=0,
+        current_suite=None,
+        message="Starting diagnostics",
+    )
+
+    for index, (suite_key, suite_label, fn) in enumerate(normalized_suites, start=1):
+        _set_progress(
+            total_suites=total_suites,
+            completed_suites=index - 1,
+            current_suite=suite_key,
+            message=f"Running {suite_label} ({index}/{total_suites})",
+        )
         try:
             result = fn()
         except Exception as exc:
@@ -482,19 +857,52 @@ def _run_all_suites(rag_pipeline: Any) -> None:
                 "total": 1,
                 "passed": 0,
                 "failed": 1,
-                "tests": [{"name": suite_key, "passed": False, "error": str(exc)}],
+                "errors": 1,
+                "tests": [
+                    {
+                        "name": suite_key,
+                        "passed": False,
+                        "error": str(exc),
+                    }
+                ],
             }
 
         _current_run["suites"][suite_key] = result
         _current_run["summary"]["total"] += result["total"]
         _current_run["summary"]["passed"] += result["passed"]
         _current_run["summary"]["failed"] += result["failed"]
+        _current_run["summary"]["errors"] += int(result.get("errors", 0) or 0)
+
+        _set_progress(
+            total_suites=total_suites,
+            completed_suites=index,
+            current_suite=suite_key,
+            message=f"Completed {suite_label}",
+        )
+
+    retrieval_metrics = _current_run["suites"].get("retrieval_performance", {}).get(
+        "metrics", {}
+    )
+    generation_metrics = _current_run["suites"].get(
+        "generation_performance", {}
+    ).get("metrics", {})
+    _current_run["performance"] = {
+        "retrieval": retrieval_metrics,
+        "generation": generation_metrics,
+    }
+    _current_run["recommendations"] = _build_recommendations(_current_run)
 
     _current_run["status"] = "completed"
     _current_run["finished_at"] = time.time()
+    _set_progress(
+        total_suites=total_suites,
+        completed_suites=total_suites,
+        current_suite=None,
+        message="Diagnostics completed",
+    )
 
 
-def start_test_run(rag_pipeline: Any) -> dict[str, Any]:
+def start_test_run(rag_pipeline: Any, generator: Any | None = None) -> dict[str, Any]:
     """Start a test run in a background thread.
 
     Returns immediately with run status. Poll ``get_test_status()`` for results.
@@ -512,12 +920,15 @@ def start_test_run(rag_pipeline: Any) -> dict[str, Any]:
 
         def _worker() -> None:
             try:
-                _run_all_suites(rag_pipeline)
+                _run_all_suites(rag_pipeline, generator=generator)
             except Exception:
                 logger.exception("Test run failed")
                 if _current_run is not None:
                     _current_run["status"] = "error"
                     _current_run["finished_at"] = time.time()
+                    _current_run["recommendations"] = [
+                        "Diagnostics run failed unexpectedly. Review server logs and retry the test run."
+                    ]
             finally:
                 _run_lock.release()
 
@@ -537,6 +948,15 @@ def get_test_status() -> dict[str, Any]:
             "status": "idle",
             "message": "No active test run. Execute POST /diagnostics/tests/run.",
             "suites": {},
+            "progress": {
+                "total_suites": 0,
+                "completed_suites": 0,
+                "percent": 0,
+                "current_suite": None,
+                "message": "Idle",
+            },
+            "recommendations": [],
+            "performance": {},
             "summary": {
                 "total": 0,
                 "passed": 0,

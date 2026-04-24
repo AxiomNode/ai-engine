@@ -2137,7 +2137,8 @@ def create_app(
         for real-time progress.
         """
         pipeline = _get_pipeline(request)
-        return start_test_run(pipeline)
+        generator = _get_generator(request)
+        return start_test_run(pipeline, generator=generator)
 
     @app.get("/diagnostics/tests/status", tags=["diagnostics"])
     def get_diagnostics_tests_status(request: Request) -> dict[str, Any]:
