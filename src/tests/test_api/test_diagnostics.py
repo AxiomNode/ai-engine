@@ -307,6 +307,49 @@ def test_generation_performance_suite_returns_metrics() -> None:
     assert result["total"] >= 5
 
 
+def test_generation_performance_targets_relax_for_stg(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        diagnostics,
+        "get_settings",
+        lambda: SimpleNamespace(distribution="stg"),
+    )
+
+    targets = diagnostics._generation_performance_targets()
+
+    assert targets["case_target_ms"] == 25000.0
+    assert targets["p95_target_ms"] == 30000.0
+    assert targets["timeout_seconds"] == 30.0
+
+
+def test_build_recommendations_respects_stg_generation_latency_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        diagnostics,
+        "get_settings",
+        lambda: SimpleNamespace(distribution="stg"),
+    )
+
+    recommendations = diagnostics._build_recommendations(
+        {
+            "summary": {"failed": 0},
+            "suites": {
+                "generation_performance": {
+                    "metrics": {"success_rate": 1.0, "p95_latency_ms": 20000.0},
+                    "tests": [],
+                },
+                "retrieval_performance": {"metrics": {"p95_latency_ms": 100.0}},
+            },
+        }
+    )
+
+    assert recommendations == [
+        "Performance baseline is healthy. Keep current runtime profile and monitor regressions over time."
+    ]
+
+
 def test_build_recommendations_for_slow_metrics() -> None:
     recommendations = diagnostics._build_recommendations(
         {

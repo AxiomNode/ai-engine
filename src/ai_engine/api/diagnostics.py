@@ -14,6 +14,8 @@ import threading
 import time
 from typing import Any
 
+from ai_engine.config import get_settings
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -128,6 +130,28 @@ _GENERATION_CASE_TARGET_MS = 7000.0
 _GENERATION_P95_TARGET_MS = 9000.0
 _GENERATION_SUCCESS_RATE_TARGET = 0.67
 _GENERATION_TIMEOUT_SECONDS = 18.0
+_NON_PROD_DISTRIBUTIONS = {"dev", "stg", "stage", "staging", "sandbox", "local"}
+
+
+def _generation_performance_targets() -> dict[str, float]:
+    """Return generation performance thresholds adapted to the active distribution."""
+    distribution = (get_settings().distribution or "").strip().lower()
+
+    if distribution in _NON_PROD_DISTRIBUTIONS:
+        # Staging/dev clusters can run on constrained CPU nodes.
+        return {
+            "case_target_ms": 25000.0,
+            "p95_target_ms": 30000.0,
+            "success_rate_target": _GENERATION_SUCCESS_RATE_TARGET,
+            "timeout_seconds": 30.0,
+        }
+
+    return {
+        "case_target_ms": _GENERATION_CASE_TARGET_MS,
+        "p95_target_ms": _GENERATION_P95_TARGET_MS,
+        "success_rate_target": _GENERATION_SUCCESS_RATE_TARGET,
+        "timeout_seconds": _GENERATION_TIMEOUT_SECONDS,
+    }
 
 
 def _reset_current_run() -> dict[str, Any]:
@@ -601,6 +625,8 @@ def _run_retrieval_performance_suite(rag_pipeline: Any) -> dict[str, Any]:
 
 def _run_generation_performance_suite(generator: Any) -> dict[str, Any]:
     """Measure real end-to-end generation latency with bounded workloads."""
+    targets = _generation_performance_targets()
+
     if generator is None or not hasattr(generator, "generate"):
         return {
             "suite": "Generation Performance",
@@ -676,14 +702,14 @@ def _run_generation_performance_suite(generator: Any) -> dict[str, Any]:
 
             asyncio.run(
                 asyncio.wait_for(
-                    _run_case(), timeout=_GENERATION_TIMEOUT_SECONDS
+                    _run_case(), timeout=targets["timeout_seconds"]
                 )
             )
             successful_runs += 1
         except asyncio.TimeoutError:
             timed_out = True
             error_message = (
-                f"generation exceeded {_GENERATION_TIMEOUT_SECONDS:.0f}s timeout"
+                f"generation exceeded {targets['timeout_seconds']:.0f}s timeout"
             )
         except Exception as exc:
             error_message = _format_generation_error(exc, generator)
@@ -691,7 +717,7 @@ def _run_generation_performance_suite(generator: Any) -> dict[str, Any]:
         latency_ms = (time.perf_counter() - started) * 1000.0
         latencies_ms.append(latency_ms)
         passed_case = (
-            error_message is None and latency_ms <= _GENERATION_CASE_TARGET_MS
+            error_message is None and latency_ms <= targets["case_target_ms"]
         )
 
         case_result: dict[str, Any] = {
@@ -699,8 +725,8 @@ def _run_generation_performance_suite(generator: Any) -> dict[str, Any]:
             "passed": passed_case,
             "details": {
                 "latency_ms": round(latency_ms, 2),
-                "target_ms": _GENERATION_CASE_TARGET_MS,
-                "timeout_s": _GENERATION_TIMEOUT_SECONDS,
+                "target_ms": targets["case_target_ms"],
+                "timeout_s": targets["timeout_seconds"],
             },
         }
         if timed_out:
@@ -718,20 +744,20 @@ def _run_generation_performance_suite(generator: Any) -> dict[str, Any]:
     tests.append(
         {
             "name": "Generation success rate within target",
-            "passed": success_rate >= _GENERATION_SUCCESS_RATE_TARGET,
+            "passed": success_rate >= targets["success_rate_target"],
             "details": {
                 "success_rate": round(success_rate, 3),
-                "target": _GENERATION_SUCCESS_RATE_TARGET,
+                "target": targets["success_rate_target"],
             },
         }
     )
     tests.append(
         {
             "name": "Generation p95 latency within target",
-            "passed": p95_latency <= _GENERATION_P95_TARGET_MS,
+            "passed": p95_latency <= targets["p95_target_ms"],
             "details": {
                 "p95_latency_ms": round(p95_latency, 2),
-                "target_ms": _GENERATION_P95_TARGET_MS,
+                "target_ms": targets["p95_target_ms"],
             },
         }
     )
@@ -801,6 +827,8 @@ def _format_generation_error(exc: Exception, generator: Any) -> str:
 
 def _build_recommendations(run_status: dict[str, Any]) -> list[str]:
     """Generate operator recommendations from measured diagnostics metrics."""
+    targets = _generation_performance_targets()
+
     recommendations: list[str] = []
     suites = run_status.get("suites", {})
     generation_metrics = (
@@ -823,7 +851,7 @@ def _build_recommendations(run_status: dict[str, Any]) -> list[str]:
     generation_p95 = float(generation_metrics.get("p95_latency_ms", 0.0) or 0.0)
     retrieval_p95 = float(retrieval_metrics.get("p95_latency_ms", 0.0) or 0.0)
 
-    if success_rate < _GENERATION_SUCCESS_RATE_TARGET:
+    if success_rate < targets["success_rate_target"]:
         recommendations.append(
             "Generation stability is below target; review llama runtime logs and increase retry/timeout budgets before peak traffic."
         )
@@ -836,7 +864,7 @@ def _build_recommendations(run_status: dict[str, Any]) -> list[str]:
         recommendations.append(
             "Generation diagnostics cannot reach llama upstream. Reset the runtime llama target from backoffice and validate ai-engine-llama service DNS/network from the ai-engine-api pod."
         )
-    if generation_p95 > _GENERATION_P95_TARGET_MS:
+    if generation_p95 > targets["p95_target_ms"]:
         recommendations.append(
             "Generation latency is high; reduce max_tokens/top_k for operational flows or scale the inference node."
         )
