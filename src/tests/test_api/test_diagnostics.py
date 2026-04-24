@@ -346,6 +346,45 @@ def test_generation_performance_suite_times_out_hanging_cases_quickly(
     assert all(case["details"].get("timed_out") is True for case in generation_cases)
 
 
+def test_generation_performance_suite_reuses_single_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class LoopBoundGenerator:
+        def __init__(self) -> None:
+            self._bound_loop = None
+
+        async def generate(self, *args, **kwargs):
+            loop = asyncio.get_running_loop()
+            if self._bound_loop is None:
+                self._bound_loop = loop
+            elif self._bound_loop is not loop:
+                raise RuntimeError("generator is bound to a different event loop")
+            await asyncio.sleep(0)
+            return {"ok": True}
+
+    monkeypatch.setattr(
+        diagnostics,
+        "_generation_performance_targets",
+        lambda: {
+            "case_target_ms": 35_000.0,
+            "p95_target_ms": 40_000.0,
+            "success_rate_target": 0.67,
+            "timeout_seconds": 1.0,
+        },
+    )
+
+    result = diagnostics._run_generation_performance_suite(LoopBoundGenerator())
+
+    assert result["suite"] == "Generation Performance"
+    generation_cases = [
+        test
+        for test in result["tests"]
+        if str(test.get("name", "")).startswith("Generation latency case")
+    ]
+    assert len(generation_cases) == 3
+    assert all(case.get("passed") is True for case in generation_cases)
+
+
 def test_generation_performance_targets_relax_for_stg(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
