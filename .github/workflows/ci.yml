@@ -80,7 +80,7 @@ jobs:
         run: pytest tests/eval/ -v --no-cov
       - name: Upload eval report
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ai-engine-eval-report
           path: src/.cache/eval/results.json
