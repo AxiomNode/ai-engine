@@ -140,10 +140,10 @@ def _generation_performance_targets() -> dict[str, float]:
     if distribution in _NON_PROD_DISTRIBUTIONS:
         # Staging/dev clusters can run on constrained CPU nodes.
         return {
-            "case_target_ms": 25000.0,
-            "p95_target_ms": 30000.0,
+            "case_target_ms": 35000.0,
+            "p95_target_ms": 40000.0,
             "success_rate_target": _GENERATION_SUCCESS_RATE_TARGET,
-            "timeout_seconds": 30.0,
+            "timeout_seconds": 40.0,
         }
 
     return {

@@ -318,9 +318,9 @@ def test_generation_performance_targets_relax_for_stg(
 
     targets = diagnostics._generation_performance_targets()
 
-    assert targets["case_target_ms"] == 25000.0
-    assert targets["p95_target_ms"] == 30000.0
-    assert targets["timeout_seconds"] == 30.0
+    assert targets["case_target_ms"] == 35000.0
+    assert targets["p95_target_ms"] == 40000.0
+    assert targets["timeout_seconds"] == 40.0
 
 
 def test_build_recommendations_respects_stg_generation_latency_target(
