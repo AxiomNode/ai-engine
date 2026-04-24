@@ -686,7 +686,7 @@ def _run_generation_performance_suite(generator: Any) -> dict[str, Any]:
                 f"generation exceeded {_GENERATION_TIMEOUT_SECONDS:.0f}s timeout"
             )
         except Exception as exc:
-            error_message = str(exc)
+            error_message = _format_generation_error(exc, generator)
 
         latency_ms = (time.perf_counter() - started) * 1000.0
         latencies_ms.append(latency_ms)
@@ -752,6 +752,53 @@ def _run_generation_performance_suite(generator: Any) -> dict[str, Any]:
     }
 
 
+def _extract_generation_llama_url(generator: Any) -> str | None:
+    """Best-effort extraction of current llama upstream URL from wrapped generators."""
+    candidate = generator
+    # TrackedGameGenerator keeps the real generator under _generator.
+    if hasattr(candidate, "_generator"):
+        candidate = getattr(candidate, "_generator")
+
+    llm_client = getattr(candidate, "llm_client", None)
+    if llm_client is None:
+        return None
+
+    # TrackedLlamaClient keeps the real client under _client.
+    if hasattr(llm_client, "_client"):
+        llm_client = getattr(llm_client, "_client")
+
+    url = getattr(llm_client, "api_url", None)
+    return str(url) if isinstance(url, str) and url.strip() else None
+
+
+def _format_generation_error(exc: Exception, generator: Any) -> str:
+    """Normalize generation errors with actionable llama-connectivity hints."""
+    base_message = str(exc).strip() or exc.__class__.__name__
+    lowered = base_message.lower()
+    connectivity_markers = (
+        "all connection attempts failed",
+        "connection refused",
+        "name or service not known",
+        "temporary failure in name resolution",
+        "network is unreachable",
+        "nodename nor servname provided",
+    )
+
+    if any(marker in lowered for marker in connectivity_markers):
+        upstream = _extract_generation_llama_url(generator)
+        if upstream:
+            return (
+                f"{base_message}. Llama upstream unreachable ({upstream}); "
+                "verify runtime llama target and ai-engine-llama service health."
+            )
+        return (
+            f"{base_message}. Llama upstream unreachable; verify runtime llama "
+            "target and ai-engine-llama service health."
+        )
+
+    return base_message
+
+
 def _build_recommendations(run_status: dict[str, Any]) -> list[str]:
     """Generate operator recommendations from measured diagnostics metrics."""
     recommendations: list[str] = []
@@ -760,6 +807,11 @@ def _build_recommendations(run_status: dict[str, Any]) -> list[str]:
         suites.get("generation_performance", {}).get("metrics", {})
         if isinstance(suites, dict)
         else {}
+    )
+    generation_tests = (
+        suites.get("generation_performance", {}).get("tests", [])
+        if isinstance(suites, dict)
+        else []
     )
     retrieval_metrics = (
         suites.get("retrieval_performance", {}).get("metrics", {})
@@ -774,6 +826,15 @@ def _build_recommendations(run_status: dict[str, Any]) -> list[str]:
     if success_rate < _GENERATION_SUCCESS_RATE_TARGET:
         recommendations.append(
             "Generation stability is below target; review llama runtime logs and increase retry/timeout budgets before peak traffic."
+        )
+    if isinstance(generation_tests, list) and any(
+        isinstance(test, dict)
+        and isinstance(test.get("error"), str)
+        and "connection attempts failed" in test["error"].lower()
+        for test in generation_tests
+    ):
+        recommendations.append(
+            "Generation diagnostics cannot reach llama upstream. Reset the runtime llama target from backoffice and validate ai-engine-llama service DNS/network from the ai-engine-api pod."
         )
     if generation_p95 > _GENERATION_P95_TARGET_MS:
         recommendations.append(

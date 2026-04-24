@@ -323,3 +323,39 @@ def test_build_recommendations_for_slow_metrics() -> None:
     )
 
     assert len(recommendations) >= 2
+
+
+def test_format_generation_error_adds_llama_connectivity_hint() -> None:
+    generator = SimpleNamespace(
+        llm_client=SimpleNamespace(api_url="http://llama-server:8080/v1/completions")
+    )
+
+    message = diagnostics._format_generation_error(
+        RuntimeError("All connection attempts failed"), generator
+    )
+
+    assert "Llama upstream unreachable" in message
+    assert "http://llama-server:8080/v1/completions" in message
+
+
+def test_build_recommendations_include_connectivity_actions() -> None:
+    recommendations = diagnostics._build_recommendations(
+        {
+            "summary": {"failed": 1},
+            "suites": {
+                "generation_performance": {
+                    "metrics": {"success_rate": 0.0, "p95_latency_ms": 0.0},
+                    "tests": [
+                        {
+                            "name": "Generation latency case 1 (quiz)",
+                            "passed": False,
+                            "error": "All connection attempts failed",
+                        }
+                    ],
+                },
+                "retrieval_performance": {"metrics": {"p95_latency_ms": 100.0}},
+            },
+        }
+    )
+
+    assert any("cannot reach llama upstream" in item for item in recommendations)
