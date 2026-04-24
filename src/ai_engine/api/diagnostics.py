@@ -12,7 +12,7 @@ import asyncio
 import logging
 import threading
 import time
-from typing import Any
+from typing import Any, Callable
 
 from ai_engine.config import get_settings
 
@@ -926,7 +926,7 @@ def _run_all_suites(rag_pipeline: Any, generator: Any | None = None) -> None:
     if _current_run is None:
         return
 
-    suite_fns = [
+    suite_fns: list[tuple[str, str, Callable[[], dict[str, Any]]]] = [
         (
             "retrieval_performance",
             "Retrieval Performance",
@@ -937,23 +937,18 @@ def _run_all_suites(rag_pipeline: Any, generator: Any | None = None) -> None:
             "Generation Performance",
             lambda: _run_generation_performance_suite(generator),
         ),
-        ("rag_retrieval", lambda: _run_rag_retrieval_suite(rag_pipeline)),
-        ("prompt_grounding", _run_prompt_grounding_suite),
-        ("generation_params", _run_generation_params_suite),
-        ("cache_integrity", _run_cache_integrity_suite),
-        ("metrics", _run_metrics_suite),
+        (
+            "rag_retrieval",
+            "rag_retrieval",
+            lambda: _run_rag_retrieval_suite(rag_pipeline),
+        ),
+        ("prompt_grounding", "prompt_grounding", _run_prompt_grounding_suite),
+        ("generation_params", "generation_params", _run_generation_params_suite),
+        ("cache_integrity", "cache_integrity", _run_cache_integrity_suite),
+        ("metrics", "metrics", _run_metrics_suite),
     ]
 
-    normalized_suites: list[tuple[str, str, Any]] = []
-    for entry in suite_fns:
-        if len(entry) == 2:
-            suite_key, fn = entry
-            normalized_suites.append((suite_key, str(suite_key), fn))
-        else:
-            suite_key, suite_label, fn = entry
-            normalized_suites.append((suite_key, suite_label, fn))
-
-    total_suites = len(normalized_suites)
+    total_suites = len(suite_fns)
     _set_progress(
         total_suites=total_suites,
         completed_suites=0,
@@ -961,7 +956,7 @@ def _run_all_suites(rag_pipeline: Any, generator: Any | None = None) -> None:
         message="Starting diagnostics",
     )
 
-    for index, (suite_key, suite_label, fn) in enumerate(normalized_suites, start=1):
+    for index, (suite_key, suite_label, fn) in enumerate(suite_fns, start=1):
         _set_progress(
             total_suites=total_suites,
             completed_suites=index - 1,
