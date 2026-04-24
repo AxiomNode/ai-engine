@@ -450,6 +450,39 @@ def test_generation_performance_suite_reuses_single_event_loop(
     assert all(case.get("passed") is True for case in generation_cases)
 
 
+def test_generation_performance_suite_uses_lightweight_case_budgets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class RecordingGenerator:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        async def generate(self, *args, **kwargs):
+            self.calls.append(dict(kwargs))
+            await asyncio.sleep(0)
+            return {"ok": True}
+
+    monkeypatch.setattr(
+        diagnostics,
+        "_generation_performance_targets",
+        lambda: {
+            "case_target_ms": 35_000.0,
+            "p95_target_ms": 40_000.0,
+            "success_rate_target": 0.67,
+            "timeout_seconds": 1.0,
+        },
+    )
+
+    generator = RecordingGenerator()
+    result = diagnostics._run_generation_performance_suite(generator)
+
+    assert result["suite"] == "Generation Performance"
+    assert len(generator.calls) == 3
+    assert [call["num_questions"] for call in generator.calls] == [2, 2, 4]
+    assert [call["max_tokens"] for call in generator.calls] == [192, 192, 256]
+    assert all(call["top_k"] == 3 for call in generator.calls)
+
+
 def test_run_all_suites_records_suite_exceptions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
