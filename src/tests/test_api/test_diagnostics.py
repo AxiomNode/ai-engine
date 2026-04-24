@@ -139,6 +139,30 @@ def test_run_rag_retrieval_suite_returns_passing_results() -> None:
     assert result["passed"] == result["total"] == 4
 
 
+def test_retrieval_performance_suite_reports_missing_pipeline() -> None:
+    result = diagnostics._run_retrieval_performance_suite(rag_pipeline=None)
+
+    assert result["suite"] == "Retrieval Performance"
+    assert result["failed"] == 1
+    assert result["tests"][0]["name"] == "RAG pipeline availability"
+
+
+def test_retrieval_performance_suite_collects_latency_metrics() -> None:
+    class FakeRetrievalPipeline:
+        def retrieve(self, query: str, top_k: int = 5) -> list[Document]:
+            assert top_k == 5
+            return [Document(content=f"doc for {query}", metadata={}, doc_id=query)]
+
+    result = diagnostics._run_retrieval_performance_suite(FakeRetrievalPipeline())
+
+    assert result["suite"] == "Retrieval Performance"
+    assert result["total"] == 5
+    assert result["passed"] + result["failed"] == 5
+    assert result["metrics"]["avg_latency_ms"] >= 0.0
+    assert result["metrics"]["p95_latency_ms"] >= 0.0
+    assert result["metrics"]["max_latency_ms"] >= 0.0
+
+
 def test_other_diagnostics_suites_return_successful_summaries() -> None:
     prompt_result = diagnostics._run_prompt_grounding_suite()
     generation_result = diagnostics._run_generation_params_suite()
@@ -313,6 +337,47 @@ def test_generation_performance_suite_returns_metrics() -> None:
     assert result["total"] >= 5
 
 
+def test_generation_performance_suite_reports_missing_generator() -> None:
+    result = diagnostics._run_generation_performance_suite(generator=None)
+
+    assert result["suite"] == "Generation Performance"
+    assert result["failed"] == 1
+    assert result["tests"][0]["name"] == "Generator availability"
+
+
+def test_generation_performance_suite_records_generation_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FailingGenerator:
+        async def generate(self, *args, **kwargs):
+            raise RuntimeError("simulated generation crash")
+
+    monkeypatch.setattr(
+        diagnostics,
+        "_generation_performance_targets",
+        lambda: {
+            "case_target_ms": 35_000.0,
+            "p95_target_ms": 40_000.0,
+            "success_rate_target": 0.67,
+            "timeout_seconds": 0.5,
+        },
+    )
+
+    result = diagnostics._run_generation_performance_suite(FailingGenerator())
+
+    generation_cases = [
+        test
+        for test in result["tests"]
+        if str(test.get("name", "")).startswith("Generation latency case")
+    ]
+    assert len(generation_cases) == 3
+    assert all(case["passed"] is False for case in generation_cases)
+    assert all(
+        "simulated generation crash" in case.get("error", "")
+        for case in generation_cases
+    )
+
+
 def test_generation_performance_suite_times_out_hanging_cases_quickly(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -383,6 +448,83 @@ def test_generation_performance_suite_reuses_single_event_loop(
     ]
     assert len(generation_cases) == 3
     assert all(case.get("passed") is True for case in generation_cases)
+
+
+def test_run_all_suites_records_suite_exceptions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    diagnostics._current_run = diagnostics._reset_current_run()
+
+    monkeypatch.setattr(
+        diagnostics,
+        "_run_retrieval_performance_suite",
+        lambda rag_pipeline: {
+            "suite": "retrieval_performance",
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "tests": [],
+            "metrics": {"p95_latency_ms": 20.0},
+        },
+    )
+    monkeypatch.setattr(
+        diagnostics,
+        "_run_generation_performance_suite",
+        lambda generator: {
+            "suite": "generation_performance",
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "tests": [],
+            "metrics": {"p95_latency_ms": 20.0, "success_rate": 1.0},
+        },
+    )
+    monkeypatch.setattr(
+        diagnostics,
+        "_run_rag_retrieval_suite",
+        lambda rag_pipeline: {
+            "suite": "rag",
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "tests": [],
+        },
+    )
+    monkeypatch.setattr(
+        diagnostics,
+        "_run_prompt_grounding_suite",
+        lambda: {"suite": "prompt", "total": 1, "passed": 1, "failed": 0, "tests": []},
+    )
+    monkeypatch.setattr(
+        diagnostics,
+        "_run_generation_params_suite",
+        lambda: {
+            "suite": "generation",
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "tests": [],
+        },
+    )
+    monkeypatch.setattr(
+        diagnostics,
+        "_run_cache_integrity_suite",
+        lambda: (_ for _ in ()).throw(RuntimeError("cache suite boom")),
+    )
+    monkeypatch.setattr(
+        diagnostics,
+        "_run_metrics_suite",
+        lambda: {"suite": "metrics", "total": 1, "passed": 1, "failed": 0, "tests": []},
+    )
+
+    diagnostics._run_all_suites(SimpleNamespace(), generator=AsyncFakeGenerator())
+
+    assert diagnostics._current_run is not None
+    cache_suite = diagnostics._current_run["suites"]["cache_integrity"]
+    assert cache_suite["failed"] == 1
+    assert cache_suite["errors"] == 1
+    assert "cache suite boom" in cache_suite["tests"][0]["error"]
+    assert diagnostics._current_run["summary"]["errors"] == 1
 
 
 def test_generation_performance_targets_relax_for_stg(
