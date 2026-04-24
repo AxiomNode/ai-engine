@@ -53,7 +53,7 @@ jobs:
           pytest --cov=ai_engine --cov-branch --cov-report=term-missing --cov-report=json:.cache/coverage/coverage.json --cov-report=xml:.cache/coverage/coverage.xml --cov-fail-under=90
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: src/.cache/coverage/coverage.xml
