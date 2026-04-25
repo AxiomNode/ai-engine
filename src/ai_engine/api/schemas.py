@@ -41,14 +41,12 @@ class GenerateRequest(BaseModel):
     Attributes:
         query: Optional topic override used to retrieve relevant context.
         game_type: One of ``"quiz"``, ``"word-pass"``, ``"true_false"``.
-        language: ISO 639-1 language code for the generated content.
         item_count: Number of items to generate.
         max_tokens: Maximum tokens for the LLM generation call.
     """
 
     query: str | None = None
     game_type: str = "quiz"
-    language: str = "es"
     item_count: int = Field(
         default=5,
         ge=1,

@@ -222,7 +222,6 @@ def test_generation_request_helpers_normalize_metadata_and_headers() -> None:
         difficulty_header=140,
     )
 
-    assert updated.language == "en"
     assert updated.difficulty_percentage == 100
     assert _resolve_category_name("17", "Custom") == "Science & Nature"
     assert _resolve_category_name(None, "  Custom  ") == "Custom"
@@ -241,7 +240,6 @@ def test_generation_request_helpers_normalize_metadata_and_headers() -> None:
         force_refresh=True,
     )
     assert built.category_name == "Science & Nature"
-    assert built.language == "es"
     assert built.difficulty_percentage == 0
     assert built.force_refresh is True
 
@@ -311,10 +309,10 @@ def test_warmup_cache_tracks_generated_cached_and_failed_paths(
 
     class _Optimizer:
         def __init__(self) -> None:
-            self.calls: list[tuple[str, str, str]] = []
+            self.calls: list[tuple[str, str]] = []
 
         async def generate(self, req, correlation_id: str | None = None):
-            self.calls.append((req.game_type, req.language, req.category_name))
+            self.calls.append((req.game_type, req.category_name))
             if len(self.calls) == 1:
                 return types.SimpleNamespace(metrics={"cache_hit": False})
             if len(self.calls) == 2:
@@ -339,9 +337,9 @@ def test_warmup_cache_tracks_generated_cached_and_failed_paths(
     asyncio.run(app_module._warmup_cache(optimizer))
 
     assert optimizer.calls == [
-        ("quiz", "es", "Science"),
-        ("quiz", "es", "History"),
-        ("quiz", "es", "Animals"),
+        ("quiz", "Science"),
+        ("quiz", "History"),
+        ("quiz", "Animals"),
     ]
     assert sleep_calls == [0.5, 0.5, 0.5]
 
@@ -600,7 +598,6 @@ class TestGenerate:
             json={
                 "query": "photosynthesis",
                 "game_type": "true_false",
-                "language": "en",
                 "num_questions": 3,
                 "max_tokens": 512,
             },
@@ -819,18 +816,18 @@ class TestGenerate:
 
         asyncio.run(_scenario())
 
-    def test_generate_uses_default_language_es(self) -> None:
-        """Default language is Spanish when not specified."""
+    def test_generate_uses_default_language_en(self) -> None:
+        """Generation now defaults to English when not specified."""
         client, mock_gen, *_ = _make_client()
         client.post("/generate", json={"query": "w"})
-        assert mock_gen.generate_from_context.call_args.kwargs["language"] == "es"
+        assert mock_gen.generate_from_context.call_args.kwargs["language"] == "en"
 
     def test_generate_sdk_returns_typed_payload(self) -> None:
         """/generate/sdk returns model_type + metadata + data sections."""
         client, *_ = _make_client()
         resp = client.post(
             "/generate/sdk",
-            json={"query": "water cycle", "language": "en"},
+            json={"query": "water cycle"},
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -846,7 +843,7 @@ class TestGenerate:
             raise_server_exceptions=False,
         )
         resp = client.post(
-            "/generate/sdk", json={"query": "water cycle", "language": "en"}
+            "/generate/sdk", json={"query": "water cycle"}
         )
         assert resp.status_code == 504
         assert resp.json()["detail"] == "Upstream LLM request timed out."
@@ -864,7 +861,7 @@ class TestGenerate:
             raise_server_exceptions=False,
         )
         resp = client.post(
-            "/generate/sdk", json={"query": "water cycle", "language": "en"}
+            "/generate/sdk", json={"query": "water cycle"}
         )
         assert resp.status_code == 503
         assert resp.json()["detail"] == "Upstream LLM request failed."
@@ -888,7 +885,7 @@ class TestGenerate:
         client.app.state.generation_capacity_limiter = RejectingLimiter(1, 0)
         resp = client.post(
             "/generate/sdk",
-            json={"query": "water cycle", "language": "en"},
+            json={"query": "water cycle"},
         )
         assert resp.status_code == 503
         assert (
@@ -906,12 +903,12 @@ class TestGenerate:
         assert capacity["active"] == 0
         assert capacity["queued"] == 0
 
-    def test_generate_applies_language_and_difficulty_headers(self) -> None:
-        """Header overrides must be propagated to the generator call."""
+    def test_generate_applies_difficulty_headers_with_fixed_english(self) -> None:
+        """Difficulty headers are applied while generation stays fixed to English."""
         client, mock_gen, *_ = _make_client()
         resp = client.post(
             "/generate",
-            json={"query": "water cycle", "language": "es"},
+            json={"query": "water cycle"},
             headers={
                 "X-Game-Language": "en",
                 "X-Difficulty-Percentage": "80",
@@ -923,12 +920,12 @@ class TestGenerate:
         assert call_kwargs["difficulty_percentage"] == 80
 
     def test_generate_quiz_model_specific_endpoint(self) -> None:
-        """/generate/quiz should build a quiz request from query params + headers."""
+        """/generate/quiz should build a quiz request from query params and difficulty headers."""
         client, mock_gen, *_ = _make_client()
         resp = client.post(
             "/generate/quiz",
             params={"query": "water cycle", "item_count": 4},
-            headers={"X-Game-Language": "en", "X-Difficulty-Percentage": "65"},
+            headers={"X-Difficulty-Percentage": "65"},
         )
         assert resp.status_code == 200
         call_kwargs = mock_gen.generate_from_context.call_args.kwargs
@@ -959,40 +956,39 @@ class TestGenerate:
         assert call_kwargs["game_type"] == "word-pass"
         assert call_kwargs["num_questions"] == 3
 
-    def test_generate_quiz_language_and_difficulty_as_query_params(self) -> None:
-        """language and difficulty_percentage as query params should override header defaults."""
+    def test_generate_quiz_difficulty_as_query_param(self) -> None:
+        """difficulty_percentage as query params should override header defaults."""
         client, mock_gen, *_ = _make_client()
         resp = client.post(
             "/generate/quiz",
-            params={"query": "sports", "language": "de", "difficulty_percentage": "75"},
+            params={"query": "sports", "difficulty_percentage": "75"},
         )
         assert resp.status_code == 200
         call_kwargs = mock_gen.generate_from_context.call_args.kwargs
-        assert call_kwargs["language"] == "de"
+        assert call_kwargs["language"] == "en"
         assert call_kwargs["difficulty_percentage"] == 75
 
-    def test_generate_quiz_query_params_override_headers(self) -> None:
-        """Query params should take precedence over headers for language/difficulty."""
+    def test_generate_quiz_difficulty_query_param_overrides_headers(self) -> None:
+        """Difficulty query params should take precedence over headers."""
         client, mock_gen, *_ = _make_client()
         resp = client.post(
             "/generate/quiz",
-            params={"query": "math", "language": "fr", "difficulty_percentage": "90"},
-            headers={"X-Game-Language": "it", "X-Difficulty-Percentage": "10"},
+            params={"query": "math", "difficulty_percentage": "90"},
+            headers={"X-Difficulty-Percentage": "10"},
         )
         assert resp.status_code == 200
         call_kwargs = mock_gen.generate_from_context.call_args.kwargs
-        assert call_kwargs["language"] == "fr"
+        assert call_kwargs["language"] == "en"
         assert call_kwargs["difficulty_percentage"] == 90
 
-    def test_generate_word_pass_language_and_difficulty_as_query_params(self) -> None:
-        """word-pass should accept language and difficulty_percentage as query params."""
+    def test_generate_word_pass_difficulty_as_query_param(self) -> None:
+        """word-pass should accept difficulty_percentage as query params."""
         client, mock_gen, *_ = _make_client(envelope=_make_word_pass_envelope())
         resp = client.post(
             "/generate/word-pass",
             params={
                 "query": "science",
                 "item_count": 3,
-                "language": "en",
                 "difficulty_percentage": "60",
             },
         )

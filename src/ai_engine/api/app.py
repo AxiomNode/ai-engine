@@ -292,41 +292,37 @@ async def _warmup_cache(optimizer: GenerationOptimizationService) -> None:
     ok, skipped, failed = 0, 0, 0
 
     for gt in _WARMUP_GAME_TYPES:
-        for lang in _WARMUP_LANGUAGES:
-            for cid, cname in _WARMUP_CATEGORIES:
-                req = GenerateRequest(
-                    query=cname,
-                    game_type=gt,
-                    language=lang,
-                    difficulty_percentage=50,
-                    category_id=cid,
-                    category_name=cname,
-                    use_cache=True,
+        for cid, cname in _WARMUP_CATEGORIES:
+            req = GenerateRequest(
+                query=cname,
+                game_type=gt,
+                difficulty_percentage=50,
+                category_id=cid,
+                category_name=cname,
+                use_cache=True,
+            )
+            try:
+                result = await optimizer.generate(req, correlation_id="warmup")
+                if result.metrics.get("cache_hit"):
+                    skipped += 1
+                else:
+                    ok += 1
+                logger.debug(
+                    "cache-warmup: %s|%s → %s",
+                    gt,
+                    cname,
+                    "hit" if result.metrics.get("cache_hit") else "generated",
                 )
-                try:
-                    result = await optimizer.generate(req, correlation_id="warmup")
-                    if result.metrics.get("cache_hit"):
-                        skipped += 1
-                    else:
-                        ok += 1
-                    logger.debug(
-                        "cache-warmup: %s|%s|%s → %s",
-                        gt,
-                        lang,
-                        cname,
-                        "hit" if result.metrics.get("cache_hit") else "generated",
-                    )
-                except Exception:
-                    failed += 1
-                    logger.warning(
-                        "cache-warmup: %s|%s|%s failed",
-                        gt,
-                        lang,
-                        cname,
-                        exc_info=True,
-                    )
-                # Small pause between LLM calls to avoid overloading.
-                await asyncio.sleep(0.5)
+            except Exception:
+                failed += 1
+                logger.warning(
+                    "cache-warmup: %s|%s failed",
+                    gt,
+                    cname,
+                    exc_info=True,
+                )
+            # Small pause between LLM calls to avoid overloading.
+            await asyncio.sleep(0.5)
 
     logger.info(
         "cache-warmup: done — generated=%d cached=%d failed=%d",
@@ -456,7 +452,7 @@ def _generation_failure_metadata(
         "cache_hit": False,
         "cache_layer": "none",
         "game_type": req.game_type,
-        "language": req.language,
+        "language": "en",
         "requested_max_tokens": req.max_tokens,
         "effective_max_tokens": effective_max_tokens or req.max_tokens,
         "difficulty_percentage": req.difficulty_percentage,
@@ -597,8 +593,6 @@ def _apply_generate_headers(
 ) -> GenerateRequest:
     """Apply optional generation overrides coming from HTTP headers."""
     updates: dict[str, Any] = {}
-    if isinstance(language_header, str) and language_header.strip():
-        updates["language"] = language_header.strip().lower()
     if difficulty_header is not None:
         updates["difficulty_percentage"] = max(0, min(100, int(difficulty_header)))
     return req.model_copy(update=updates) if updates else req
@@ -631,7 +625,6 @@ def _build_model_generate_request(
     req = GenerateRequest(
         query=query_text,
         game_type=game_type,
-        language=(language_header or "es").strip().lower(),
         difficulty_percentage=max(0, min(100, int(difficulty_header or 50))),
         category_id=resolved_category_id,
         category_name=resolved_category_name,

@@ -401,7 +401,7 @@ def _run_prompt_grounding_suite() -> dict[str, Any]:
 
     # Test 2: Context injection in all game types
     for game_type in ["quiz", "word-pass", "true_false"]:
-        prompt = get_prompt(game_type, context="__CONTEXT_MARKER__", language="es")
+        prompt = get_prompt(game_type, context="__CONTEXT_MARKER__")
         test_passed = "__CONTEXT_MARKER__" in prompt
         results.append(
             {

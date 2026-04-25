@@ -195,7 +195,7 @@ class AIEngineSettings(BaseSettings):
         validation_alias="AI_ENGINE_MODEL_PATH",
     )
     embedding_model: str = Field(
-        default="paraphrase-multilingual-MiniLM-L12-v2",
+        default="all-MiniLM-L6-v2",
         alias="AI_ENGINE_EMBEDDING_MODEL",
         validation_alias="AI_ENGINE_EMBEDDING_MODEL",
     )

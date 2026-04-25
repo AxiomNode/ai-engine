@@ -2,8 +2,7 @@
 
 Each template instructs the LLM to produce strict JSON matching the
 schemas defined in :mod:`ai_engine.games.schemas`.  Templates use Python
-:meth:`str.format` placeholders: ``{context}``,
-``{num_questions}`` and ``{language}``.
+:meth:`str.format` placeholders: ``{context}`` and ``{num_questions}``.
 
 Prompt versioning
 -----------------
@@ -57,16 +56,14 @@ _SYSTEM = (
     "to generate the requested number of items, generate fewer items "
     "rather than inventing content. "
     "LANGUAGE RULE: You MUST write ALL text (title, questions, options, "
-    "explanations, hints, answers) in the language specified in the "
-    "requirements. Do NOT mix languages. If the requested language is "
-    "'es', write everything in Spanish. If 'en', write everything in English."
+    "explanations, hints, answers) in English only. Do NOT mix languages."
 )
 
 _WORD_PASS_SYSTEM = (
     "Return ONLY valid JSON. Use ONLY the provided context. "
     "If the context is insufficient, return fewer entries instead of inventing facts. "
     "Keep every hint and answer directly tied to the requested topic. "
-    "Write all title, hint, and answer text in the requested language."
+    "Write all title, hint, and answer text in English only."
 )
 
 # ------------------------------------------------------------------
@@ -79,7 +76,7 @@ QUIZ_TEMPLATE = (
     "### Context\n{context}\n\n"
     "### Requirements\n"
     "{topic_clause}"
-    "- Language for all content: {language}\n"
+    "- Language for all content: English\n"
     "- Difficulty percentage: {difficulty_percentage}% (0 easy, 100 hard)\n"
     "- Number of questions: {num_questions}\n"
     "- Title must be a short, non-empty string relevant to the topic.\n"
@@ -101,7 +98,7 @@ QUIZ_TEMPLATE = (
     "  ]\n"
     "}}\n\n"
     "IMPORTANT: Generate exactly {num_questions} questions. "
-    "Write ALL text in {language}. "
+    "Write ALL text in English. "
     "Generate the quiz now:"
 )
 
@@ -115,7 +112,7 @@ WORD_PASS_TEMPLATE = (
     "Context:\n{context}\n\n"
     "Requirements:\n"
     "{topic_clause}"
-    "- Language: {language}\n"
+    "- Language: English\n"
     "- Difficulty: {difficulty_percentage}%\n"
     "- Return up to {num_questions} standalone entries.\n"
     "- Use short, topic-specific hints.\n"
@@ -147,7 +144,7 @@ TRUE_FALSE_TEMPLATE = (
     "### Context\n{context}\n\n"
     "### Requirements\n"
     "{topic_clause}"
-    "- Language for all content: {language}\n"
+    "- Language for all content: English\n"
     "- Difficulty percentage: {difficulty_percentage}% (0 easy, 100 hard)\n"
     "- Number of statements: {num_questions}\n"
     "- Title must be a short, non-empty string relevant to the topic.\n"
@@ -185,7 +182,7 @@ def get_prompt(
     game_type: str,
     context: str,
     topic: str | None = None,
-    language: str = "es",
+    language: str = "en",
     difficulty_percentage: int = 50,
     num_questions: int = 5,
     letters: str | None = None,
@@ -195,7 +192,7 @@ def get_prompt(
     Args:
         game_type: One of ``"quiz"``, ``"word-pass"``, ``"true_false"``.
         context: RAG-retrieved context text.
-        language: Target language code (default ``"es"`` = Spanish).
+        language: Deprecated legacy argument. Prompts always generate English.
         num_questions: Number of questions/statements to generate.
         letters: Deprecated legacy rosco letters; ignored by new prompts.
 
@@ -219,7 +216,6 @@ def get_prompt(
             if isinstance(topic, str) and topic.strip()
             else ""
         ),
-        language=language,
         difficulty_percentage=difficulty_percentage,
         num_questions=num_questions,
         letters=letters or "",

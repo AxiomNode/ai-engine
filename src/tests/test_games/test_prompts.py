@@ -39,9 +39,9 @@ class TestGetPrompt:
         with pytest.raises(ValueError, match="Unknown game_type"):
             get_prompt(game_type="bogus", context="")
 
-    def test_default_language_is_spanish(self):
+    def test_prompts_are_english_only(self):
         prompt = get_prompt(game_type="quiz", context="C")
-        assert "es" in prompt
+        assert "Language for all content: English" in prompt
 
     def test_all_templates_registered(self):
         assert "quiz" in TEMPLATES

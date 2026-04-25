@@ -223,7 +223,7 @@ class GenerationOptimizationService:
             "total_latency_ms": 0.0,
             "retry_used": False,
             "kbd_hits": 0,
-            "language": req.language,
+            "language": "en",
             "game_type": req.game_type,
             "difficulty_percentage": req.difficulty_percentage,
             "category_id": req.category_id or "",
@@ -290,7 +290,7 @@ class GenerationOptimizationService:
         metrics["retrieval_query"] = retrieval_query
 
         metadata_preferences = {
-            "language": req.language,
+            "language": "en",
             "game_type": req.game_type,
         }
         if req.category_name:
@@ -336,7 +336,7 @@ class GenerationOptimizationService:
                     context=context,
                     game_type=req.game_type,
                     topic=topic_seed,
-                    language=req.language,
+                    language="en",
                     difficulty_percentage=req.difficulty_percentage,
                     num_questions=req.num_questions,
                     letters=req.letters,
@@ -347,7 +347,7 @@ class GenerationOptimizationService:
                 envelope = await self._generator.generate(
                     query=req.query,
                     game_type=req.game_type,
-                    language=req.language,
+                    language="en",
                     difficulty_percentage=req.difficulty_percentage,
                     num_questions=req.num_questions,
                     letters=req.letters or "",
@@ -372,9 +372,7 @@ class GenerationOptimizationService:
         metrics["retry_used"] = bool(run_metrics.get("retry_used", False))
 
         payload = {"game_type": envelope.game_type, "game": envelope.game.to_dict()}
-        sdk_payload = parse_generate_response(
-            payload, language=req.language
-        ).model_dump()
+        sdk_payload = parse_generate_response(payload, language="en").model_dump()
         if isinstance(sdk_payload.get("metadata"), dict):
             sdk_payload["metadata"]["difficulty_percentage"] = req.difficulty_percentage
 
@@ -524,7 +522,7 @@ class GenerationOptimizationService:
                 "namespace": self._cache_namespace,
                 "query": req.resolved_topic.strip().lower(),
                 "game_type": req.game_type,
-                "language": req.language,
+                "language": "en",
                 "difficulty_percentage": req.difficulty_percentage,
                 "category_id": (req.category_id or "").strip().lower(),
                 "category_name": (req.category_name or "").strip().lower(),
