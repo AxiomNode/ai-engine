@@ -57,10 +57,10 @@ def test_parse_true_false_payload_to_generated_quiz_variant() -> None:
         },
     }
 
-    result = parse_generate_response(payload, language="es")
+    result = parse_generate_response(payload, language="en")
     assert isinstance(result, GeneratedQuiz)
-    assert result.metadata.language == LanguageCode.ES
-    assert result.metadata.language_id == "lang-es"
+    assert result.metadata.language == LanguageCode.EN
+    assert result.metadata.language_id == "lang-en"
     assert result.questions[0].question_type == "true_false"
 
 
@@ -87,27 +87,32 @@ def test_parse_word_pass_payload() -> None:
         },
     }
 
-    result = parse_generate_response(payload, language="fr")
+    result = parse_generate_response(payload, language="en")
     assert isinstance(result, GeneratedWordPass)
-    assert result.metadata.language_id == "lang-fr"
+    assert result.metadata.language_id == "lang-en"
     assert result.entries[0].relation == "starts_with"
     assert result.entries[1].relation == "contains"
 
 
-def test_get_language_info_raises_for_unsupported_code() -> None:
-    try:
+def test_get_language_info_returns_english_only() -> None:
+    info = get_language_info("en")
+
+    assert info.language_id == "lang-en"
+
+
+def test_get_language_info_raises_for_non_english_codes() -> None:
+    with pytest.raises(ValueError, match="Unsupported language"):
         get_language_info("jp")
-    except ValueError as exc:
-        assert "Unsupported language" in str(exc)
-    else:
-        raise AssertionError("Expected ValueError for unsupported language code")
+
+    with pytest.raises(ValueError, match="Unsupported language"):
+        get_language_info("fr")
 
 
-def test_generation_metadata_populates_language_id_from_string_language() -> None:
-    metadata = GenerationMetadata(language="fr")
+def test_generation_metadata_populates_language_id_from_default_english() -> None:
+    metadata = GenerationMetadata()
 
-    assert metadata.language == LanguageCode.FR
-    assert metadata.language_id == "lang-fr"
+    assert metadata.language == LanguageCode.EN
+    assert metadata.language_id == "lang-en"
 
 
 def test_multiple_choice_question_validates_correct_index() -> None:
@@ -156,7 +161,7 @@ def test_generated_quiz_parses_best_answer_and_true_false_variants() -> None:
 def test_generated_quiz_rejects_unsupported_game_type() -> None:
     with pytest.raises(ValueError, match="cannot be mapped to GeneratedQuiz"):
         GeneratedQuiz.from_generate_payload(
-            {"game_type": "word-pass", "game": {}}, language="es"
+            {"game_type": "word-pass", "game": {}}, language="en"
         )
 
 
@@ -176,7 +181,7 @@ def test_generated_quiz_falls_back_to_top_level_payload_when_game_is_not_a_mappi
                 }
             ],
         },
-        language="es",
+        language="en",
     )
 
     assert result.title == "Top level quiz"
@@ -186,7 +191,7 @@ def test_generated_quiz_falls_back_to_top_level_payload_when_game_is_not_a_mappi
 def test_generated_word_pass_rejects_wrong_type_and_non_mapping_game() -> None:
     with pytest.raises(ValueError, match="cannot be mapped to GeneratedWordPass"):
         GeneratedWordPass.from_generate_payload(
-            {"game_type": "quiz", "game": {}}, language="es"
+            {"game_type": "quiz", "game": {}}, language="en"
         )
 
     result = GeneratedWordPass.from_generate_payload(
@@ -203,7 +208,7 @@ def test_generated_word_pass_rejects_wrong_type_and_non_mapping_game() -> None:
                 }
             ],
         },
-        language="es",
+        language="en",
     )
 
     assert result.title == "Top level word pass"
@@ -235,7 +240,7 @@ def test_generated_word_pass_uses_game_difficulty_and_skips_invalid_items() -> N
         },
     }
 
-    result = GeneratedWordPass.from_generate_payload(payload, language="fr")
+    result = GeneratedWordPass.from_generate_payload(payload, language="en")
 
     assert result.metadata.difficulty_percentage == 70
     assert result.entries[0].letter == "A"
@@ -245,4 +250,4 @@ def test_generated_word_pass_uses_game_difficulty_and_skips_invalid_items() -> N
 
 def test_parse_generate_response_rejects_unsupported_type() -> None:
     with pytest.raises(ValueError, match="Unsupported game_type"):
-        parse_generate_response({"game_type": "arcade"}, language="es")
+        parse_generate_response({"game_type": "arcade"}, language="en")

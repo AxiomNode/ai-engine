@@ -8,15 +8,9 @@ from pydantic import BaseModel
 
 
 class LanguageCode(str, Enum):
-    """Supported language codes for generated game content."""
+    """Supported language code for generated game content."""
 
-    ES = "es"
     EN = "en"
-    FR = "fr"
-    DE = "de"
-    IT = "it"
-    PT = "pt"
-    CA = "ca"
 
 
 class LanguageInfo(BaseModel):
@@ -36,47 +30,11 @@ class LanguageInfo(BaseModel):
 
 
 LANGUAGE_CATALOG: dict[LanguageCode, LanguageInfo] = {
-    LanguageCode.ES: LanguageInfo(
-        code=LanguageCode.ES,
-        language_id="lang-es",
-        name="Spanish",
-        native_name="Espanol",
-    ),
     LanguageCode.EN: LanguageInfo(
         code=LanguageCode.EN,
         language_id="lang-en",
         name="English",
         native_name="English",
-    ),
-    LanguageCode.FR: LanguageInfo(
-        code=LanguageCode.FR,
-        language_id="lang-fr",
-        name="French",
-        native_name="Francais",
-    ),
-    LanguageCode.DE: LanguageInfo(
-        code=LanguageCode.DE,
-        language_id="lang-de",
-        name="German",
-        native_name="Deutsch",
-    ),
-    LanguageCode.IT: LanguageInfo(
-        code=LanguageCode.IT,
-        language_id="lang-it",
-        name="Italian",
-        native_name="Italiano",
-    ),
-    LanguageCode.PT: LanguageInfo(
-        code=LanguageCode.PT,
-        language_id="lang-pt",
-        name="Portuguese",
-        native_name="Portugues",
-    ),
-    LanguageCode.CA: LanguageInfo(
-        code=LanguageCode.CA,
-        language_id="lang-ca",
-        name="Catalan",
-        native_name="Catala",
     ),
 }
 

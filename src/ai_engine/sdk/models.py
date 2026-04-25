@@ -25,11 +25,11 @@ class GenerationMetadata(BaseModel):
     Attributes:
         generation_id: Stable identifier for the generated artifact.
         language: ISO 639-1 language code.
-        language_id: Stable language identifier (e.g. ``lang-es``).
+        language_id: Stable language identifier (``lang-en``).
     """
 
     generation_id: str = Field(default_factory=lambda: f"gen-{uuid4().hex}")
-    language: LanguageCode = LanguageCode.ES
+    language: LanguageCode = LanguageCode.EN
     language_id: str | None = None
     difficulty_percentage: int = Field(default=50, ge=0, le=100)
 
@@ -103,7 +103,7 @@ class GeneratedQuiz(BaseModel):
     def from_generate_payload(
         cls,
         payload: dict[str, Any],
-        language: LanguageCode | str = LanguageCode.ES,
+        language: LanguageCode | str = LanguageCode.EN,
     ) -> "GeneratedQuiz":
         """Create a quiz model from ``POST /generate`` API payload.
 
@@ -232,7 +232,7 @@ class GeneratedWordPass(BaseModel):
     def from_generate_payload(
         cls,
         payload: dict[str, Any],
-        language: LanguageCode | str = LanguageCode.ES,
+        language: LanguageCode | str = LanguageCode.EN,
     ) -> "GeneratedWordPass":
         """Create a word-pass model from ``POST /generate`` API payload."""
 
@@ -285,7 +285,7 @@ GeneratedGameModel = Union[GeneratedQuiz, GeneratedWordPass]
 
 def parse_generate_response(
     payload: dict[str, Any],
-    language: LanguageCode | str = LanguageCode.ES,
+    language: LanguageCode | str = LanguageCode.EN,
 ) -> GeneratedGameModel:
     """Parse ``POST /generate`` response into a typed SDK model."""
 
