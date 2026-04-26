@@ -10,6 +10,8 @@ on:
     - cron: "27 5 * * 1"
   workflow_dispatch:
 
+# Workflow-level permissions stay read-only because the security jobs only need
+# repository contents; elevated scopes are granted locally to CodeQL below.
 permissions:
   contents: read
 
@@ -20,6 +22,8 @@ jobs:
   codeql:
     name: CodeQL (python)
     runs-on: ubuntu-latest
+    # CodeQL needs to upload SARIF results (`security-events: write`) and read
+    # workflow metadata (`actions: read`), but no broader repository writes.
     permissions:
       contents: read
       security-events: write

@@ -7,6 +7,9 @@ on:
   pull_request:
     branches: [main, develop]
 
+# Workflow-level permissions stay read-only: this pipeline installs
+# dependencies, runs validation, and uploads coverage/artifacts without
+# mutating repositories or GitHub Actions state.
 permissions:
   contents: read
 
