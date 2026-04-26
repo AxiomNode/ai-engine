@@ -127,14 +127,41 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
+      - name: Resolve platform-infra dispatch auth mode
+        id: dispatch_auth
+        env:
+          APP_CLIENT_ID: ${{ vars['PLATFORM_INFRA_DISPATCH_APP_CLIENT_ID'] }}
+          APP_PRIVATE_KEY: ${{ secrets['PLATFORM_INFRA_DISPATCH_APP_PRIVATE_KEY'] }}
+        run: |
+          if [[ -n "${APP_CLIENT_ID}" && -n "${APP_PRIVATE_KEY}" ]]; then
+            echo "use_app_token=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "use_app_token=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create platform-infra dispatch token from GitHub App
+        if: steps.dispatch_auth.outputs.use_app_token == 'true'
+        id: platform_infra_app_token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars['PLATFORM_INFRA_DISPATCH_APP_CLIENT_ID'] }}
+          private-key: ${{ secrets['PLATFORM_INFRA_DISPATCH_APP_PRIVATE_KEY'] }}
+          owner: AxiomNode
+          repositories: |
+            platform-infra
+          permission-actions: write
+
       - name: Dispatch build-push in platform-infra (api + stats)
         env:
-          DISPATCH_TOKEN: ${{ secrets.PLATFORM_INFRA_DISPATCH_TOKEN }}
+          APP_DISPATCH_TOKEN: ${{ steps.platform_infra_app_token.outputs.token }}
+          PAT_DISPATCH_TOKEN: ${{ secrets.PLATFORM_INFRA_DISPATCH_TOKEN }}
         run: |
           set -euo pipefail
 
+          DISPATCH_TOKEN="${APP_DISPATCH_TOKEN:-${PAT_DISPATCH_TOKEN:-}}"
+
           if [[ -z "${DISPATCH_TOKEN}" ]]; then
-            echo "PLATFORM_INFRA_DISPATCH_TOKEN is required to trigger platform-infra workflow."
+            echo "Either GitHub App dispatch credentials or PLATFORM_INFRA_DISPATCH_TOKEN is required to trigger platform-infra workflow."
             exit 1
           fi
 
