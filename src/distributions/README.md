@@ -49,6 +49,12 @@ The installers automatically map environment to a centralized compose profile:
 
 So all deployments run from a single `src/docker-compose.yml`.
 
+Windows workstation distributions can also expose the local llama runtime with a
+temporary Cloudflare quick tunnel. Enable it with
+`AUTO_EXPOSE_CLOUDFLARE_LLAMA_TUNNEL=true`; the installer writes the active
+backoffice target to `src/data/llama-cloudflare-target.json` after validating
+`/v1/models` through the public tunnel.
+
 Installers now load two env files in order:
 
 1. `src/distributions/<stage>/<environment>.env` for resource sizing and stage metadata

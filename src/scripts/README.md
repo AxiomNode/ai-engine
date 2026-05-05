@@ -18,3 +18,10 @@ From repository root, invoke scripts using the `src/` prefix (for example,
 For the staging workstation topology, `scripts/install/deploy.ps1` can also
 bootstrap the VPS relay path that exposes local `ai-engine` services to the
 Kubernetes cluster through a reverse SSH tunnel.
+
+For a temporary public llama endpoint from a Windows workstation, use
+`scripts/install/configure_cloudflare_llama_tunnel.ps1`. The script starts or
+reuses the compose llama server, runs a Dockerized Cloudflare quick tunnel,
+verifies `/v1/models`, and writes the backoffice target details to
+`data/llama-cloudflare-target.json`. The `stg/windows-gpu` distribution enables
+this automatically through `AUTO_EXPOSE_CLOUDFLARE_LLAMA_TUNNEL=true`.
