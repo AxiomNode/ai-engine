@@ -102,12 +102,12 @@ def test_run_kbd_demo_builds_searchable_knowledge_base(
     """The KBD demo should populate entries and print example search output."""
     kb = demo_rag_kbd.run_kbd_demo()
 
-    biology_titles = [entry.title for entry in kb.search_by_tag("biologia")]
-    astronomy_titles = [entry.title for entry in kb.search_by_keyword("planetas")]
+    biology_titles = [entry.title for entry in kb.search_by_tag("biology")]
+    astronomy_titles = [entry.title for entry in kb.search_by_keyword("planets")]
     output = capsys.readouterr().out
 
-    assert biology_titles == ["Fotosintesis"]
-    assert astronomy_titles == ["Sistema solar"]
+    assert biology_titles == ["Photosynthesis"]
+    assert astronomy_titles == ["Solar System"]
     assert "[KBD] Total entries: 3" in output
 
 
@@ -125,8 +125,8 @@ def test_run_rag_demo_ingests_entries_and_prints_context(
     class _FakeKnowledgeBase:
         def list_all(self) -> list[_FakeEntry]:
             return [
-                _FakeEntry("Fotosintesis", "Las plantas usan luz.", ["biologia"]),
-                _FakeEntry("Sistema solar", "La Tierra orbita el Sol.", ["astronomia"]),
+                _FakeEntry("Photosynthesis", "Plants use light.", ["biology"]),
+                _FakeEntry("Solar System", "Earth orbits the Sun.", ["astronomy"]),
             ]
 
     captured: dict[str, object] = {}
@@ -160,7 +160,7 @@ def test_run_rag_demo_ingests_entries_and_prints_context(
 
         def build_context(self, query: str) -> str:
             captured["query"] = query
-            return "contexto recuperado"
+            return "retrieved context"
 
     monkeypatch.setitem(
         sys.modules,
@@ -193,12 +193,12 @@ def test_run_rag_demo_ingests_entries_and_prints_context(
 
     assert isinstance(pipeline, _FakePipeline)
     assert captured["chunker"] == (300, 50)
-    assert captured["query"] == "Que proceso usan las plantas para obtener energia?"
+    assert captured["query"] == "What process do plants use to obtain energy?"
     assert [doc.metadata["title"] for doc in captured["docs"]] == [
-        "Fotosintesis",
-        "Sistema solar",
+        "Photosynthesis",
+        "Solar System",
     ]
-    assert "[RAG] Retrieved context:\ncontexto recuperado" in output
+    assert "[RAG] Retrieved context:\nretrieved context" in output
 
 
 def test_run_rag_demo_exits_when_sentence_transformers_is_missing(
@@ -246,7 +246,7 @@ def test_run_game_demo_prints_generated_quiz(
             self.game = _FakeQuizGame(
                 [
                     _FakeQuestion(
-                        "Que produce la fotosintesis?", ["Glucosa", "Hierro"], 0
+                        "What does photosynthesis produce?", ["Glucose", "Iron"], 0
                     )
                 ]
             )
@@ -292,12 +292,12 @@ def test_run_game_demo_prints_generated_quiz(
 
     assert captured["llama_kwargs"]["model_path"] == "models/demo.gguf"
     assert captured["generate_kwargs"] == {
-        "query": "fotosintesis plantas cloroplastos glucosa",
+        "query": "photosynthesis plants chloroplasts glucose",
         "game_type": "quiz",
         "num_questions": 3,
     }
     assert "[GAME] Result:" in output
-    assert "[*] Glucosa" in output
+    assert "[*] Glucose" in output
 
 
 def test_run_game_demo_exits_when_generation_fails(

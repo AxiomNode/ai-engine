@@ -59,47 +59,47 @@ def run_kbd_demo() -> Any:
     kb.add(
         KnowledgeEntry(
             entry_id="1",
-            title="Fotosintesis",
+            title="Photosynthesis",
             content=(
-                "La fotosintesis es el proceso por el cual las plantas convierten "
-                "la luz solar, el agua y el dioxido de carbono en glucosa y oxigeno. "
-                "Ocurre principalmente en los cloroplastos, usando la clorofila como pigmento."
+                "Photosynthesis is the process by which plants convert sunlight, "
+                "water, and carbon dioxide into glucose and oxygen. It mainly occurs "
+                "in chloroplasts, using chlorophyll as the light-absorbing pigment."
             ),
-            tags=["biologia", "plantas", "energia"],
+            tags=["biology", "plants", "energy"],
         )
     )
     kb.add(
         KnowledgeEntry(
             entry_id="2",
-            title="Sistema solar",
+            title="Solar System",
             content=(
-                "El sistema solar esta formado por el Sol y todos los cuerpos celestes "
-                "que orbitan a su alrededor: 8 planetas, lunas, asteroides y cometas. "
-                "Los planetas en orden son: Mercurio, Venus, Tierra, Marte, Jupiter, "
-                "Saturno, Urano y Neptuno."
+                "The Solar System consists of the Sun and the celestial bodies that "
+                "orbit it: eight planets, moons, asteroids, and comets. The planets "
+                "in order are Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus, "
+                "and Neptune."
             ),
-            tags=["astronomia", "fisica", "planetas"],
+            tags=["astronomy", "physics", "planets"],
         )
     )
     kb.add(
         KnowledgeEntry(
             entry_id="3",
-            title="Segunda Guerra Mundial",
+            title="World War II",
             content=(
-                "La Segunda Guerra Mundial (1939-1945) fue el conflicto armado mas grande "
-                "de la historia. Involucro a la mayoria de las naciones del mundo. "
-                "Termino con la derrota de Alemania nazi y Japon imperial."
+                "World War II (1939-1945) was the largest armed conflict in history. "
+                "It involved most nations of the world and ended with the defeat of "
+                "Nazi Germany and Imperial Japan."
             ),
-            tags=["historia", "guerra", "siglo XX"],
+            tags=["history", "war", "twentieth century"],
         )
     )
 
-    print("\n[KBD] search_by_tag('biologia'):")
-    for entry in kb.search_by_tag("biologia"):
+    print("\n[KBD] search_by_tag('biology'):")
+    for entry in kb.search_by_tag("biology"):
         print(f"  [{entry.entry_id}] {entry.title}")
 
-    print("\n[KBD] search_by_keyword('planetas'):")
-    for entry in kb.search_by_keyword("planetas"):
+    print("\n[KBD] search_by_keyword('planets'):")
+    for entry in kb.search_by_keyword("planets"):
         print(f"  [{entry.entry_id}] {entry.title}")
 
     print(f"\n[KBD] Total entries: {len(kb)}")
@@ -139,7 +139,7 @@ def run_rag_demo(kb: Any) -> Any:
     pipeline.ingest(docs)
     log.info("Ingested %d documents into the vector store.", len(docs))
 
-    query = "Que proceso usan las plantas para obtener energia?"
+    query = "What process do plants use to obtain energy?"
     context = pipeline.build_context(query)
     print(f"\n[RAG] Query: {query}")
     print(f"[RAG] Retrieved context:\n{context}\n")
@@ -165,14 +165,14 @@ def run_game_demo(model_path: str, pipeline: Any) -> None:
     generator = GameGenerator(
         rag_pipeline=pipeline,
         llm_client=llm,
-        default_language="es",
+        default_language="en",
     )
 
-    print("[GAME] Generating a quiz about 'fotosintesis'...")
+    print("[GAME] Generating a quiz about 'photosynthesis'...")
     try:
         envelope = asyncio.run(
             generator.generate(
-                query="fotosintesis plantas cloroplastos glucosa",
+                query="photosynthesis plants chloroplasts glucose",
                 game_type="quiz",
                 num_questions=3,
             )
@@ -186,7 +186,7 @@ def run_game_demo(model_path: str, pipeline: Any) -> None:
 
     print("\n[GAME] Result:")
     print(f"  Type     : {envelope.game_type}")
-    print("  Language : es")
+    print("  Language : en")
     print("  Questions:")
     game = envelope.game
     if not isinstance(game, QuizGame):

@@ -90,7 +90,7 @@ class ChromaVectorStore(VectorStore):
                     meta[k] = str(v)
             metadatas.append(meta)
 
-        self._collection.add(
+        self._collection.upsert(
             ids=ids,
             embeddings=embeddings,  # type: ignore[arg-type]
             metadatas=cast(list[dict[str, object]], metadatas),  # type: ignore[arg-type]

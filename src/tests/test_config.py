@@ -142,9 +142,7 @@ class TestAIEngineSettingsDefaults:
 
     def test_retriever_reranker_defaults(self, monkeypatch):
         monkeypatch.delenv("AI_ENGINE_RETRIEVER_RERANKER_BACKEND", raising=False)
-        monkeypatch.delenv(
-            "AI_ENGINE_RETRIEVER_RERANK_CANDIDATE_COUNT", raising=False
-        )
+        monkeypatch.delenv("AI_ENGINE_RETRIEVER_RERANK_CANDIDATE_COUNT", raising=False)
         monkeypatch.delenv("AI_ENGINE_RETRIEVER_RERANK_SCORE_WEIGHT", raising=False)
         cfg = _reload_config(monkeypatch)
         settings = cfg.AIEngineSettings()
@@ -235,12 +233,8 @@ class TestAIEngineSettingsFromEnv:
         assert settings.diagnostics_cache_ttl_ms == 750
 
     def test_retriever_hybrid_boosts_from_env(self, monkeypatch):
-        monkeypatch.setenv(
-            "AI_ENGINE_RETRIEVER_LEXICAL_CONTENT_MATCH_BOOST", "0.2"
-        )
-        monkeypatch.setenv(
-            "AI_ENGINE_RETRIEVER_LEXICAL_METADATA_MATCH_BOOST", "0.07"
-        )
+        monkeypatch.setenv("AI_ENGINE_RETRIEVER_LEXICAL_CONTENT_MATCH_BOOST", "0.2")
+        monkeypatch.setenv("AI_ENGINE_RETRIEVER_LEXICAL_METADATA_MATCH_BOOST", "0.07")
         cfg = _reload_config(monkeypatch)
         settings = cfg.AIEngineSettings()
         assert settings.retriever_lexical_content_match_boost == 0.2

@@ -49,6 +49,7 @@ data/generation_cache.json
 
 # Chroma vector store data
 chroma_db/
+src/data/chroma/
 
 # Environment variables – NEVER commit secrets
 .env

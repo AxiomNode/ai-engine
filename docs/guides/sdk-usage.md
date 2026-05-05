@@ -33,8 +33,8 @@ parsing and validating objects returned by `POST /generate`.
 Every generated SDK object includes metadata:
 
 - `generation_id`: unique identifier for the generated object
-- `language`: ISO 639-1 code
-- `language_id`: stable language identifier (`lang-es`, `lang-en`, ...)
+- `language`: ISO 639-1 code (`en`)
+- `language_id`: stable language identifier (`lang-en`)
 
 ## Basic usage
 

@@ -894,9 +894,7 @@ class TestGenerate:
             gen_side_effect=httpx.ReadTimeout("sdk llama request timed out"),
             raise_server_exceptions=False,
         )
-        resp = client.post(
-            "/generate/sdk", json={"query": "water cycle"}
-        )
+        resp = client.post("/generate/sdk", json={"query": "water cycle"})
         assert resp.status_code == 504
         assert resp.json()["detail"] == "Upstream LLM request timed out."
 
@@ -912,9 +910,7 @@ class TestGenerate:
             gen_side_effect=httpx.ConnectError("sdk llama unavailable"),
             raise_server_exceptions=False,
         )
-        resp = client.post(
-            "/generate/sdk", json={"query": "water cycle"}
-        )
+        resp = client.post("/generate/sdk", json={"query": "water cycle"})
         assert resp.status_code == 503
         assert resp.json()["detail"] == "Upstream LLM request failed."
 

@@ -19,6 +19,7 @@ This is the place to document differences between:
 ## Navigation
 
 - [deployment.md](deployment.md) — Build and run the stack with Docker and distribution matrix.
+- [vps-autodeploy.md](vps-autodeploy.md) — systemd timer setup for standalone VPS Compose autodeploy.
 - [resource-allocation.md](resource-allocation.md) — CPU/RAM distribution per service for VPS 8c/32GB with justification.
 - [resource-allocation-workstation-gpu.md](resource-allocation-workstation-gpu.md) — Starting CPU/RAM/GPU budget for RTX 4080 SUPER / 7950X class Windows workstations.
 - [incident-runbook.md](incident-runbook.md) — Incident response and rollback playbooks.

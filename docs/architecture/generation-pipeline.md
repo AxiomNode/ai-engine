@@ -64,6 +64,8 @@ The runtime vector store is now a configuration concern instead of a hard-coded 
 
 - memory backend is still the default for tests and disposable local runs
 - chroma backend is available for persistent development and integration slices
+- the curated RAG seed corpus is versioned as JSONL package data and can be
+    pre-indexed with `python -m ai_engine.cli.build_rag_index`
 
 The retrieval path is now hybrid in two layers:
 

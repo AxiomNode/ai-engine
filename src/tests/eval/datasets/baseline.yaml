@@ -1,7 +1,7 @@
 # LLMOps baseline dataset for ai-engine eval harness.
 #
 # Each case exercises the generator end-to-end with a canned LLM response.
-# Add cases here when introducing new prompts, languages or topics.
+# Add cases here when introducing new prompts or topics.
 #
 # Required keys per case:
 #   id: stable identifier (used in result reports)
@@ -14,10 +14,10 @@
 # Optional:
 #   max_latency_ms: soft latency budget per call (default 500)
 cases:
-  - id: quiz-es-history-5
+  - id: quiz-en-history-5
     game_type: quiz
-    topic: Historia de Roma
-    language: es
+    topic: History of Rome
+    language: en
     num_questions: 5
     expected_min_items: 1
   - id: quiz-en-science-3
@@ -26,10 +26,10 @@ cases:
     language: en
     num_questions: 3
     expected_min_items: 1
-  - id: word-pass-es-geography-6
+  - id: word-pass-en-geography-6
     game_type: word-pass
-    topic: Capitales europeas
-    language: es
+    topic: European capitals
+    language: en
     num_questions: 6
     expected_min_items: 1
   - id: word-pass-en-animals-4
@@ -38,10 +38,10 @@ cases:
     language: en
     num_questions: 4
     expected_min_items: 1
-  - id: true_false-es-physics-5
+  - id: true_false-en-physics-5
     game_type: true_false
-    topic: Leyes de Newton
-    language: es
+    topic: Newton's laws
+    language: en
     num_questions: 5
     expected_min_items: 1
   - id: true_false-en-math-3

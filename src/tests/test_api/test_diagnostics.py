@@ -16,13 +16,13 @@ class FakeEmbedder:
         return [
             (
                 1.0
-                if any(token in lowered for token in ["foto", "cloroplast", "calvin"])
+                if any(token in lowered for token in ["photo", "chloroplast", "calvin"])
                 else 0.0
             ),
             (
                 1.0
                 if any(
-                    token in lowered for token in ["revolución", "bastilla", "rousseau"]
+                    token in lowered for token in ["revolution", "bastille", "rousseau"]
                 )
                 else 0.0
             ),
@@ -30,7 +30,7 @@ class FakeEmbedder:
                 1.0
                 if any(
                     token in lowered
-                    for token in ["pitágoras", "hipotenusa", "triángulo"]
+                    for token in ["pythagorean", "hypotenuse", "triangle"]
                 )
                 else 0.0
             ),
@@ -127,6 +127,37 @@ def test_compute_rag_stats_groups_sources_and_unique_documents() -> None:
     assert stats["sources"][0]["chunks"] == 2
     assert stats["sources"][0]["unique_documents"] == 1
     assert stats["sources"][1]["source"] == "unknown"
+
+
+def test_compute_rag_stats_reads_chroma_store() -> None:
+    chroma_module = pytest.importorskip("ai_engine.rag.vectorstores.chroma")
+    store = chroma_module.ChromaVectorStore(collection_name="diag-test", path=None)
+    store.add(
+        [
+            Document(
+                content="Photosynthesis happens in chloroplasts.",
+                metadata={"source": "seed-corpus"},
+                doc_id="bio-1",
+            ),
+            Document(
+                content="The Industrial Revolution changed manufacturing.",
+                metadata={"source": "seed-corpus"},
+                doc_id="history-1",
+            ),
+        ],
+        [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+    )
+    rag_pipeline = SimpleNamespace(
+        vector_store=store,
+        retriever=SimpleNamespace(top_k=5, min_score=0.3),
+    )
+
+    stats = diagnostics.compute_rag_stats(rag_pipeline)
+
+    assert stats["total_chunks"] == 2
+    assert stats["unique_documents"] == 2
+    assert stats["embedding_dimensions"] == 3
+    assert stats["sources"][0]["source"] == "seed-corpus"
 
 
 def test_run_rag_retrieval_suite_returns_passing_results() -> None:

@@ -19,7 +19,6 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -525,9 +524,7 @@ class StatsCollector:
             path.parent.mkdir(parents=True, exist_ok=True)
             with path.open("w", encoding="utf-8") as handle:
                 for event in events:
-                    handle.write(
-                        json.dumps(event.to_dict(), ensure_ascii=True) + "\n"
-                    )
+                    handle.write(json.dumps(event.to_dict(), ensure_ascii=True) + "\n")
         except Exception:
             logger.warning("Failed to rewrite observability history", exc_info=True)
 

@@ -29,7 +29,7 @@ When `AI_ENGINE_GAMES_API_KEY` is configured in ai-engine, every request to `/ge
 
 Recommended headers:
 - `X-Correlation-ID: <uuid-or-trace-id>` (recommended for tracing)
-- `X-Game-Language: es|en|...` (optional override)
+- `X-Game-Language: en` (optional override; English is the only supported runtime language)
 - `X-Difficulty-Percentage: 0..100` (optional override)
 
 ## Endpoints for Game Services
@@ -49,7 +49,7 @@ Request body schema:
   "query": "string",
   "topic": "string",
   "game_type": "quiz|word-pass|true_false",
-  "language": "es",
+  "language": "en",
   "num_questions": 5,
   "difficulty_percentage": 50,
   "letters": "A,B,C,D,E,F,G,H,I,J,L,M,N,O,P,R,S,T,V,Z",

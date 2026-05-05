@@ -15,6 +15,7 @@ from ai_engine.examples.corpus import (
     get_full_corpus,
 )
 from ai_engine.examples.injector import ExampleInjector
+from ai_engine.examples.rag_seed import load_seed_corpus_entries
 from ai_engine.rag.document import Document
 
 # ── Corpus integrity ──────────────────────────────────────────────────
@@ -28,11 +29,17 @@ class TestCorpusIntegrity:
         assert len(corpus) > 0
 
     def test_full_corpus_equals_sum_of_parts(self):
-        total = (
-            len(QUIZ_EXAMPLES)
-            + len(WORD_PASS_EXAMPLES)
-            + len(TRUE_FALSE_EXAMPLES)
-            + len(EDUCATIONAL_RESOURCES)
+        source_entries = (
+            QUIZ_EXAMPLES
+            + WORD_PASS_EXAMPLES
+            + TRUE_FALSE_EXAMPLES
+            + EDUCATIONAL_RESOURCES
+            + load_seed_corpus_entries()
+        )
+        total = sum(
+            1
+            for entry in source_entries
+            if entry.get("metadata", {}).get("language") == "en"
         )
         assert len(get_full_corpus()) == total
 

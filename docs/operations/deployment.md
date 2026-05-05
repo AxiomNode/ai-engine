@@ -169,6 +169,20 @@ Use the unified installers:
 ./src/scripts/install/deploy.sh pro vps-cpu
 ```
 
+For a standalone VPS that should update itself periodically from a Git branch,
+install the systemd timer after the first manual deploy:
+
+```bash
+./src/scripts/install/install-vps-autodeploy.sh pro vps-cpu main 5min
+```
+
+That autodeploy path is for direct Docker Compose VPS deployments. Kubernetes
+rollouts remain owned by `platform-infra`.
+
+The Linux deploy script also verifies the deployed RAG index by polling
+`/diagnostics/rag/stats`. A deploy is considered successful only after the API
+is healthy and the vector store reports non-empty coverage.
+
 ```powershell
 # Windows PowerShell
 ./src/scripts/install/deploy.ps1 -Stage dev -Environment windows

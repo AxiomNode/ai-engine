@@ -20,6 +20,7 @@ The main distinction is:
 
 - [getting-started.md](getting-started.md) — Local setup and development workflow.
 - [rag-usage.md](rag-usage.md) — RAG ingestion/retrieval usage.
+- [rag-corpus-authoring.md](rag-corpus-authoring.md) — How to create curated RAG datasets and audit corpus coverage.
 - [kbd-usage.md](kbd-usage.md) — Knowledge Base usage and integration.
 - [sdk-usage.md](sdk-usage.md) — SDK response models and parsing.
 - [metrics-usage.md](metrics-usage.md) — Metrics and observability usage patterns.

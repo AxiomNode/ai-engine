@@ -452,9 +452,7 @@ class TestLlamaClientPluginCapabilities:
             == "http://localhost:8080/v1/models"
         )
         assert (
-            _models_url_from_generation_url(
-                "http://localhost:8080/v1/chat/completions"
-            )
+            _models_url_from_generation_url("http://localhost:8080/v1/chat/completions")
             == "http://localhost:8080/v1/models"
         )
         assert (

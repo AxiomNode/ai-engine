@@ -29,6 +29,11 @@ Use the unified installers under `src/scripts/install/`:
 - Linux: `src/scripts/install/deploy.sh <stage> <environment>`
 - Windows: `src/scripts/install/deploy.ps1 -Stage <stage> -Environment <environment>`
 
+For standalone VPS hosts, install a systemd timer after the first successful
+manual deploy:
+
+- `src/scripts/install/install-vps-autodeploy.sh <stg|pro> <vps-cpu|vps-gpu> [branch] [interval]`
+
 Before running installers, inject the matching runtime secrets:
 
 - `node ../secrets/scripts/prepare-runtime-secrets.mjs dev ai-engine`
@@ -78,6 +83,7 @@ Primary knobs adjusted per env file:
 - container capacity (`LLAMA_*`, `API_*`, `STATS_*` CPU/RAM)
 - processing headroom (`API_WORKERS`)
 - generation budget (`AI_ENGINE_LLAMA_TIMEOUT_SECONDS`)
+- persistent RAG backend (`AI_ENGINE_VECTOR_STORE_BACKEND`, `AI_ENGINE_VECTOR_STORE_PATH`)
 
 ## Docker Image and Container Naming
 

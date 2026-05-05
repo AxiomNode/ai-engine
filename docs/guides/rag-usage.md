@@ -5,6 +5,22 @@ data layer of ai-engine. It provides a pipeline to **ingest documents, store
 their embeddings, and retrieve the most relevant chunks** to build context for
 an LLM prompt.
 
+Measure retrieval quality and latency against the curated benchmark cases:
+
+```bash
+python -m ai_engine.cli.evaluate_rag_quality --format text
+python -m ai_engine.cli.evaluate_rag_quality --format json
+```
+
+The quality report tracks:
+
+- hit rate: how many benchmark queries retrieve an expected document/topic
+- MRR: mean reciprocal rank of the first matching retrieved chunk
+- average, p95, and max retrieval latency
+
+Use these metrics before and after adding documents, changing embeddings,
+switching vector stores, or tuning reranker settings.
+
 ---
 
 ## Concepts
@@ -158,6 +174,42 @@ pipeline = RAGPipeline(embedder=OpenAIEmbedder(), vector_store=InMemoryVectorSto
 ## Vector stores
 
 `VectorStore` is an abstract base class. Two implementations are available:
+
+### Curated seed corpus and persistent index build
+
+`ai-engine` ships a versioned RAG seed corpus under
+`ai_engine/examples/rag_documents/`. These JSONL documents are part of the
+runtime corpus injected at API startup, together with the Python-defined game
+examples and educational resources.
+
+Use the build CLI when you want a reproducible local vector database instead
+of relying only on runtime `/ingest` calls:
+
+```bash
+cd src
+python -m ai_engine.cli.build_rag_index \
+    --backend chroma \
+    --path data/chroma \
+    --collection ai_engine_default \
+    --clear \
+    --query "vector databases for RAG"
+```
+
+The command:
+
+- loads the full curated corpus
+- embeds it with the configured SentenceTransformers model
+- writes it to the selected vector store backend
+- optionally runs a smoke retrieval query
+
+Relevant environment defaults:
+
+- `AI_ENGINE_VECTOR_STORE_BACKEND`
+- `AI_ENGINE_VECTOR_STORE_PATH`
+- `AI_ENGINE_VECTOR_STORE_COLLECTION`
+- `AI_ENGINE_EMBEDDING_MODEL`
+- `AI_ENGINE_EMBEDDING_DEVICE`
+- `AI_ENGINE_EMBEDDING_BATCH_SIZE`
 
 ### InMemoryVectorStore (built-in)
 

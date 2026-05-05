@@ -120,7 +120,7 @@ User starts a game session in the App
          query   = "<topic keywords>",
          topic   = "<educational topic>",
          game_type = "quiz" | "word-pass" | "true_false",
-         language  = "es" | "en" | ...,
+         language  = "en",
          num_questions = N,
      )
            │
@@ -153,7 +153,7 @@ User starts a game session in the App
 
 ### App (Frontend)
 - User interface, social features (friends, challenges, leaderboard).
-- Sends game requests with topic, language, and difficulty.
+- Sends game requests with topic, English language, and difficulty.
 - Renders the game based on the structured session received.
 - Does **not** know about AI or content generation.
 
@@ -236,12 +236,12 @@ Source : https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF
 
 ### Why Qwen2.5-7B-Instruct?
 
-#### 1 — Spanish language quality
-AxiomNode targets primarily Spanish-speaking users. Qwen2.5 is trained on a
-large multilingual corpus with strong Spanish representation, producing
-naturally phrased questions, definitions, and statements that feel idiomatic
-rather than machine-translated. Smaller ~3B models show measurable quality
-drop in Spanish educational phrasing.
+#### 1 — English educational quality
+AxiomNode currently targets English-only content. Qwen2.5 is trained on a
+large instruction corpus and produces naturally phrased questions,
+definitions, and statements with strong schema-following behavior. Smaller
+~3B models are useful fallbacks, but they show weaker educational phrasing and
+less consistent structured output under the same constraints.
 
 #### 2 — JSON instruction following
 Game generation depends entirely on the model producing valid, schema-compliant
@@ -271,7 +271,7 @@ ai-engine license and the AxiomNode project goals.
 
 | Criterion | Qwen2.5-7B | Phi-3.5-mini (3.8B) | Qwen2.5-3B | Llama-3.1-8B |
 |---|---|---|---|---|
-| Spanish quality | ★★★★★ | ★★★☆☆ | ★★★☆☆ | ★★★★☆ |
+| English educational quality | ★★★★★ | ★★★★☆ | ★★★☆☆ | ★★★★☆ |
 | JSON schema fidelity | ★★★★★ | ★★★★☆ | ★★★☆☆ | ★★★★☆ |
 | Factual accuracy | ★★★★☆ | ★★★★☆ | ★★★☆☆ | ★★★★☆ |
 | RAM footprint | ★★★☆☆ | ★★★★★ | ★★★★★ | ★★★☆☆ |

@@ -1124,7 +1124,9 @@ class TestGameGeneratorErrorHandling:
             def __init__(self) -> None:
                 self.prompts: list[str] = []
 
-            async def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
+            async def generate(
+                self, prompt: str, max_tokens: int = 256, **kwargs
+            ) -> str:
                 self.prompts.append(prompt)
                 return json.dumps(
                     {

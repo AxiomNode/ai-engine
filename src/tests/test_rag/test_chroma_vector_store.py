@@ -152,6 +152,18 @@ class TestChromaVectorStoreAddSearch:
         results = store.search([1.0, 0.0], top_k=2)
         assert len(results) == 2
 
+    def test_add_upserts_existing_doc_id(self) -> None:
+        """Repeated corpus priming should update existing Chroma ids safely."""
+        store = _store()
+        store.add([Document(content="old content", doc_id="same")], [[1.0, 0.0]])
+        store.add([Document(content="new content", doc_id="same")], [[0.0, 1.0]])
+
+        results = store.search([0.0, 1.0], top_k=3)
+
+        assert len(results) == 1
+        assert results[0][0].doc_id == "same"
+        assert results[0][0].content == "new content"
+
 
 # ------------------------------------------------------------------
 # clear

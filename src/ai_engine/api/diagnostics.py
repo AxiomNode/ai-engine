@@ -16,12 +16,59 @@ import time
 from typing import Any, Callable
 
 from ai_engine.config import get_settings
+from ai_engine.rag.document import Document
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # RAG statistics helper
 # ---------------------------------------------------------------------------
+
+
+def _store_snapshot(store: Any) -> tuple[list[Document], list[list[float]]]:
+    """Return stored documents/embeddings for supported vector stores."""
+    documents = getattr(store, "_documents", None)
+    embeddings_list = getattr(store, "_embeddings_list", None)
+    if isinstance(documents, list):
+        safe_embeddings = embeddings_list if isinstance(embeddings_list, list) else []
+        return documents, safe_embeddings
+
+    collection = getattr(store, "_collection", None)
+    if collection is None:
+        return [], []
+
+    try:
+        result = collection.get(include=["documents", "metadatas", "embeddings"])
+    except Exception as exc:  # pragma: no cover - defensive diagnostics path
+        logger.warning("Unable to inspect vector store collection: %s", exc)
+        return [], []
+
+    raw_contents = result.get("documents") or []
+    raw_metadatas = result.get("metadatas") or []
+    raw_embeddings = result.get("embeddings")
+
+    snapshot_documents: list[Document] = []
+    for index, content in enumerate(raw_contents):
+        raw_meta = raw_metadatas[index] if index < len(raw_metadatas) else {}
+        safe_meta = raw_meta if isinstance(raw_meta, dict) else {}
+        doc_content = str(safe_meta.get("_content", content))
+        doc_id_value = safe_meta.get("_doc_id")
+        doc_id = str(doc_id_value) if doc_id_value is not None else None
+        metadata = {
+            key: value
+            for key, value in safe_meta.items()
+            if key not in ("_content", "_doc_id")
+        }
+        snapshot_documents.append(
+            Document(content=doc_content, metadata=metadata, doc_id=doc_id)
+        )
+
+    snapshot_embeddings: list[list[float]] = []
+    if raw_embeddings is not None:
+        for embedding in raw_embeddings:
+            snapshot_embeddings.append([float(value) for value in embedding])
+
+    return snapshot_documents, snapshot_embeddings
 
 
 def compute_rag_stats(rag_pipeline: Any) -> dict[str, Any]:
@@ -33,8 +80,7 @@ def compute_rag_stats(rag_pipeline: Any) -> dict[str, Any]:
     store = rag_pipeline.vector_store
     retriever = rag_pipeline.retriever
 
-    documents = getattr(store, "_documents", [])
-    embeddings_list = getattr(store, "_embeddings_list", [])
+    documents, embeddings_list = _store_snapshot(store)
 
     total_chunks = len(documents)
     embedding_dim = len(embeddings_list[0]) if embeddings_list else 0
@@ -256,30 +302,30 @@ def _run_rag_retrieval_suite(rag_pipeline: Any) -> dict[str, Any]:
     test_docs = [
         Document(
             content=(
-                "La fotosíntesis es el proceso mediante el cual las plantas convierten "
-                "la luz solar, el agua y el dióxido de carbono en glucosa y oxígeno. "
-                "Ocurre en los cloroplastos, en la clorofila. Fases: luminosa (tilacoides) "
-                "y ciclo de Calvin (estroma)."
+                "Photosynthesis is the process by which plants convert sunlight, "
+                "water, and carbon dioxide into glucose and oxygen. It happens in "
+                "chloroplasts using chlorophyll. Main stages include light reactions "
+                "in thylakoids and the Calvin cycle in the stroma."
             ),
-            doc_id="test-fotosintesis",
-            metadata={"source": "test", "subject": "biología"},
+            doc_id="test-photosynthesis",
+            metadata={"source": "test", "subject": "biology"},
         ),
         Document(
             content=(
-                "La Revolución Francesa comenzó en 1789 con la Toma de la Bastilla. "
-                "Causas: crisis económica, desigualdad, ideas de Voltaire, Rousseau y "
-                "Montesquieu. Lema: Libertad, Igualdad, Fraternidad."
+                "The French Revolution began in 1789 with the Storming of the Bastille. "
+                "Its causes included economic crisis, inequality, and Enlightenment "
+                "ideas associated with Voltaire, Rousseau, and Montesquieu."
             ),
-            doc_id="test-rev-francesa",
-            metadata={"source": "test", "subject": "historia"},
+            doc_id="test-french-revolution",
+            metadata={"source": "test", "subject": "history"},
         ),
         Document(
             content=(
-                "El teorema de Pitágoras: en un triángulo rectángulo, a² + b² = c². "
-                "Ejemplo: catetos 3 y 4, hipotenusa 5. Ternas: (3,4,5), (5,12,13)."
+                "The Pythagorean theorem states that in a right triangle, a^2 + b^2 = c^2. "
+                "For example, legs of length 3 and 4 have a hypotenuse of length 5."
             ),
-            doc_id="test-pitagoras",
-            metadata={"source": "test", "subject": "matemáticas"},
+            doc_id="test-pythagorean-theorem",
+            metadata={"source": "test", "subject": "mathematics"},
         ),
     ]
 
@@ -291,7 +337,7 @@ def _run_rag_retrieval_suite(rag_pipeline: Any) -> dict[str, Any]:
 
     # Test 1: On-topic retrieval
     def _test_on_topic() -> dict[str, Any]:
-        docs = test_retriever.retrieve("fotosíntesis en plantas cloroplastos")
+        docs = test_retriever.retrieve("photosynthesis in plants chloroplasts")
         scores = test_retriever.last_scores
         passed = len(docs) > 0 and all(s >= 0.3 for s in scores)
         return {
@@ -306,7 +352,7 @@ def _run_rag_retrieval_suite(rag_pipeline: Any) -> dict[str, Any]:
 
     # Test 2: Similarity score quality
     def _test_similarity_quality() -> dict[str, Any]:
-        test_retriever.retrieve("fases de la fotosíntesis luminosa Calvin")
+        test_retriever.retrieve("photosynthesis stages light reactions Calvin cycle")
         scores = test_retriever.last_scores
         mean_score = sum(scores) / len(scores) if scores else 0
         passed = mean_score > 0.4
@@ -319,8 +365,8 @@ def _run_rag_retrieval_suite(rag_pipeline: Any) -> dict[str, Any]:
     # Test 3: Off-topic filtering
     def _test_off_topic_filter() -> dict[str, Any]:
         off_topic_queries = [
-            "recetas de cocina italiana carbonara",
-            "programación en rust async",
+            "Italian carbonara recipe",
+            "Rust async programming",
         ]
         max_docs = 0
         for q in off_topic_queries:
@@ -658,7 +704,7 @@ def _run_generation_performance_suite(generator: Any) -> dict[str, Any]:
             "letters": "A,B,C,D,E,F,G,H,I,J",
         },
         {
-            "query": "revolucion francesa",
+            "query": "French Revolution",
             "game_type": "true_false",
             "difficulty_percentage": 55,
             "num_questions": 1,
@@ -667,7 +713,7 @@ def _run_generation_performance_suite(generator: Any) -> dict[str, Any]:
             "letters": "A,B,C,D,E,F,G,H,I,J",
         },
         {
-            "query": "teorema de pitagoras",
+            "query": "Pythagorean theorem",
             "game_type": "word-pass",
             "difficulty_percentage": 50,
             "num_questions": 2,
@@ -695,7 +741,7 @@ def _run_generation_performance_suite(generator: Any) -> dict[str, Any]:
                     generator.generate(
                         case["query"],
                         game_type=case["game_type"],
-                        language="es",
+                        language="en",
                         difficulty_percentage=case["difficulty_percentage"],
                         num_questions=case["num_questions"],
                         max_tokens=case["max_tokens"],

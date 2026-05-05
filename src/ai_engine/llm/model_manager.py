@@ -3,7 +3,7 @@
 The recommended model for structured JSON educational-game generation is
 **Qwen2.5-7B-Instruct** (GGUF Q4_K_M, ~4.8 GB):
 
-- Best Spanish language quality among local <10 B models.
+- Strong English educational phrasing among local <10 B models.
 - Excellent structured JSON output with GBNF grammar constraints.
 - Higher factual accuracy than 3 B variants — critical for educational content.
 - Apache-2.0 licence — free for commercial use.
@@ -36,7 +36,7 @@ MODELS: dict[str, dict[str, Any]] = {
         "size_mb": 4800,
         "description": (
             "Qwen2.5-7B-Instruct Q4_K_M – recommended for AxiomNode. "
-            "Best Spanish quality + JSON fidelity among local models. ~4.8 GB download."
+            "Strong English quality + JSON fidelity among local models. ~4.8 GB download."
         ),
         "n_ctx": 4096,
         "sha256": None,  # Optional; set to enable integrity check.

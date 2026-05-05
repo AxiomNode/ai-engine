@@ -266,7 +266,6 @@ def demo_api_schemas() -> str:
     generate_req = GenerateRequest(
         query="water",
         game_type="quiz",
-        language="en",
         item_count=3,
         max_tokens=256,
     )

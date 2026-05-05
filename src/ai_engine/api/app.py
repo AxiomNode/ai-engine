@@ -54,11 +54,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_WORD_PASS_LETTERS = "A,B,C,D,E,F,G,H,I,J,L,M,N,O,P,R,S,T,V,Z"
 
 SUPPORTED_LANGUAGES_CATALOG: list[dict[str, str]] = [
-    {"code": "es", "name": "spanish"},
     {"code": "en", "name": "english"},
-    {"code": "fr", "name": "french"},
-    {"code": "de", "name": "german"},
-    {"code": "it", "name": "italian"},
 ]
 
 GAME_CATEGORIES_CATALOG: list[dict[str, str]] = [
@@ -214,10 +210,13 @@ def _build_vector_store_from_settings(settings: Any) -> Any:
     if normalized_backend == "chroma":
         from ai_engine.rag.vectorstores.chroma import ChromaVectorStore
 
-        collection_name = str(
-            getattr(settings, "vector_store_collection", "ai_engine_default")
+        collection_name = (
+            str(
+                getattr(settings, "vector_store_collection", "ai_engine_default")
+                or "ai_engine_default"
+            ).strip()
             or "ai_engine_default"
-        ).strip() or "ai_engine_default"
+        )
         path = str(getattr(settings, "vector_store_path", "data/chroma") or "").strip()
         logger.info(
             "Using Chroma vector store backend collection=%s path=%s",
@@ -371,7 +370,7 @@ _WARMUP_CATEGORIES = [
 CATEGORY_NAME_BY_ID = {entry["id"]: entry["name"] for entry in GAME_CATEGORIES_CATALOG}
 
 _WARMUP_GAME_TYPES = ["quiz", "word-pass", "true_false"]
-_WARMUP_LANGUAGES = ["es", "en"]
+_WARMUP_LANGUAGES = ["en"]
 
 
 async def _warmup_cache(optimizer: GenerationOptimizationService) -> None:
@@ -1445,7 +1444,9 @@ def create_app(
     def get_internal_llama_target(request: Request) -> dict[str, Any]:
         return _get_llama_target_payload(request.app)
 
-    @app.get("/internal/plugin/capabilities", tags=["internal"], include_in_schema=False)
+    @app.get(
+        "/internal/plugin/capabilities", tags=["internal"], include_in_schema=False
+    )
     async def get_internal_plugin_capabilities(request: Request) -> dict[str, Any]:
         """Return the effective thin-plugin runtime capabilities."""
         return await _get_plugin_capabilities_payload(request.app)
@@ -2008,7 +2009,7 @@ def create_app(
         category_name: str | None = Query(default=None),
         language: str | None = Query(default=None),
         difficulty_percentage: int | None = Query(default=None),
-        x_game_language: str = Header(default="es", alias="X-Game-Language"),
+        x_game_language: str = Header(default="en", alias="X-Game-Language"),
         x_difficulty_percentage: int = Header(
             default=50,
             alias="X-Difficulty-Percentage",
@@ -2051,7 +2052,7 @@ def create_app(
         category_name: str | None = Query(default=None),
         language: str | None = Query(default=None),
         difficulty_percentage: int | None = Query(default=None),
-        x_game_language: str = Header(default="es", alias="X-Game-Language"),
+        x_game_language: str = Header(default="en", alias="X-Game-Language"),
         x_difficulty_percentage: int = Header(
             default=50,
             alias="X-Difficulty-Percentage",
@@ -2094,7 +2095,7 @@ def create_app(
         category_name: str | None = Query(default=None),
         language: str | None = Query(default=None),
         difficulty_percentage: int | None = Query(default=None),
-        x_game_language: str = Header(default="es", alias="X-Game-Language"),
+        x_game_language: str = Header(default="en", alias="X-Game-Language"),
         x_difficulty_percentage: int = Header(
             default=50,
             alias="X-Difficulty-Percentage",

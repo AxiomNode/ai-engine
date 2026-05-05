@@ -8,5 +8,15 @@ always has high-quality few-shot context.
 
 from ai_engine.examples.corpus import get_corpus_signature
 from ai_engine.examples.injector import ExampleInjector
+from ai_engine.examples.rag_audit import audit_corpus
+from ai_engine.examples.rag_quality import evaluate_retrieval_quality
+from ai_engine.examples.rag_seed import describe_seed_corpus, load_seed_documents
 
-__all__ = ["ExampleInjector", "get_corpus_signature"]
+__all__ = [
+    "ExampleInjector",
+    "audit_corpus",
+    "describe_seed_corpus",
+    "evaluate_retrieval_quality",
+    "get_corpus_signature",
+    "load_seed_documents",
+]

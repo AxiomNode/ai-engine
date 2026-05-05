@@ -90,7 +90,7 @@ for the full selection rationale.
 
 | Tier | Model | Format | Quant | Size | License | When to use |
 |---|---|---|---|---|---|---|
-| **Recommended** | **Qwen2.5-7B-Instruct** | GGUF | Q4_K_M | ~4.8 GB | Apache-2.0 | Production — best balance of Spanish quality, JSON fidelity, and local inference speed. |
+| **Recommended** | **Qwen2.5-7B-Instruct** | GGUF | Q4_K_M | ~4.8 GB | Apache-2.0 | Production — best balance of English educational quality, JSON fidelity, and local inference speed. |
 | Lightweight | Phi-3.5-mini-instruct | GGUF | Q4_K_M | ~2.4 GB | MIT | Resource-constrained environments (≤ 8 GB RAM with OS overhead). |
 | Lightweight | Qwen2.5-3B-Instruct | GGUF | Q4_K_M | ~2 GB | Apache-2.0 | Ultra-low-resource fallback. Acceptable JSON output. |
 
@@ -102,7 +102,7 @@ stored in the directory set by the `AI_ENGINE_MODELS_DIR` environment variable
 
 | Model | Dimensions | Size | Source | Purpose |
 |---|---|---|---|---|
-| **paraphrase-multilingual-MiniLM-L12-v2** | 384 | ~120 MB | Hugging Face (sentence-transformers) | Current default dense embedder for the RAG pipeline and distribution env files. Better multilingual fit for Spanish-heavy educational content. |
+| **paraphrase-multilingual-MiniLM-L12-v2** | 384 | ~120 MB | Hugging Face (sentence-transformers) | Current default dense embedder for the RAG pipeline and distribution env files. Keeps compatibility with existing vectors while the runtime corpus is English-only. |
 
 Legacy references to `all-MiniLM-L6-v2` may still appear in older comments or examples, but current configuration defaults and tests are aligned to `paraphrase-multilingual-MiniLM-L12-v2`.
 

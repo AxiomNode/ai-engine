@@ -19,6 +19,8 @@ import hashlib
 import json
 from typing import Any
 
+from ai_engine.examples.rag_seed import load_seed_corpus_entries
+
 # ── Helpers ───────────────────────────────────────────────────────────
 
 
@@ -1393,10 +1395,22 @@ El sufragio universal se fue implementando progresivamente durante los siglos XI
 
 
 def get_full_corpus() -> list[dict[str, Any]]:
-    """Return every document in the corpus (examples + resources)."""
-    return (
-        QUIZ_EXAMPLES + WORD_PASS_EXAMPLES + TRUE_FALSE_EXAMPLES + EDUCATIONAL_RESOURCES
+    """Return English runtime documents from the curated corpus."""
+    entries = (
+        QUIZ_EXAMPLES
+        + WORD_PASS_EXAMPLES
+        + TRUE_FALSE_EXAMPLES
+        + EDUCATIONAL_RESOURCES
+        + load_seed_corpus_entries()
     )
+    return [entry for entry in entries if _is_english_runtime_entry(entry)]
+
+
+def _is_english_runtime_entry(entry: dict[str, Any]) -> bool:
+    raw_metadata = entry.get("metadata")
+    metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
+    language = str(metadata.get("language") or "en").strip().lower()
+    return language == "en"
 
 
 def get_corpus_signature() -> str:

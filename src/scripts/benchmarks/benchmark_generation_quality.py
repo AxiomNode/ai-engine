@@ -31,7 +31,6 @@ from urllib.request import Request, urlopen
 
 PLACEHOLDER_PATTERNS = [
     r"multiple choice question",
-    r"pregunta de opcion multiple",
     r"placeholder",
     r"sample answer",
     r"example question",
@@ -41,21 +40,7 @@ PLACEHOLDER_PATTERNS = [
 
 STOPWORDS = {
     "about",
-    "con",
-    "de",
-    "del",
-    "el",
-    "en",
-    "la",
-    "las",
-    "los",
-    "para",
-    "por",
-    "que",
-    "sobre",
     "the",
-    "una",
-    "y",
 }
 
 MIN_KEYWORD_LEN = 4
@@ -87,16 +72,16 @@ class CaseResult:
 
 
 CASES: list[BenchmarkCase] = [
-    BenchmarkCase("quiz", "es", "17", "fotosintesis"),
-    BenchmarkCase("quiz", "es", "17", "ciclo de calvin"),
-    BenchmarkCase("quiz", "es", "19", "teorema de pitagoras"),
-    BenchmarkCase("quiz", "es", "23", "revolucion francesa"),
-    BenchmarkCase("quiz", "es", "21", "reglas del baloncesto"),
+    BenchmarkCase("quiz", "en", "17", "photosynthesis"),
+    BenchmarkCase("quiz", "en", "17", "Calvin cycle"),
+    BenchmarkCase("quiz", "en", "19", "Pythagorean theorem"),
+    BenchmarkCase("quiz", "en", "23", "French Revolution"),
+    BenchmarkCase("quiz", "en", "21", "basketball rules"),
     BenchmarkCase("quiz", "en", "17", "cellular respiration"),
     BenchmarkCase("quiz", "en", "18", "binary search trees"),
     BenchmarkCase("quiz", "en", "23", "roman republic"),
-    BenchmarkCase("word-pass", "es", "17", "sistema solar"),
-    BenchmarkCase("word-pass", "es", "23", "independencia de mexico"),
+    BenchmarkCase("word-pass", "en", "17", "solar system"),
+    BenchmarkCase("word-pass", "en", "23", "Mexican independence"),
     BenchmarkCase("word-pass", "en", "17", "photosynthesis"),
     BenchmarkCase("word-pass", "en", "25", "renaissance art"),
 ]
