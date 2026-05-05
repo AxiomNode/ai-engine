@@ -47,11 +47,19 @@ try:
 except ImportError:  # pragma: no cover
     add_api_key_middleware = None  # type: ignore[assignment]
 
-# Module-level collector used when running ``uvicorn … api:app``.
-_default_collector = StatsCollector()
 logger = logging.getLogger(__name__)
 
 _start_time: float = time.time()
+
+
+def _build_default_collector() -> StatsCollector:
+    """Create the module-level collector with configured history persistence."""
+    settings = get_settings()
+    return StatsCollector(persistence_path=settings.observability_history_path)
+
+
+# Module-level collector used when running ``uvicorn … api:app``.
+_default_collector = _build_default_collector()
 
 
 class EventIngestRequest(BaseModel):

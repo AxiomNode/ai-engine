@@ -1099,3 +1099,53 @@ class TestGameGeneratorErrorHandling:
             "language": "es",
             "game_type": "quiz",
         }
+
+    def test_generate_embeds_generation_plan_into_prompt(self):
+        class _SpyPipeline:
+            def build_context(
+                self, query: str, top_k: int | None = None, **kwargs
+            ) -> str:
+                return "Context about Roman history and republic institutions."
+
+            def retrieve(self, query: str, top_k: int | None = None, **kwargs):
+                return [
+                    Document(
+                        content="Roman Republic magistrates included consuls and praetors.",
+                        metadata={
+                            "source": "chapter-1",
+                            "topic": "rome",
+                            "language": "es",
+                        },
+                        doc_id="rome-1",
+                    )
+                ]
+
+        class _CaptureLLM:
+            def __init__(self) -> None:
+                self.prompts: list[str] = []
+
+            async def generate(self, prompt: str, max_tokens: int = 256, **kwargs) -> str:
+                self.prompts.append(prompt)
+                return json.dumps(
+                    {
+                        "game_type": "quiz",
+                        "title": "Roma",
+                        "questions": [
+                            {
+                                "question": "Que magistrados tenia Roma?",
+                                "options": ["Consules", "Vikingos"],
+                                "correct_index": 0,
+                                "explanation": "Los consules eran magistrados romanos.",
+                            }
+                        ],
+                    }
+                )
+
+        llm = _CaptureLLM()
+        gen = GameGenerator(rag_pipeline=_SpyPipeline(), llm_client=llm)
+
+        _run(gen.generate(query="Roma", game_type="quiz", language="es"))
+
+        assert llm.prompts
+        assert "Generation plan:" in llm.prompts[0]
+        assert "Retrieved context:" in llm.prompts[0]

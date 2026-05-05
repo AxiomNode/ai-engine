@@ -10,11 +10,17 @@ collector can be shared across ASGI workers or background threads safely.
 
 from __future__ import annotations
 
+import json
+import logging
 import statistics
 import threading
 import time
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -63,12 +69,17 @@ class StatsCollector:
     """
 
     max_history: int = 10_000
+    persistence_path: str | None = None
     _events: list[GenerationEvent] = field(default_factory=list, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _summary_cache: dict[str, Any] | None = field(default=None, repr=False)
     _summary_cache_event_count: int = field(default=0, repr=False)
     _summary_cache_ts: float = field(default=0.0, repr=False)
     _summary_cache_ttl: float = 5.0
+
+    def __post_init__(self) -> None:
+        """Load persisted history when a storage path is configured."""
+        self._load_persisted_events()
 
     # ------------------------------------------------------------------
     # Recording
@@ -84,9 +95,13 @@ class StatsCollector:
         """
         with self._lock:
             self._events.append(event)
-            if len(self._events) > self.max_history:
+            evicted = len(self._events) > self.max_history
+            if evicted:
                 self._events = self._events[-self.max_history :]
             self._summary_cache = None
+            current_events = list(self._events)
+
+        self._persist_event(event, rewrite=evicted, events=current_events)
 
     # ------------------------------------------------------------------
     # Convenience builder
@@ -440,11 +455,128 @@ class StatsCollector:
         with self._lock:
             self._events.clear()
             self._summary_cache = None
+        self._clear_persisted_events()
 
     def __len__(self) -> int:
         """Return the number of recorded events."""
         with self._lock:
             return len(self._events)
+
+    def _load_persisted_events(self) -> None:
+        """Restore events from disk, trimming to the configured retention window."""
+        path = self._get_persistence_path()
+        if path is None or not path.exists():
+            return
+
+        restored: list[GenerationEvent] = []
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    payload = line.strip()
+                    if not payload:
+                        continue
+                    restored.append(self._event_from_payload(json.loads(payload)))
+        except Exception:
+            logger.warning("Failed to restore observability history", exc_info=True)
+            return
+
+        if len(restored) > self.max_history:
+            restored = restored[-self.max_history :]
+
+        with self._lock:
+            self._events = restored
+            self._summary_cache = None
+            self._summary_cache_event_count = 0
+            self._summary_cache_ts = 0.0
+
+        if len(restored) and path.exists():
+            self._rewrite_persistence(restored)
+
+    def _persist_event(
+        self,
+        event: GenerationEvent,
+        *,
+        rewrite: bool,
+        events: list[GenerationEvent],
+    ) -> None:
+        """Persist one event append-only, rewriting only when retention evicts old rows."""
+        path = self._get_persistence_path()
+        if path is None:
+            return
+
+        if rewrite:
+            self._rewrite_persistence(events)
+            return
+
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(event.to_dict(), ensure_ascii=True) + "\n")
+        except Exception:
+            logger.warning("Failed to append observability event", exc_info=True)
+
+    def _rewrite_persistence(self, events: list[GenerationEvent]) -> None:
+        """Rewrite the persisted event log to match the in-memory retention window."""
+        path = self._get_persistence_path()
+        if path is None:
+            return
+
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("w", encoding="utf-8") as handle:
+                for event in events:
+                    handle.write(
+                        json.dumps(event.to_dict(), ensure_ascii=True) + "\n"
+                    )
+        except Exception:
+            logger.warning("Failed to rewrite observability history", exc_info=True)
+
+    def _clear_persisted_events(self) -> None:
+        """Remove persisted observability history when reset is requested."""
+        path = self._get_persistence_path()
+        if path is None:
+            return
+
+        try:
+            if path.exists():
+                path.unlink()
+        except Exception:
+            logger.warning("Failed to clear observability history", exc_info=True)
+
+    def _get_persistence_path(self) -> Path | None:
+        """Return normalized persistence path or ``None`` when disabled."""
+        if not isinstance(self.persistence_path, str):
+            return None
+        normalized = self.persistence_path.strip()
+        if not normalized:
+            return None
+        return Path(normalized)
+
+    @staticmethod
+    def _event_from_payload(payload: dict[str, Any]) -> GenerationEvent:
+        """Build a GenerationEvent from a persisted plain dictionary payload."""
+        return GenerationEvent(
+            timestamp=float(payload.get("timestamp", 0.0) or 0.0),
+            prompt_chars=int(payload.get("prompt_chars", 0) or 0),
+            response_chars=int(payload.get("response_chars", 0) or 0),
+            latency_ms=float(payload.get("latency_ms", 0.0) or 0.0),
+            max_tokens=int(payload.get("max_tokens", 0) or 0),
+            json_mode=bool(payload.get("json_mode", False)),
+            success=bool(payload.get("success", False)),
+            game_type=(
+                str(payload.get("game_type")).strip()
+                if payload.get("game_type") is not None
+                else None
+            )
+            or None,
+            error=(
+                str(payload.get("error")).strip()
+                if payload.get("error") is not None
+                else None
+            )
+            or None,
+            metadata=dict(payload.get("metadata") or {}),
+        )
 
 
 # ------------------------------------------------------------------

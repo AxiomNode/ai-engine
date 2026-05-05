@@ -10,6 +10,7 @@ from ai_engine.llm.llama_client import LlamaClient
 from ai_engine.rag.chunker import Chunker
 from ai_engine.rag.document import Document
 from ai_engine.rag.embedder import Embedder
+from ai_engine.rag.reranker import Reranker
 from ai_engine.rag.retriever import Retriever
 from ai_engine.rag.utils import extract_json_from_text
 from ai_engine.rag.vector_store import VectorStore
@@ -40,6 +41,11 @@ class RAGPipeline:
         retrieval_result_cache_max_entries: int = 1024,
         candidate_multiplier: int = 4,
         metadata_match_boost: float = 0.08,
+        lexical_content_match_boost: float = 0.12,
+        lexical_metadata_match_boost: float = 0.05,
+        reranker: Reranker | None = None,
+        rerank_candidate_count: int = 8,
+        rerank_score_weight: float = 0.35,
     ) -> None:
         self.embedder = embedder
         self.vector_store = vector_store
@@ -50,6 +56,11 @@ class RAGPipeline:
             top_k=top_k,
             candidate_multiplier=candidate_multiplier,
             metadata_match_boost=metadata_match_boost,
+            lexical_content_match_boost=lexical_content_match_boost,
+            lexical_metadata_match_boost=lexical_metadata_match_boost,
+            reranker=reranker,
+            rerank_candidate_count=rerank_candidate_count,
+            rerank_score_weight=rerank_score_weight,
             query_embedding_cache_max_entries=query_embedding_cache_max_entries,
             retrieval_result_cache_max_entries=retrieval_result_cache_max_entries,
         )

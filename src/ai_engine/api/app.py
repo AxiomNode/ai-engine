@@ -15,7 +15,7 @@ injected directly):
 - ``AI_ENGINE_MODEL_PATH``      – Path to a local GGUF model file (fallback
   when ``AI_ENGINE_LLAMA_URL`` is not set).
 - ``AI_ENGINE_EMBEDDING_MODEL`` – sentence-transformers model name
-  (default: ``all-MiniLM-L6-v2``).
+    (default: ``paraphrase-multilingual-MiniLM-L12-v2``).
 - ``AI_ENGINE_GENERATION_CACHE_PATH`` – persistent cache file path for
     optimized generation responses.
 - ``AI_ENGINE_GENERATION_CACHE_BACKEND`` – persistent cache backend
@@ -146,7 +146,6 @@ def _build_from_env() -> tuple[Any, Any]:
         SentenceTransformersEmbedder,
     )
     from ai_engine.rag.pipeline import RAGPipeline
-    from ai_engine.rag.vector_store import InMemoryVectorStore
 
     settings = get_settings()
     api_url = settings.llama_url
@@ -165,14 +164,21 @@ def _build_from_env() -> tuple[Any, Any]:
         device=settings.embedding_device,
         batch_size=settings.embedding_batch_size,
     )
+    vector_store = _build_vector_store_from_settings(settings)
+    reranker = _build_reranker_from_settings(settings)
     pipeline = RAGPipeline(
         embedder=embedder,
-        vector_store=InMemoryVectorStore(),
+        vector_store=vector_store,
         context_char_limit=settings.rag_context_char_limit,
         query_embedding_cache_max_entries=settings.query_embedding_cache_max_entries,
         retrieval_result_cache_max_entries=settings.retrieval_result_cache_max_entries,
         candidate_multiplier=settings.retriever_candidate_multiplier,
         metadata_match_boost=settings.retriever_metadata_match_boost,
+        lexical_content_match_boost=settings.retriever_lexical_content_match_boost,
+        lexical_metadata_match_boost=settings.retriever_lexical_metadata_match_boost,
+        reranker=reranker,
+        rerank_candidate_count=settings.retriever_rerank_candidate_count,
+        rerank_score_weight=settings.retriever_rerank_score_weight,
     )
 
     logger.info(
@@ -193,6 +199,57 @@ def _build_from_env() -> tuple[Any, Any]:
     tracked = TrackedGameGenerator(raw_gen, collector)
 
     return tracked, pipeline
+
+
+def _build_vector_store_from_settings(settings: Any) -> Any:
+    backend = str(getattr(settings, "vector_store_backend", "memory") or "memory")
+    normalized_backend = backend.strip().lower()
+
+    if normalized_backend == "memory":
+        from ai_engine.rag.vector_store import InMemoryVectorStore
+
+        logger.info("Using in-memory vector store backend")
+        return InMemoryVectorStore()
+
+    if normalized_backend == "chroma":
+        from ai_engine.rag.vectorstores.chroma import ChromaVectorStore
+
+        collection_name = str(
+            getattr(settings, "vector_store_collection", "ai_engine_default")
+            or "ai_engine_default"
+        ).strip() or "ai_engine_default"
+        path = str(getattr(settings, "vector_store_path", "data/chroma") or "").strip()
+        logger.info(
+            "Using Chroma vector store backend collection=%s path=%s",
+            collection_name,
+            path,
+        )
+        return ChromaVectorStore(collection_name=collection_name, path=path or None)
+
+    raise RuntimeError(
+        "Unsupported AI_ENGINE_VECTOR_STORE_BACKEND: "
+        f"{settings.vector_store_backend}"
+    )
+
+
+def _build_reranker_from_settings(settings: Any) -> Any | None:
+    backend = str(getattr(settings, "retriever_reranker_backend", "none") or "none")
+    normalized_backend = backend.strip().lower()
+
+    if normalized_backend == "none":
+        logger.info("Retriever second-stage reranker disabled")
+        return None
+
+    if normalized_backend == "lexical":
+        from ai_engine.rag.reranker import LexicalReranker
+
+        logger.info("Using lexical second-stage reranker")
+        return LexicalReranker()
+
+    raise RuntimeError(
+        "Unsupported AI_ENGINE_RETRIEVER_RERANKER_BACKEND: "
+        f"{settings.retriever_reranker_backend}"
+    )
 
 
 class LlamaTargetUpdateRequest(BaseModel):
@@ -241,6 +298,45 @@ async def _apply_runtime_llama_url(app: FastAPI, url: str | None) -> None:
         raise RuntimeError("Runtime llama target update is unavailable")
     await llm_client.set_api_url(url)
     app.state.llama_url = url
+
+
+async def _get_plugin_capabilities_payload(app: FastAPI) -> dict[str, Any]:
+    """Return the current thin-plugin capability view for the LLM runtime."""
+    target = _get_llama_target_payload(app)
+    llm_client = _unwrap_llama_client(app.state.generator)
+    base_payload: dict[str, Any] = {
+        "pluginType": "thin-llm-runtime",
+        "target": target,
+    }
+
+    if llm_client is None or not hasattr(llm_client, "plugin_capabilities"):
+        return {
+            **base_payload,
+            "status": "unavailable",
+            "reason": "llm client does not expose plugin capabilities",
+        }
+
+    try:
+        capabilities = await llm_client.plugin_capabilities()
+    except httpx.HTTPError as exc:
+        return {
+            **base_payload,
+            "status": "unreachable",
+            "error": str(exc),
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            **base_payload,
+            "status": "error",
+            "error": str(exc),
+        }
+
+    status = capabilities.get("status") if isinstance(capabilities, dict) else None
+    return {
+        **base_payload,
+        "status": status or "unknown",
+        "runtime": capabilities,
+    }
 
 
 def _get_llama_target_payload(app: FastAPI) -> dict[str, Any]:
@@ -1348,6 +1444,11 @@ def create_app(
     @app.get("/internal/admin/llama-target", tags=["internal"], include_in_schema=False)
     def get_internal_llama_target(request: Request) -> dict[str, Any]:
         return _get_llama_target_payload(request.app)
+
+    @app.get("/internal/plugin/capabilities", tags=["internal"], include_in_schema=False)
+    async def get_internal_plugin_capabilities(request: Request) -> dict[str, Any]:
+        """Return the effective thin-plugin runtime capabilities."""
+        return await _get_plugin_capabilities_payload(request.app)
 
     @app.put("/internal/admin/llama-target", tags=["internal"], include_in_schema=False)
     async def put_internal_llama_target(

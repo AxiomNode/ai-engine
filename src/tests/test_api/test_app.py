@@ -205,6 +205,58 @@ def test_apply_runtime_llama_url_updates_state_and_validates_runtime_support() -
         asyncio.run(_apply_runtime_llama_url(app, None))
 
 
+def test_plugin_capabilities_payload_reports_unavailable_when_no_client() -> None:
+    from ai_engine.api.app import _get_plugin_capabilities_payload
+
+    app = MagicMock()
+    app.state = types.SimpleNamespace(
+        generator=object(),
+        llama_url=None,
+        llama_env_url=None,
+        llama_target_override=None,
+    )
+
+    payload = asyncio.run(_get_plugin_capabilities_payload(app))
+
+    assert payload["pluginType"] == "thin-llm-runtime"
+    assert payload["status"] == "unavailable"
+
+
+def test_internal_plugin_capabilities_endpoint_uses_llm_client_probe() -> None:
+    from ai_engine.api.app import create_app
+
+    class _FakeLlamaClient:
+        api_url = "http://llama.local:7002/v1/completions"
+
+        async def plugin_capabilities(self):
+            return {
+                "status": "ready",
+                "pluginMode": "thin-llm-server",
+                "generationUrl": self.api_url,
+                "models": ["qwen2.5-7b"],
+                "capabilities": {"jsonModeRequested": True},
+            }
+
+    raw_generator = types.SimpleNamespace(llm_client=_FakeLlamaClient())
+    generator = types.SimpleNamespace(_generator=raw_generator)
+    app = create_app(
+        generator=generator,
+        rag_pipeline=MagicMock(),
+        collector=StatsCollector(),
+    )
+    app.state.llama_url = "http://llama.local:7002/v1/completions"
+    client = TestClient(app)
+
+    resp = client.get("/internal/plugin/capabilities")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["pluginType"] == "thin-llm-runtime"
+    assert payload["status"] == "ready"
+    assert payload["runtime"]["models"] == ["qwen2.5-7b"]
+    assert payload["target"]["llamaBaseUrl"] == "http://llama.local:7002/v1/completions"
+
+
 def test_generation_request_helpers_normalize_metadata_and_headers() -> None:
     from ai_engine.api.app import (
         _apply_generate_headers,
@@ -1494,3 +1546,30 @@ class TestBuildFromEnv:
 
         with pytest.raises(RuntimeError, match="AI_ENGINE_LLAMA_URL"):
             _build_from_env()
+
+    def test_build_vector_store_from_settings_uses_memory_backend(self) -> None:
+        from ai_engine.api.app import _build_vector_store_from_settings
+
+        settings = types.SimpleNamespace(vector_store_backend="memory")
+
+        store = _build_vector_store_from_settings(settings)
+
+        assert store.__class__.__name__ == "InMemoryVectorStore"
+
+    def test_build_reranker_from_settings_returns_none_for_disabled_backend(
+        self,
+    ) -> None:
+        from ai_engine.api.app import _build_reranker_from_settings
+
+        settings = types.SimpleNamespace(retriever_reranker_backend="none")
+
+        assert _build_reranker_from_settings(settings) is None
+
+    def test_build_reranker_from_settings_uses_lexical_backend(self) -> None:
+        from ai_engine.api.app import _build_reranker_from_settings
+
+        settings = types.SimpleNamespace(retriever_reranker_backend="lexical")
+
+        reranker = _build_reranker_from_settings(settings)
+
+        assert reranker.__class__.__name__ == "LexicalReranker"

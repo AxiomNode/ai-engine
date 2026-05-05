@@ -380,7 +380,7 @@ def test_generate_uses_category_name_when_query_is_missing() -> None:
 
     assert rag.calls[0]["query"].startswith("Science & Nature")
     assert rag.calls[0]["metadata_preferences"] == {
-        "language": "es",
+        "language": "en",
         "game_type": "word-pass",
         "category": "Science & Nature",
     }

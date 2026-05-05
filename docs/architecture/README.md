@@ -1,5 +1,9 @@
 # Architecture Docs
 
+Last updated: 2026-05-03.
+
+## Purpose
+
 This section groups architecture and design references.
 
 ## Scope
@@ -12,10 +16,11 @@ Use this section to understand what `ai-engine` owns locally:
 
 Cross-repository deployment policy and service topology belong in the central `docs` repository.
 
-## Contents
+## Navigation
 
 - [project-context.md](project-context.md) — Vision, scope, and context.
 - [architecture.md](architecture.md) — Layers, components, and data flow.
+- [generation-pipeline.md](generation-pipeline.md) — Grounding, planning, and structured generation flow.
 - [technologies.md](technologies.md) — Tech stack, models, and standards.
 - [repository-layout.md](repository-layout.md) — Repository structure conventions.
 - [adr-0001-cache-strategy.md](adr-0001-cache-strategy.md) — Cache architecture decision.

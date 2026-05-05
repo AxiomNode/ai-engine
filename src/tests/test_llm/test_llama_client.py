@@ -4,7 +4,12 @@ import asyncio
 
 import pytest
 
-from ai_engine.llm.llama_client import JSON_GRAMMAR, LlamaClient
+from ai_engine.llm.llama_client import (
+    JSON_GRAMMAR,
+    LlamaClient,
+    _extract_model_ids,
+    _models_url_from_generation_url,
+)
 
 
 class TestLlamaClientInit:
@@ -438,6 +443,84 @@ class TestLlamaClientGenerateAPI:
         result = client.generate_sync("hello", max_tokens=64, json_mode=True)
 
         assert result == "hello-64-True"
+
+
+class TestLlamaClientPluginCapabilities:
+    def test_models_url_from_generation_url_supports_common_shapes(self):
+        assert (
+            _models_url_from_generation_url("http://localhost:8080/v1/completions")
+            == "http://localhost:8080/v1/models"
+        )
+        assert (
+            _models_url_from_generation_url(
+                "http://localhost:8080/v1/chat/completions"
+            )
+            == "http://localhost:8080/v1/models"
+        )
+        assert (
+            _models_url_from_generation_url("http://localhost:8080/completion")
+            == "http://localhost:8080/completion/v1/models"
+        )
+
+    def test_extract_model_ids_reads_openai_and_simple_payloads(self):
+        assert _extract_model_ids(
+            {"data": [{"id": "qwen2.5"}, {"name": "phi3"}, {"id": ""}]}
+        ) == ["qwen2.5", "phi3"]
+        assert _extract_model_ids({"models": ["qwen", " phi ", ""]}) == [
+            "qwen",
+            "phi",
+        ]
+        assert _extract_model_ids({"unexpected": []}) == []
+
+    def test_plugin_capabilities_probes_http_models_endpoint(self):
+        class _ModelsResponse:
+            status_code = 200
+
+            def json(self):
+                return {"data": [{"id": "qwen2.5-7b"}]}
+
+            def raise_for_status(self):
+                pass
+
+        class _ModelsClient:
+            is_closed = False
+
+            def __init__(self) -> None:
+                self.urls: list[str] = []
+
+            async def get(self, url, **kw):
+                self.urls.append(url)
+                return _ModelsResponse()
+
+            async def aclose(self):
+                self.is_closed = True
+
+        client = LlamaClient(
+            api_url="http://localhost:8080/v1/completions",
+            json_mode=True,
+            max_concurrent_requests=2,
+        )
+        models_client = _ModelsClient()
+        client._http_client = models_client
+
+        payload = asyncio.run(client.plugin_capabilities())
+
+        assert models_client.urls == ["http://localhost:8080/v1/models"]
+        assert payload["status"] == "ready"
+        assert payload["pluginMode"] == "thin-llm-server"
+        assert payload["models"] == ["qwen2.5-7b"]
+        assert payload["capabilities"]["jsonModeRequested"] is True
+        assert payload["capabilities"]["maxConcurrentRequests"] == 2
+
+    def test_plugin_capabilities_reports_local_model_without_loading_it(self):
+        client = LlamaClient(model_path="/models/example.gguf", json_mode=True)
+
+        payload = asyncio.run(client.plugin_capabilities())
+
+        assert payload["status"] == "ready"
+        assert payload["pluginMode"] == "local-gguf-model"
+        assert payload["models"] == ["example.gguf"]
+        assert client._local_model is None
 
 
 class TestLlamaClientProtocol:

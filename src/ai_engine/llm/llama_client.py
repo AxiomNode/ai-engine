@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -145,6 +146,52 @@ class LlamaClient:
         if self._http_client is not None and not self._http_client.is_closed:
             await self._http_client.aclose()
             self._http_client = None
+
+    async def plugin_capabilities(self) -> dict[str, Any]:
+        """Return the effective thin-plugin capability snapshot.
+
+        For HTTP-backed runtimes this probes the OpenAI-compatible models
+        endpoint derived from ``api_url``. For local GGUF execution it reports
+        the local model path without forcing model load.
+        """
+        if self.api_url is not None:
+            models_url = _models_url_from_generation_url(self.api_url)
+            client = self._get_http_client()
+            response = await client.get(models_url)
+            response.raise_for_status()
+            payload = response.json()
+            return {
+                "status": "ready",
+                "pluginMode": "thin-llm-server",
+                "generationUrl": self.api_url,
+                "modelsUrl": models_url,
+                "models": _extract_model_ids(payload),
+                "rawModelsPayload": payload,
+                "capabilities": self._static_generation_capabilities(),
+            }
+
+        return {
+            "status": "ready" if self.model_path else "unavailable",
+            "pluginMode": "local-gguf-model",
+            "generationUrl": None,
+            "modelsUrl": None,
+            "models": [Path(self.model_path).name] if self.model_path else [],
+            "rawModelsPayload": None,
+            "capabilities": self._static_generation_capabilities(),
+        }
+
+    def _static_generation_capabilities(self) -> dict[str, Any]:
+        return {
+            "jsonModeRequested": self.json_mode,
+            "defaultMaxTokens": self.default_max_tokens,
+            "temperature": self.temperature,
+            "topP": self.top_p,
+            "repeatPenalty": self.repeat_penalty,
+            "contextSize": self.n_ctx,
+            "gpuLayers": self.n_gpu_layers,
+            "maxConcurrentRequests": self.max_concurrent_requests,
+            "timeoutSeconds": self.request_timeout_seconds,
+        }
 
     # ------------------------------------------------------------------
     # Public API
@@ -359,3 +406,35 @@ class LlamaClient:
             )
             logger.info("Model loaded successfully.")
         return self._local_model
+
+
+def _models_url_from_generation_url(api_url: str) -> str:
+    """Derive the OpenAI-compatible models endpoint from a generation URL."""
+    parsed = httpx.URL(api_url)
+    path = parsed.path.rstrip("/")
+    if path.endswith("/v1/completions"):
+        path = path[: -len("/completions")]
+    elif path.endswith("/v1/chat/completions"):
+        path = path[: -len("/chat/completions")]
+    elif not path.endswith("/v1"):
+        path = f"{path}/v1" if path else "/v1"
+    return str(parsed.copy_with(path=f"{path}/models", query=None, fragment=None))
+
+
+def _extract_model_ids(payload: Any) -> list[str]:
+    """Extract model ids from common llama.cpp/OpenAI model-list payloads."""
+    if not isinstance(payload, dict):
+        return []
+    data = payload.get("data")
+    if isinstance(data, list):
+        ids: list[str] = []
+        for item in data:
+            if isinstance(item, dict):
+                model_id = item.get("id") or item.get("name")
+                if isinstance(model_id, str) and model_id.strip():
+                    ids.append(model_id.strip())
+        return ids
+    models = payload.get("models")
+    if isinstance(models, list):
+        return [str(model).strip() for model in models if str(model).strip()]
+    return []

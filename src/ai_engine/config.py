@@ -18,7 +18,7 @@ Environment variables
 
 ``AI_ENGINE_EMBEDDING_MODEL``
     Name of the sentence-transformers model used for RAG embeddings.
-    Defaults to ``"all-MiniLM-L6-v2"``.
+    Defaults to ``"paraphrase-multilingual-MiniLM-L12-v2"``.
 
 ``AI_ENGINE_EMBEDDING_DEVICE``
     Device used by sentence-transformers for embedding inference (e.g. ``cpu`` or ``cuda``).
@@ -55,6 +55,10 @@ Environment variables
 ``AI_ENGINE_GENERATION_API_URL``
     Base URL for the generation API used by the observability service
     to query monitoring/cache runtime data (e.g. ``http://ai-api:8001``).
+
+``AI_ENGINE_OBSERVABILITY_HISTORY_PATH``
+    File path used by the observability service to persist ingested event
+    history across restarts. Defaults to ``"data/observability-history.jsonl"``.
 
 ``AI_ENGINE_MODELS_DIR``
     Directory where GGUF model files are stored.  Defaults to the
@@ -104,8 +108,37 @@ Environment variables
 ``AI_ENGINE_RETRIEVER_METADATA_MATCH_BOOST``
     Score bonus added for matching retrieval metadata preferences.
 
+``AI_ENGINE_RETRIEVER_LEXICAL_CONTENT_MATCH_BOOST``
+    Score bonus multiplier applied to lexical overlap between query terms and
+    retrieved chunk content.
+
+``AI_ENGINE_RETRIEVER_LEXICAL_METADATA_MATCH_BOOST``
+    Score bonus multiplier applied to lexical overlap between query terms and
+    retrieved chunk metadata values.
+
+``AI_ENGINE_RETRIEVER_RERANKER_BACKEND``
+    Second-stage reranker backend applied after candidate pre-ranking.
+    Supported values: ``"none"`` (default) and ``"lexical"``.
+
+``AI_ENGINE_RETRIEVER_RERANK_CANDIDATE_COUNT``
+    Maximum number of top pre-ranked candidates to send through the second-stage
+    reranker.
+
+``AI_ENGINE_RETRIEVER_RERANK_SCORE_WEIGHT``
+    Weight multiplier applied to the second-stage reranker score.
+
 ``AI_ENGINE_RAG_CONTEXT_CHAR_LIMIT``
     Default context length budget used when building prompts from retrieved chunks.
+
+``AI_ENGINE_VECTOR_STORE_BACKEND``
+    Vector store backend used by the runtime RAG pipeline. Supported values:
+    ``"memory"`` (default) and ``"chroma"``.
+
+``AI_ENGINE_VECTOR_STORE_PATH``
+    Filesystem path used by the persistent vector store backend.
+
+``AI_ENGINE_VECTOR_STORE_COLLECTION``
+    Collection name used by the persistent vector store backend.
 
 ``AI_ENGINE_DIAGNOSTICS_CACHE_TTL_MS``
     Time-to-live in milliseconds for short-lived diagnostics endpoint caches.
@@ -173,7 +206,15 @@ class AIEngineSettings(BaseSettings):
         retrieval_result_cache_max_entries: Maximum cached retrieval result sets.
         retriever_candidate_multiplier: Over-fetch factor used before metadata reranking.
         retriever_metadata_match_boost: Score bonus for metadata preference matches.
+        retriever_lexical_content_match_boost: Score bonus for lexical content overlap.
+        retriever_lexical_metadata_match_boost: Score bonus for lexical metadata overlap.
+        retriever_reranker_backend: Second-stage reranker backend label.
+        retriever_rerank_candidate_count: Number of candidates reranked in stage two.
+        retriever_rerank_score_weight: Weight multiplier for second-stage reranking.
         rag_context_char_limit: Default prompt context character budget.
+        vector_store_backend: Runtime vector store backend label.
+        vector_store_path: Filesystem path for persistent vector backends.
+        vector_store_collection: Collection name for persistent vector backends.
         diagnostics_cache_ttl_ms: Short-lived diagnostics cache TTL in milliseconds.
         distribution: Deployment distribution label.
         release_version: Deployment release version label.
@@ -195,7 +236,7 @@ class AIEngineSettings(BaseSettings):
         validation_alias="AI_ENGINE_MODEL_PATH",
     )
     embedding_model: str = Field(
-        default="all-MiniLM-L6-v2",
+        default="paraphrase-multilingual-MiniLM-L12-v2",
         alias="AI_ENGINE_EMBEDDING_MODEL",
         validation_alias="AI_ENGINE_EMBEDDING_MODEL",
     )
@@ -256,6 +297,11 @@ class AIEngineSettings(BaseSettings):
         default="http://ai-api:8001",
         alias="AI_ENGINE_GENERATION_API_URL",
         validation_alias="AI_ENGINE_GENERATION_API_URL",
+    )
+    observability_history_path: str = Field(
+        default="data/observability-history.jsonl",
+        alias="AI_ENGINE_OBSERVABILITY_HISTORY_PATH",
+        validation_alias="AI_ENGINE_OBSERVABILITY_HISTORY_PATH",
     )
     models_dir: str = Field(
         default=_DEFAULT_MODELS_DIR,
@@ -340,11 +386,55 @@ class AIEngineSettings(BaseSettings):
         alias="AI_ENGINE_RETRIEVER_METADATA_MATCH_BOOST",
         validation_alias="AI_ENGINE_RETRIEVER_METADATA_MATCH_BOOST",
     )
+    retriever_lexical_content_match_boost: float = Field(
+        default=0.12,
+        ge=0.0,
+        alias="AI_ENGINE_RETRIEVER_LEXICAL_CONTENT_MATCH_BOOST",
+        validation_alias="AI_ENGINE_RETRIEVER_LEXICAL_CONTENT_MATCH_BOOST",
+    )
+    retriever_lexical_metadata_match_boost: float = Field(
+        default=0.05,
+        ge=0.0,
+        alias="AI_ENGINE_RETRIEVER_LEXICAL_METADATA_MATCH_BOOST",
+        validation_alias="AI_ENGINE_RETRIEVER_LEXICAL_METADATA_MATCH_BOOST",
+    )
+    retriever_reranker_backend: str = Field(
+        default="none",
+        alias="AI_ENGINE_RETRIEVER_RERANKER_BACKEND",
+        validation_alias="AI_ENGINE_RETRIEVER_RERANKER_BACKEND",
+    )
+    retriever_rerank_candidate_count: int = Field(
+        default=8,
+        ge=1,
+        alias="AI_ENGINE_RETRIEVER_RERANK_CANDIDATE_COUNT",
+        validation_alias="AI_ENGINE_RETRIEVER_RERANK_CANDIDATE_COUNT",
+    )
+    retriever_rerank_score_weight: float = Field(
+        default=0.35,
+        ge=0.0,
+        alias="AI_ENGINE_RETRIEVER_RERANK_SCORE_WEIGHT",
+        validation_alias="AI_ENGINE_RETRIEVER_RERANK_SCORE_WEIGHT",
+    )
     rag_context_char_limit: int = Field(
         default=3500,
         ge=512,
         alias="AI_ENGINE_RAG_CONTEXT_CHAR_LIMIT",
         validation_alias="AI_ENGINE_RAG_CONTEXT_CHAR_LIMIT",
+    )
+    vector_store_backend: str = Field(
+        default="memory",
+        alias="AI_ENGINE_VECTOR_STORE_BACKEND",
+        validation_alias="AI_ENGINE_VECTOR_STORE_BACKEND",
+    )
+    vector_store_path: str = Field(
+        default="data/chroma",
+        alias="AI_ENGINE_VECTOR_STORE_PATH",
+        validation_alias="AI_ENGINE_VECTOR_STORE_PATH",
+    )
+    vector_store_collection: str = Field(
+        default="ai_engine_default",
+        alias="AI_ENGINE_VECTOR_STORE_COLLECTION",
+        validation_alias="AI_ENGINE_VECTOR_STORE_COLLECTION",
     )
     diagnostics_cache_ttl_ms: int = Field(
         default=2000,

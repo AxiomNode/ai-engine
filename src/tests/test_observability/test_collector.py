@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import threading
 
 from ai_engine.observability.collector import (
@@ -154,6 +155,48 @@ class TestStatsCollector:
         assert len(c) == 1
         c.reset()
         assert len(c) == 0
+
+    def test_persistence_restores_history_across_instances(self, tmp_path) -> None:
+        """Collector reloads persisted event history from disk on startup."""
+        history_path = tmp_path / "observability-history.jsonl"
+        writer = StatsCollector(persistence_path=str(history_path))
+        writer.record_call(
+            prompt="persisted",
+            response="event",
+            latency_ms=12.0,
+            max_tokens=64,
+            metadata={"distribution_version": "dev-v1"},
+        )
+
+        restored = StatsCollector(persistence_path=str(history_path))
+        history = restored.history()
+        assert len(history) == 1
+        assert history[0]["prompt_chars"] == len("persisted")
+        assert history[0]["metadata"]["distribution_version"] == "dev-v1"
+
+    def test_persistence_rewrites_file_when_eviction_happens(self, tmp_path) -> None:
+        """Persisted JSONL file stays aligned with in-memory retention after eviction."""
+        history_path = tmp_path / "observability-history.jsonl"
+        collector = StatsCollector(max_history=2, persistence_path=str(history_path))
+        collector.record_call(prompt="a", response="1", latency_ms=1.0, max_tokens=64)
+        collector.record_call(prompt="b", response="2", latency_ms=2.0, max_tokens=64)
+        collector.record_call(prompt="c", response="3", latency_ms=3.0, max_tokens=64)
+
+        lines = history_path.read_text(encoding="utf-8").strip().splitlines()
+        payloads = [json.loads(line) for line in lines]
+        assert len(payloads) == 2
+        assert payloads[0]["latency_ms"] == 2.0
+        assert payloads[1]["latency_ms"] == 3.0
+
+    def test_reset_removes_persisted_history_file(self, tmp_path) -> None:
+        """Reset clears both memory state and persisted history file."""
+        history_path = tmp_path / "observability-history.jsonl"
+        collector = StatsCollector(persistence_path=str(history_path))
+        collector.record_call(prompt="p", response="r", latency_ms=1.0, max_tokens=64)
+        assert history_path.exists()
+
+        collector.reset()
+        assert not history_path.exists()
 
     def test_success_rate(self) -> None:
         """Success rate is computed correctly."""

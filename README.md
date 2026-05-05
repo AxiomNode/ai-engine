@@ -1,10 +1,20 @@
 # ai-engine
 
+Last updated: 2026-05-03.
+
 [![codecov](https://codecov.io/gh/AxiomNode/ai-engine/branch/main/graph/badge.svg)](https://codecov.io/gh/AxiomNode/ai-engine)
 
 AI Engine — RAG, local LLM inference and structured educational game generation.
 
-## Documentation
+## Responsibility
+
+`ai-engine` provides the shared AI runtime capability for AxiomNode: retrieval-augmented generation, structured educational game generation, local or split llama execution, and observability of AI activity.
+
+It owns AI-specific generation, ingest, cache-aware behavior, and model-target selection. It does not own the domain validity or persistence rules enforced later by quiz and word-pass services.
+
+## Runtime role
+
+### Documentation
 
 Full documentation is available in the [`docs/`](docs/) folder:
 
@@ -15,15 +25,19 @@ Full documentation is available in the [`docs/`](docs/) folder:
 | [Guides Index](docs/guides/README.md) | Getting started, RAG, KBD, SDK, and metrics usage guides |
 | [Operations Index](docs/operations/README.md) | Deployment, incident runbook, and continuous improvement logs |
 
-## Description
+## Documentation
 
-**ai-engine** provides the fundamental building blocks for creating
-**Retrieval-Augmented Generation (RAG)** systems, a **Knowledge Base (KBD)**,
-integration with **local language models** (llama.cpp / GGUF), a
-**structured educational game generator** (quiz, word-pass, true/false),
-and an **observability / stats API** (FastAPI) for monitoring model usage — all in Python.
+- `docs/README.md`
+- `docs/architecture/README.md`
+- `docs/guides/README.md`
+- `docs/operations/README.md`
+- `src/distributions/README.md`
 
-## Integration in the current platform architecture
+### Description
+
+`ai-engine` is both a Python library surface and a deployable runtime split into API, stats, and llama-serving concerns.
+
+### Integration in the current platform architecture
 
 `ai-engine` runs as an internal AI capability service for domain microservices.
 
@@ -35,7 +49,9 @@ Initial internal contract:
 
 - `contracts-and-schemas/schemas/openapi/internal-ai-engine.v1.yaml`
 
-## Deployment shape
+## Runtime surface
+
+### Deployment shape
 
 The repository produces multiple runtime components that can be deployed together or in a split topology:
 
@@ -44,47 +60,21 @@ The repository produces multiple runtime components that can be deployed togethe
 - `llama-server`: model-serving runtime used by `ai-engine-api`
 - Redis cache backend in local or split-runtime environments
 
-## Core runtime components
+### Core runtime components
 
 - `ai-engine-api`: primary AI generation and ingestion API, with cache and RAG integration.
 - `ai-engine-stats`: AI observability API for events and aggregated runtime metrics.
 - `llama-server`: local LLM inference runtime used by the engine.
 
-## Runtime state and target resolution
+Detailed runtime topology, module boundaries, and distribution rules live under `docs/architecture/README.md`, `docs/operations/README.md`, and `src/distributions/README.md`.
+
+### Runtime state and target resolution
 
 `ai-engine-api` can persist runtime model-target information so that the active llama destination survives process restart or pod recreation. Effective model routing can therefore differ from environment defaults during controlled operations.
 
-## Project Structure
+## Local setup
 
-```
-src/ai_engine/
-├── rag/                          # RAG module
-│   ├── document.py               # Document model
-│   ├── chunker.py                # Text splitting into chunks
-│   ├── embedder.py               # Embedding interface (abstract)
-│   ├── vector_store.py           # Vector store (abstract + InMemory)
-│   ├── retriever.py              # Relevant document retrieval
-│   ├── pipeline.py               # End-to-end orchestrator
-│   ├── utils.py                  # Helpers (JSON extraction, etc.)
-│   └── embedders/
-│       └── sentence_transformers.py  # SentenceTransformers embedder
-├── llm/                          # LLM module
-│   ├── llama_client.py           # llama.cpp client (HTTP API + local GGUF)
-│   └── model_manager.py          # GGUF model download and management
-├── games/                        # Educational games module
-│   ├── schemas.py                # Data models (Quiz, WordPass, T/F)
-│   ├── prompts.py                # Prompt templates per game type
-│   └── generator.py              # Orchestrator: RAG + LLM → structured game
-├── observability/                # Stats & monitoring module
-│   ├── collector.py              # Thread-safe event collector
-│   ├── middleware.py             # LLM/GameGenerator instrumentation
-│   └── api.py                    # FastAPI endpoints (/stats, /health, …)
-└── kbd/                          # KBD module
-    ├── entry.py                  # Knowledge entry model
-    └── knowledge_base.py         # Knowledge base management
-```
-
-## Installation
+### Installation
 
 ### Development
 
@@ -114,7 +104,7 @@ cd src
 pip install -e ".[api]"
 ```
 
-## Download an LLM Model
+### Download an LLM model
 
 The recommended model is **Phi-3.5-mini-instruct** (Q4_K_M, ~2.4 GB),
 excellent for structured JSON generation:
@@ -129,14 +119,18 @@ To list all available models:
 python -m ai_engine.llm.model_manager list
 ```
 
-## Tests
+### Tests
 
 ```bash
 cd src
 pytest
 ```
 
-## Dependency model
+For module layout, usage guides, and distribution-specific install flows, use the local documentation indexes instead of duplicating that detail here.
+
+## Dependencies and contracts
+
+### Dependency model
 
 Core dependencies vary by runtime slice:
 
@@ -151,133 +145,16 @@ Primary consumers:
 - `bff-backoffice` diagnostics and stats flows
 - `api-gateway` internal AI proxy routes
 
-## CI/CD workflow behavior
+## Deployment and operations notes
 
-- `.github/workflows/ci.yml`
-    - Trigger: push (`main`, `develop`) and pull request.
-    - `test` job: lint, formatting, import order, required type check, and coverage-gated tests.
-    - `optional-extras-matrix` job: profile-based validation for `core_api`, `rag_kbd`, and `redis` extras.
-    - `trigger-platform-infra-build` job:
-        - Runs on push to `main`.
-        - Dispatches `platform-infra/.github/workflows/build-push.yaml` twice:
-            - `service=ai-engine-api`
-            - `service=ai-engine-stats`
-        - Requires `PLATFORM_INFRA_DISPATCH_TOKEN` in this repository.
+- CI, distribution-specific rollout, and incident recovery are documented in `docs/operations/README.md`.
+- The split runtime model and deployment matrix are documented in `src/distributions/README.md`.
+- Cross-repo behavior is documented in `../docs/guides/capabilities/ai/ai-content-generation.md` and `../docs/guides/capabilities/ai/ai-observability-and-diagnostics.md`.
 
-## Deployment automation chain
+## References
 
-Push to `main` triggers image rebuilds in `platform-infra`, followed by automatic deployment to `stg` for the covered runtime images.
-
-The external llama runtime remains outside that automatic GHCR-to-k3s chain unless the optional fully in-cluster AI overlay is deployed deliberately.
-
-## Failure boundaries
-
-- API or stats healthy but llama target unreachable or overloaded
-- llama runtime healthy but generated payload invalid after validation
-- cache backend unavailable, causing degraded generation behavior
-- model warm-up or resource pressure causing readiness failures despite successful artifact publication
-
-## Quick Start
-
-### RAG
-
-```python
-from ai_engine.rag import RAGPipeline, Document
-from ai_engine.rag.vector_store import InMemoryVectorStore
-# Implement Embedder with your preferred model (OpenAI, HuggingFace, etc.)
-
-pipeline = RAGPipeline(embedder=my_embedder, vector_store=InMemoryVectorStore())
-pipeline.ingest([Document(content="Python is a programming language...", doc_id="1")])
-context = pipeline.build_context("What is Python?")
-```
-
-### Generate an Educational Game
-
-```python
-from ai_engine.rag import RAGPipeline, Document
-from ai_engine.rag.vector_store import InMemoryVectorStore
-from ai_engine.rag.embedders.sentence_transformers import SentenceTransformersEmbedder
-from ai_engine.llm import LlamaClient, model_path
-from ai_engine.games import GameGenerator
-
-# 1. Set up RAG
-embedder = SentenceTransformersEmbedder()
-pipeline = RAGPipeline(embedder=embedder, vector_store=InMemoryVectorStore())
-pipeline.ingest([Document(content="The water cycle consists of...", doc_id="1")])
-
-# 2. Set up local LLM
-llm = LlamaClient(model_path=str(model_path()), json_mode=True)
-
-# 3. Generate a quiz
-gen = GameGenerator(rag_pipeline=pipeline, llm_client=llm)
-game = gen.generate(
-    query="water cycle",
-    topic="Natural Sciences",
-    game_type="quiz",        # "quiz" | "word-pass" | "true_false"
-    num_questions=5,
-    language="en",
-)
-print(game.game.to_dict())
-```
-
-### Observability API
-
-```python
-from ai_engine.observability import StatsCollector, create_app
-
-collector = StatsCollector()
-app = create_app(collector)
-# Run with: uvicorn ai_engine.observability.api:app
-```
-
-### KBD
-
-```python
-from ai_engine.kbd import KnowledgeBase, KnowledgeEntry
-
-kb = KnowledgeBase()
-kb.add(KnowledgeEntry("1", "Python", "Python is a high-level language", tags=["python"]))
-results = kb.search_by_tag("python")
-```
-
-## CLI Demo Suite
-
-Run simple, deterministic demos for each module and for cross-module integration:
-
-```bash
-python src/scripts/demo_suite.py list
-python src/scripts/demo_suite.py run kbd
-python src/scripts/demo_suite.py run integration
-python src/scripts/demo_suite.py run all
-```
-
-The suite prints stylized output with concrete pass/fail results and a final summary table.
-
-## SDK Models For Generated Games
-
-The project ships a small SDK under `ai_engine.sdk` to parse `/generate` responses
-into typed objects.
-
-```python
-from ai_engine.sdk import LanguageCode, parse_generate_response
-
-payload = {
-    "game_type": "quiz",
-    "game": {
-        "game_type": "quiz",
-        "title": "Science Quiz",
-        "topic": "Science",
-        "questions": [
-            {
-                "question": "What is H2O?",
-                "options": ["Water", "Fire", "Air", "Earth"],
-                "correct_index": 0,
-                "explanation": "H2O is water.",
-            }
-        ],
-    },
-}
-
-game = parse_generate_response(payload, language=LanguageCode.EN)
-print(game.metadata.language_id)  # lang-en
-```
+- `docs/guides/README.md` for usage guides.
+- `docs/operations/README.md` for deployment and recovery.
+- `docs/architecture/README.md` for module boundaries and ADRs.
+- `src/distributions/README.md` for the deployment matrix.
+- `../docs/guides/capabilities/ai/ai-content-generation.md` for the cross-repo capability view.

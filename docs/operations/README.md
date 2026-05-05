@@ -1,4 +1,8 @@
-# Operations Guide
+# Operations
+
+Last updated: 2026-05-03.
+
+## Purpose
 
 This section groups operational runbooks and deployment-oriented references.
 
@@ -12,7 +16,7 @@ This is the place to document differences between:
 - API/stats runtime versus llama runtime
 - environment defaults versus persisted live targeting state
 
-## Contents
+## Navigation
 
 - [deployment.md](deployment.md) — Build and run the stack with Docker and distribution matrix.
 - [resource-allocation.md](resource-allocation.md) — CPU/RAM distribution per service for VPS 8c/32GB with justification.
@@ -20,7 +24,7 @@ This is the place to document differences between:
 - [incident-runbook.md](incident-runbook.md) — Incident response and rollback playbooks.
 - [../../src/distributions/README.md](../../src/distributions/README.md) — Distribution matrix (`dev|stg|pro` x `windows|windows-gpu|vps-cpu|vps-gpu`).
 
-## Quick Start
+## Local run
 
 ```bash
 cp src/distributions/examples/.env.example src/.env

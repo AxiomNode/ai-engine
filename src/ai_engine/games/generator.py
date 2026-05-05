@@ -12,6 +12,7 @@ import unicodedata
 from typing import Any
 
 from ai_engine.games.catalog import get_game_type_profile
+from ai_engine.games.planning import GenerationPlan, build_generation_plan
 from ai_engine.games.prompts import get_prompt
 from ai_engine.games.schemas import GameEnvelope
 from ai_engine.llm.llama_client import LlamaClient
@@ -255,6 +256,12 @@ class GameGenerator:
             },
         )
         logger.debug("RAG context length: %d chars", len(context))
+        generation_plan = self._build_generation_plan(
+            query=query,
+            game_type=game_type,
+            language=lang,
+            top_k=top_k if top_k is not None else profile.retrieval_top_k,
+        )
 
         return await self.generate_from_context(
             context=context,
@@ -265,6 +272,7 @@ class GameGenerator:
             num_questions=num_questions,
             letters=letters,
             max_tokens=max_tokens,
+            generation_plan=generation_plan,
         )
 
     async def generate_from_context(
@@ -278,6 +286,7 @@ class GameGenerator:
         num_questions: int = 5,
         letters: str = "A,B,C,D,E,F,G,H,I,J,L,M,N,O,P,R,S,T,V,Z",
         max_tokens: int | None = None,
+        generation_plan: GenerationPlan | None = None,
     ) -> GameEnvelope:
         """Generate a game from prebuilt context.
 
@@ -289,7 +298,7 @@ class GameGenerator:
 
         prompt = get_prompt(
             game_type=game_type,
-            context=context,
+            context=self._compose_prompt_context(context, generation_plan),
             topic=topic,
             language=lang,
             difficulty_percentage=difficulty_percentage,
@@ -361,9 +370,15 @@ class GameGenerator:
                 "game_type": game_type,
             },
         )
+        generation_plan = self._build_generation_plan(
+            query=query,
+            game_type=game_type,
+            language=lang,
+            top_k=top_k if top_k is not None else profile.retrieval_top_k,
+        )
         prompt = get_prompt(
             game_type=game_type,
-            context=context,
+            context=self._compose_prompt_context(context, generation_plan),
             topic=query,
             language=lang,
             difficulty_percentage=difficulty_percentage,
@@ -387,6 +402,46 @@ class GameGenerator:
         )
         self.last_run_metrics = run_metrics
         return data
+
+    def _build_generation_plan(
+        self,
+        *,
+        query: str,
+        game_type: str,
+        language: str,
+        top_k: int,
+    ) -> GenerationPlan | None:
+        retrieve = getattr(self.rag_pipeline, "retrieve", None)
+        if not callable(retrieve):
+            return None
+
+        documents = retrieve(
+            query,
+            top_k=top_k,
+            metadata_preferences={
+                "language": language,
+                "game_type": game_type,
+            },
+        )
+        return build_generation_plan(
+            topic=query,
+            game_type=game_type,
+            language=language,
+            documents=list(documents),
+        )
+
+    def _compose_prompt_context(
+        self,
+        context: str,
+        generation_plan: GenerationPlan | None,
+    ) -> str:
+        normalized_context = str(context or "").strip()
+        if generation_plan is None:
+            return normalized_context
+        plan_block = generation_plan.to_prompt_block().strip()
+        if not normalized_context:
+            return plan_block
+        return f"{plan_block}\n\nRetrieved context:\n{normalized_context}"
 
     def _normalize_generated_payload(
         self,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ai_engine.rag.document import Document
 from ai_engine.rag.embedder import Embedder
+from ai_engine.rag.reranker import LexicalReranker
 from ai_engine.rag.retriever import Retriever, _ThreadSafeLRUCache
 from ai_engine.rag.vector_store import InMemoryVectorStore
 
@@ -121,3 +122,123 @@ def test_retrieve_returns_empty_when_all_results_are_filtered_out() -> None:
     assert docs == []
     assert retriever.last_scores == []
     assert retriever.last_ranked_scores == []
+
+
+def test_retrieve_uses_lexical_content_signal_to_rerank_candidates() -> None:
+    embedder = _FixedEmbedder()
+    store = InMemoryVectorStore()
+    store.add(
+        [
+            Document(content="Python basics for beginners", doc_id="generic"),
+            Document(
+                content="Python decorators and context managers deep dive",
+                doc_id="exact-match",
+            ),
+        ],
+        [[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+    )
+    retriever = Retriever(
+        embedder,
+        store,
+        top_k=1,
+        min_score=0.0,
+        lexical_content_match_boost=0.2,
+        lexical_metadata_match_boost=0.0,
+    )
+
+    docs = retriever.retrieve("python decorators context", top_k=1)
+
+    assert [doc.doc_id for doc in docs] == ["exact-match"]
+    assert retriever.last_ranked_scores[0] > retriever.last_scores[0]
+
+
+def test_retrieve_uses_lexical_metadata_signal_to_rerank_candidates() -> None:
+    embedder = _FixedEmbedder()
+    store = InMemoryVectorStore()
+    store.add(
+        [
+            Document(
+                content="Overview article",
+                doc_id="generic-meta",
+                metadata={"topic": "overview"},
+            ),
+            Document(
+                content="Overview article",
+                doc_id="roman-meta",
+                metadata={"topic": "roman republic magistrates"},
+            ),
+        ],
+        [[0.5, 0.5, 0.0], [0.5, 0.5, 0.0]],
+    )
+    retriever = Retriever(
+        embedder,
+        store,
+        top_k=1,
+        min_score=0.0,
+        lexical_content_match_boost=0.0,
+        lexical_metadata_match_boost=0.2,
+    )
+
+    docs = retriever.retrieve("roman magistrates", top_k=1)
+
+    assert [doc.doc_id for doc in docs] == ["roman-meta"]
+    assert retriever.last_ranked_scores[0] > retriever.last_scores[0]
+
+
+def test_retrieve_applies_second_stage_reranker_on_top_candidates() -> None:
+    embedder = _FixedEmbedder()
+    store = InMemoryVectorStore()
+    store.add(
+        [
+            Document(content="Python basics", doc_id="generic"),
+            Document(
+                content="Context managers and decorators in Python",
+                doc_id="reranked-best",
+            ),
+        ],
+        [[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+    )
+    retriever = Retriever(
+        embedder,
+        store,
+        top_k=1,
+        min_score=0.0,
+        lexical_content_match_boost=0.0,
+        lexical_metadata_match_boost=0.0,
+        reranker=LexicalReranker(),
+        rerank_candidate_count=2,
+        rerank_score_weight=0.5,
+    )
+
+    docs = retriever.retrieve("python decorators context", top_k=1)
+
+    assert [doc.doc_id for doc in docs] == ["reranked-best"]
+    assert retriever.last_reranker_scores[0] > 0.0
+
+
+def test_retrieve_skips_second_stage_reranker_when_disabled() -> None:
+    embedder = _FixedEmbedder()
+    store = InMemoryVectorStore()
+    store.add(
+        [
+            Document(content="Python basics", doc_id="first"),
+            Document(content="Decorators in Python", doc_id="second"),
+        ],
+        [[1.0, 0.0, 0.0], [0.8, 0.2, 0.0]],
+    )
+    retriever = Retriever(
+        embedder,
+        store,
+        top_k=1,
+        min_score=0.0,
+        lexical_content_match_boost=0.0,
+        lexical_metadata_match_boost=0.0,
+        reranker=LexicalReranker(),
+        rerank_candidate_count=2,
+        rerank_score_weight=0.0,
+    )
+
+    docs = retriever.retrieve("python", top_k=1)
+
+    assert [doc.doc_id for doc in docs] == ["first"]
+    assert retriever.last_reranker_scores == [0.0]

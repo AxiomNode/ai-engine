@@ -40,7 +40,7 @@ services:
 
   # ---------------------------------------------------------------------------
   # llama.cpp CPU profile — native C++ server (fastest CPU inference).
-  # Uses the official ghcr.io/ggerganov/llama.cpp:server image (no Python).
+  # Uses the official ghcr.io/ggml-org/llama.cpp:server image (no Python).
   #
   # Key tuning knobs (set via .env or env_file):
   #   LLAMA_THREADS      – physical CPU cores dedicated to matrix ops
@@ -51,7 +51,7 @@ services:
   # ---------------------------------------------------------------------------
   llama-server-cpu:
     profiles: ["cpu"]
-    image: ghcr.io/ggerganov/llama.cpp:server
+    image: ghcr.io/ggml-org/llama.cpp:server
     container_name: "ai_engine_llama_cpu_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
     restart: unless-stopped
     cpus: "${LLAMA_CPUS:-4.0}"
@@ -233,14 +233,12 @@ services:
       AI_ENGINE_GENERATION_CACHE_REDIS_PREFIX: "${AI_ENGINE_GENERATION_CACHE_REDIS_PREFIX:-ai-engine:generation-cache}"
       AI_ENGINE_GENERATION_CACHE_NAMESPACE: "${AI_ENGINE_GENERATION_CACHE_NAMESPACE:-v1}"
       AI_ENGINE_LLAMA_MAX_CONCURRENT_REQUESTS: "${AI_ENGINE_LLAMA_MAX_CONCURRENT_REQUESTS:-1}"
-      AI_ENGINE_GENERATION_MAX_IN_FLIGHT: "${AI_ENGINE_GENERATION_MAX_IN_FLIGHT:-1}"
-      AI_ENGINE_GENERATION_MAX_QUEUE_SIZE: "${AI_ENGINE_GENERATION_MAX_QUEUE_SIZE:-1}"
       AI_ENGINE_CACHE_WARMUP_ENABLED: "${AI_ENGINE_CACHE_WARMUP_ENABLED:-false}"
       AI_ENGINE_RATE_LIMIT_ENABLED: "${AI_ENGINE_RATE_LIMIT_ENABLED:-false}"
       AI_ENGINE_RATE_LIMIT_REQUESTS: "${AI_ENGINE_RATE_LIMIT_REQUESTS:-60}"
       AI_ENGINE_RATE_LIMIT_WINDOW_SECONDS: "${AI_ENGINE_RATE_LIMIT_WINDOW_SECONDS:-60}"
-      AI_ENGINE_DISTRIBUTION: "${AI_ENGINE_DISTRIBUTION:-dev}"
-      AI_ENGINE_RELEASE_VERSION: "${AI_ENGINE_RELEASE_VERSION:-v1}"
+      AI_ENGINE_GENERATION_MAX_IN_FLIGHT: "${AI_ENGINE_GENERATION_MAX_IN_FLIGHT:-2}"
+      AI_ENGINE_GENERATION_MAX_QUEUE_SIZE: "${AI_ENGINE_GENERATION_MAX_QUEUE_SIZE:-2}"
       AI_ENGINE_STATS_URL: "${AI_ENGINE_STATS_URL:-http://ai-stats:8000}"
       AI_ENGINE_API_KEY: "${AI_ENGINE_API_KEY:-}"
       AI_ENGINE_GAMES_API_KEY: "${AI_ENGINE_GAMES_API_KEY:-}"

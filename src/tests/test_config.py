@@ -128,11 +128,45 @@ class TestAIEngineSettingsDefaults:
         assert settings.query_embedding_cache_max_entries == 2048
         assert settings.retrieval_result_cache_max_entries == 1024
 
+    def test_retriever_hybrid_boost_defaults(self, monkeypatch):
+        monkeypatch.delenv(
+            "AI_ENGINE_RETRIEVER_LEXICAL_CONTENT_MATCH_BOOST", raising=False
+        )
+        monkeypatch.delenv(
+            "AI_ENGINE_RETRIEVER_LEXICAL_METADATA_MATCH_BOOST", raising=False
+        )
+        cfg = _reload_config(monkeypatch)
+        settings = cfg.AIEngineSettings()
+        assert settings.retriever_lexical_content_match_boost == 0.12
+        assert settings.retriever_lexical_metadata_match_boost == 0.05
+
+    def test_retriever_reranker_defaults(self, monkeypatch):
+        monkeypatch.delenv("AI_ENGINE_RETRIEVER_RERANKER_BACKEND", raising=False)
+        monkeypatch.delenv(
+            "AI_ENGINE_RETRIEVER_RERANK_CANDIDATE_COUNT", raising=False
+        )
+        monkeypatch.delenv("AI_ENGINE_RETRIEVER_RERANK_SCORE_WEIGHT", raising=False)
+        cfg = _reload_config(monkeypatch)
+        settings = cfg.AIEngineSettings()
+        assert settings.retriever_reranker_backend == "none"
+        assert settings.retriever_rerank_candidate_count == 8
+        assert settings.retriever_rerank_score_weight == 0.35
+
     def test_diagnostics_cache_ttl_default(self, monkeypatch):
         monkeypatch.delenv("AI_ENGINE_DIAGNOSTICS_CACHE_TTL_MS", raising=False)
         cfg = _reload_config(monkeypatch)
         settings = cfg.AIEngineSettings()
         assert settings.diagnostics_cache_ttl_ms == 2000
+
+    def test_vector_store_defaults(self, monkeypatch):
+        monkeypatch.delenv("AI_ENGINE_VECTOR_STORE_BACKEND", raising=False)
+        monkeypatch.delenv("AI_ENGINE_VECTOR_STORE_PATH", raising=False)
+        monkeypatch.delenv("AI_ENGINE_VECTOR_STORE_COLLECTION", raising=False)
+        cfg = _reload_config(monkeypatch)
+        settings = cfg.AIEngineSettings()
+        assert settings.vector_store_backend == "memory"
+        assert settings.vector_store_path == "data/chroma"
+        assert settings.vector_store_collection == "ai_engine_default"
 
     def test_distribution_default(self, monkeypatch):
         monkeypatch.delenv("AI_ENGINE_DISTRIBUTION", raising=False)
@@ -199,6 +233,38 @@ class TestAIEngineSettingsFromEnv:
         cfg = _reload_config(monkeypatch)
         settings = cfg.AIEngineSettings()
         assert settings.diagnostics_cache_ttl_ms == 750
+
+    def test_retriever_hybrid_boosts_from_env(self, monkeypatch):
+        monkeypatch.setenv(
+            "AI_ENGINE_RETRIEVER_LEXICAL_CONTENT_MATCH_BOOST", "0.2"
+        )
+        monkeypatch.setenv(
+            "AI_ENGINE_RETRIEVER_LEXICAL_METADATA_MATCH_BOOST", "0.07"
+        )
+        cfg = _reload_config(monkeypatch)
+        settings = cfg.AIEngineSettings()
+        assert settings.retriever_lexical_content_match_boost == 0.2
+        assert settings.retriever_lexical_metadata_match_boost == 0.07
+
+    def test_retriever_reranker_from_env(self, monkeypatch):
+        monkeypatch.setenv("AI_ENGINE_RETRIEVER_RERANKER_BACKEND", "lexical")
+        monkeypatch.setenv("AI_ENGINE_RETRIEVER_RERANK_CANDIDATE_COUNT", "5")
+        monkeypatch.setenv("AI_ENGINE_RETRIEVER_RERANK_SCORE_WEIGHT", "0.6")
+        cfg = _reload_config(monkeypatch)
+        settings = cfg.AIEngineSettings()
+        assert settings.retriever_reranker_backend == "lexical"
+        assert settings.retriever_rerank_candidate_count == 5
+        assert settings.retriever_rerank_score_weight == 0.6
+
+    def test_vector_store_from_env(self, monkeypatch):
+        monkeypatch.setenv("AI_ENGINE_VECTOR_STORE_BACKEND", "chroma")
+        monkeypatch.setenv("AI_ENGINE_VECTOR_STORE_PATH", "/tmp/chroma")
+        monkeypatch.setenv("AI_ENGINE_VECTOR_STORE_COLLECTION", "axiom-games")
+        cfg = _reload_config(monkeypatch)
+        settings = cfg.AIEngineSettings()
+        assert settings.vector_store_backend == "chroma"
+        assert settings.vector_store_path == "/tmp/chroma"
+        assert settings.vector_store_collection == "axiom-games"
 
     def test_api_key_from_env(self, monkeypatch):
         monkeypatch.setenv("AI_ENGINE_API_KEY", "secret-key-123")

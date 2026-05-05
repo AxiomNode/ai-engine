@@ -1,5 +1,9 @@
 # Guides
 
+Last updated: 2026-05-03.
+
+## Purpose
+
 This section groups practical usage guides.
 
 ## Scope
@@ -12,7 +16,7 @@ The main distinction is:
 - architecture docs explain why the repository is shaped the way it is
 - operations docs explain how to deploy, recover, and observe runtime slices
 
-## Contents
+## Navigation
 
 - [getting-started.md](getting-started.md) — Local setup and development workflow.
 - [rag-usage.md](rag-usage.md) — RAG ingestion/retrieval usage.
