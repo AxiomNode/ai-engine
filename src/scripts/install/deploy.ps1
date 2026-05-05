@@ -95,9 +95,4 @@ if ($Environment -like "windows*") {
     if ($autoExposeVpsRelay -in @("true", "1", "yes", "on")) {
         & (Join-Path $ScriptDir "configure_vps_reverse_relay.ps1") -Stage $Stage -Environment $Environment -StatsPort $StatsPort -ApiPort $ApiPort -Config $Config
     }
-
-    $autoExposeCloudflareLlama = if ($Config.ContainsKey("AUTO_EXPOSE_CLOUDFLARE_LLAMA_TUNNEL")) { $Config["AUTO_EXPOSE_CLOUDFLARE_LLAMA_TUNNEL"] } else { "false" }
-    if ($autoExposeCloudflareLlama -in @("true", "1", "yes", "on")) {
-        & (Join-Path $ScriptDir "configure_cloudflare_llama_tunnel.ps1") -Stage $Stage -Environment $Environment -LlamaPort $LlamaPort -ComposeMode $ComposeMode -ComposeArgs $ComposeArgs -Config $Config -NoStartLlama
-    }
 }

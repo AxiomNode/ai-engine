@@ -1,0 +1,56 @@
+# Standalone local llama runtime plus temporary Cloudflare public tunnel.
+# Usage:
+#   docker compose --env-file distributions/stg/windows-gpu.env -f docker-compose.llama-tunnel.yml up -d
+
+services:
+  llama-server:
+    image: "${LLAMA_GPU_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda}"
+    container_name: "${LLAMA_TUNNEL_LLAMA_CONTAINER:-axiomnode-llama-server}"
+    restart: unless-stopped
+    gpus: all
+    cpus: "${LLAMA_CPUS:-4.0}"
+    mem_limit: "${LLAMA_MEMORY_LIMIT:-16g}"
+    mem_reservation: "${LLAMA_MEMORY_RESERVATION:-10g}"
+    shm_size: "${LLAMA_SHM_SIZE:-2g}"
+    ports:
+      - "${LLAMA_PORT:-7002}:8080"
+    volumes:
+      - ./models:/models:ro
+    command:
+      - --model
+      - /models/${LLAMA_MODEL_FILE:-Qwen2.5-7B-Instruct-Q4_K_M.gguf}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --ctx-size
+      - "${LLAMA_CTX_SIZE:-4096}"
+      - --threads
+      - "${LLAMA_THREADS:-4}"
+      - --batch-size
+      - "${LLAMA_BATCH:-1024}"
+      - --n-gpu-layers
+      - "${LLAMA_N_GPU_LAYERS:-99}"
+      - --parallel
+      - "${LLAMA_PARALLEL:-2}"
+      - --cont-batching
+      - --mlock
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/v1/models >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 30
+
+  cloudflare-tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: "${CLOUDFLARE_LLAMA_TUNNEL_CONTAINER:-axiomnode-llama-cloudflared}"
+    restart: unless-stopped
+    depends_on:
+      llama-server:
+        condition: service_healthy
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --url
+      - http://llama-server:8080

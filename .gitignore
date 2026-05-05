@@ -46,7 +46,6 @@ data/*.joblib
 data/*.pkl
 data/*.bin
 data/generation_cache.json
-src/data/llama-cloudflare-target.json
 
 # Chroma vector store data
 chroma_db/

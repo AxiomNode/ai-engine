@@ -49,11 +49,23 @@ The installers automatically map environment to a centralized compose profile:
 
 So all deployments run from a single `src/docker-compose.yml`.
 
-Windows workstation distributions can also expose the local llama runtime with a
-temporary Cloudflare quick tunnel. Enable it with
-`AUTO_EXPOSE_CLOUDFLARE_LLAMA_TUNNEL=true`; the installer writes the active
-backoffice target to `src/data/llama-cloudflare-target.json` after validating
-`/v1/models` through the public tunnel.
+For a standalone Windows GPU workstation llama endpoint, use
+`src/docker-compose.llama-tunnel.yml`. It starts exactly two containers:
+`llama-server` and a Dockerized Cloudflare quick tunnel that points to it.
+
+From `src/`:
+
+```bash
+docker compose --env-file distributions/stg/windows-gpu.env -f docker-compose.llama-tunnel.yml up -d
+docker logs axiomnode-llama-cloudflared 2>&1 | grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' | tail -n 1
+```
+
+Use the returned host with `https` and port `443` as the backoffice llama target.
+Stop both containers with:
+
+```bash
+docker compose --env-file distributions/stg/windows-gpu.env -f docker-compose.llama-tunnel.yml down
+```
 
 Installers now load two env files in order:
 
