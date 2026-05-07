@@ -123,6 +123,8 @@ def test_compute_rag_stats_groups_sources_and_unique_documents() -> None:
     stats = diagnostics.compute_rag_stats(rag_pipeline)
 
     assert stats["unique_documents"] == 1
+    assert stats["vector_store_type"] == "SimpleNamespace"
+    assert stats["vector_store_collection"] is None
     assert stats["sources"][0]["source"] == "docs"
     assert stats["sources"][0]["chunks"] == 2
     assert stats["sources"][0]["unique_documents"] == 1
@@ -157,6 +159,8 @@ def test_compute_rag_stats_reads_chroma_store() -> None:
     assert stats["total_chunks"] == 2
     assert stats["unique_documents"] == 2
     assert stats["embedding_dimensions"] == 3
+    assert stats["vector_store_type"] == "ChromaVectorStore"
+    assert stats["vector_store_collection"] == "diag-test"
     assert stats["sources"][0]["source"] == "seed-corpus"
 
 

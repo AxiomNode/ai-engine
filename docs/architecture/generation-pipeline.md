@@ -66,6 +66,11 @@ The runtime vector store is now a configuration concern instead of a hard-coded 
 - chroma backend is available for persistent development and integration slices
 - the curated RAG seed corpus is versioned as JSONL package data and can be
     pre-indexed with `python -m ai_engine.cli.build_rag_index`
+- runtime diagnostics expose the active vector store type and collection so operators can distinguish Chroma-backed RAG storage from generation cache persistence
+
+KBD is a keyword index used by `GenerationOptimizationService` for retrieval-query boosting. It is not the vector database. At startup the service rebuilds the in-memory KBD index from the current RAG vector store, so persisted Chroma documents continue to support keyword boosting after pod recreation.
+
+Generation cache persistence is separate again: TinyDB or Redis can hold generated payload cache entries, while Chroma holds embeddings and KBD holds searchable keyword entries derived from the RAG documents.
 
 The retrieval path is now hybrid in two layers:
 

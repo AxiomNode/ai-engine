@@ -14,6 +14,7 @@ from ai_engine.api.optimization import GenerationOptimizationService, _LRUCache
 from ai_engine.api.schemas import GenerateRequest
 from ai_engine.games.catalog import get_game_type_profile
 from ai_engine.games.schemas import GameEnvelope, QuizGame, QuizQuestion
+from ai_engine.rag.document import Document
 
 
 def _run(coro):
@@ -413,6 +414,65 @@ def test_on_ingest_populates_kbd_even_without_tinydb_backend() -> None:
     hits = service._kbd_search_sync("water cycle")
     assert len(hits) == 1
     assert hits[0].title == "Water Cycle"
+
+
+def test_rebuild_kbd_from_chroma_like_rag_store() -> None:
+    class _Collection:
+        def get(self, include):
+            assert include == ["documents", "metadatas"]
+            return {
+                "documents": ["The water cycle includes evaporation."],
+                "metadatas": [
+                    {
+                        "_doc_id": "w1",
+                        "_content": "The water cycle includes evaporation.",
+                        "title": "Water Cycle",
+                        "source": "science-seed",
+                    }
+                ],
+            }
+
+    rag_pipeline = _StubRAGPipeline()
+    rag_pipeline.vector_store = type("Store", (), {"_collection": _Collection()})()
+    service = GenerationOptimizationService(
+        generator=_StubGenerator(),
+        rag_pipeline=rag_pipeline,
+        cache_max_entries=0,
+        persistent_cache_path=None,
+    )
+
+    rebuilt = service.rebuild_kbd_from_rag_store()
+    hits = service._kbd_search_sync("water cycle")
+
+    assert rebuilt == 1
+    assert len(hits) == 1
+    assert hits[0].title == "Water Cycle"
+
+
+def test_rebuild_kbd_from_in_memory_rag_store() -> None:
+    rag_pipeline = _StubRAGPipeline()
+    rag_pipeline.vector_store = type(
+        "Store",
+        (),
+        {
+            "_documents": [
+                Document(
+                    content="Condensation forms clouds.",
+                    doc_id="c1",
+                    metadata={"title": "Condensation"},
+                )
+            ]
+        },
+    )()
+    service = GenerationOptimizationService(
+        generator=_StubGenerator(),
+        rag_pipeline=rag_pipeline,
+        cache_max_entries=0,
+        persistent_cache_path=None,
+    )
+
+    assert service.rebuild_kbd_from_rag_store() == 1
+    assert service._kbd_search_sync("condensation")[0].title == "Condensation"
 
 
 def test_redis_backend_falls_back_to_tinydb_when_unavailable(tmp_path) -> None:

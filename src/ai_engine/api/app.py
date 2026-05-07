@@ -39,7 +39,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import threading
 import time
 import uuid
 from contextlib import asynccontextmanager, suppress
@@ -86,6 +85,7 @@ GAME_CATEGORIES_CATALOG: list[dict[str, str]] = [
 
 try:
     from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
+    from fastapi.middleware.cors import CORSMiddleware
     from fastapi.openapi.utils import get_openapi
 except ImportError as _imp_err:  # pragma: no cover
     raise ImportError(
@@ -97,6 +97,19 @@ from ai_engine.api.diagnostics import (  # noqa: E402
     compute_rag_stats,
     get_test_status,
     start_test_run,
+)
+from ai_engine.api.events import (  # noqa: E402
+    _generation_failure_metadata,
+    _get_collector,
+    _handle_generation_failure,
+    _record_observability_event,
+)
+from ai_engine.api.limiters import (  # noqa: E402
+    _acquire_generation_capacity,
+    _enforce_generation_rate_limit,
+    _FixedWindowRateLimiter,
+    _GenerationCapacityLimiter,
+    get_capacity_limiter_stats,
 )
 from ai_engine.api.llama_target_store import (  # noqa: E402
     LlamaTargetStore,
@@ -113,6 +126,7 @@ from ai_engine.config import get_settings  # noqa: E402
 from ai_engine.examples import get_corpus_signature  # noqa: E402
 from ai_engine.examples.corpus import get_full_corpus  # noqa: E402
 from ai_engine.games.catalog import estimate_effective_max_tokens  # noqa: E402
+from ai_engine.games.prompts import get_prompt_version  # noqa: E402
 from ai_engine.observability.collector import StatsCollector  # noqa: E402
 from ai_engine.safety import (  # noqa: E402
     SafetyDecision,
@@ -440,6 +454,11 @@ async def _prime_runtime_content(
 
             docs = ExampleInjector._corpus_to_documents(get_full_corpus())
             if docs:
+                _normalize_rag_document_metadata(
+                    docs,
+                    default_source="ai-engine-curated-corpus",
+                    ingest_model="bootstrap",
+                )
                 await asyncio.to_thread(rag_pipeline.ingest, docs)
                 if optimizer is not None:
                     await asyncio.to_thread(optimizer.on_ingest, docs)
@@ -447,47 +466,68 @@ async def _prime_runtime_content(
             logger.exception("example-bootstrap: failed to inject curated corpus")
             return
 
+    if rag_pipeline is not None and optimizer is not None:
+        try:
+            rebuilt = await asyncio.to_thread(optimizer.rebuild_kbd_from_rag_store)
+            logger.info("kbd-bootstrap: indexed %d RAG documents", rebuilt)
+        except Exception:
+            logger.exception("kbd-bootstrap: failed to rebuild KBD from RAG store")
+
     if cache_warmup_enabled and optimizer is not None:
         await _warmup_cache(optimizer)
 
 
+_UNKNOWN_RAG_SOURCE_VALUES = {"", "unknown", "none", "null"}
+
+
+def _metadata_text(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _normalize_rag_document_metadata(
+    documents: list[Any],
+    *,
+    default_source: str,
+    ingest_model: str,
+) -> None:
+    """Ensure RAG documents carry consistent operational metadata."""
+    safe_source = default_source.strip() or ingest_model or "rag-ingest"
+    normalized_model = ingest_model.strip() or "generic"
+    game_type = (
+        None if normalized_model in {"generic", "bootstrap"} else normalized_model
+    )
+
+    for doc in documents:
+        metadata = getattr(doc, "metadata", None)
+        if not isinstance(metadata, dict):
+            metadata = {}
+            setattr(doc, "metadata", metadata)
+
+        source = _metadata_text(metadata.get("source"))
+        if source is None or source.lower() in _UNKNOWN_RAG_SOURCE_VALUES:
+            metadata["source"] = safe_source
+
+        if not _metadata_text(metadata.get("language")):
+            metadata["language"] = "en"
+
+        if game_type and not _metadata_text(metadata.get("game_type")):
+            metadata["game_type"] = game_type
+
+        if not _metadata_text(metadata.get("ingest_model")):
+            metadata["ingest_model"] = normalized_model
+
+
 def _get_generator(request: Request) -> Any:
-    """Retrieve the generator from app state.
-
-    Args:
-        request: The incoming FastAPI request.
-
-    Returns:
-        The :class:`~ai_engine.observability.middleware.TrackedGameGenerator`
-        attached to ``app.state``.
-    """
+    """Retrieve the generator from app state."""
     return request.app.state.generator
 
 
 def _get_pipeline(request: Request) -> Any:
-    """Retrieve the RAG pipeline from app state.
-
-    Args:
-        request: The incoming FastAPI request.
-
-    Returns:
-        The :class:`~ai_engine.rag.pipeline.RAGPipeline` attached to
-        ``app.state``.
-    """
+    """Retrieve the RAG pipeline from app state."""
     return request.app.state.rag_pipeline
-
-
-def _get_collector(request: Request) -> StatsCollector:
-    """Retrieve the StatsCollector from app state.
-
-    Args:
-        request: The incoming FastAPI request.
-
-    Returns:
-        The :class:`~ai_engine.observability.collector.StatsCollector`
-        attached to ``app.state``.
-    """
-    return request.app.state.collector  # type: ignore[no-any-return]
 
 
 def _get_optimizer(request: Request) -> Any:
@@ -531,35 +571,6 @@ def _get_distribution_version(request: Request) -> str:
     if isinstance(value, str) and value.strip():
         return value.strip()
     return "unknown-v0"
-
-
-def _generation_failure_metadata(
-    req: GenerateRequest,
-    *,
-    correlation_id: str,
-    distribution_version: str,
-    effective_max_tokens: int | None = None,
-    extra_metadata: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Build normalized metadata for failed generation events."""
-    metadata: dict[str, Any] = {
-        "event_type": "generation",
-        "cache_hit": False,
-        "cache_layer": "none",
-        "game_type": req.game_type,
-        "language": "en",
-        "requested_max_tokens": req.max_tokens,
-        "effective_max_tokens": effective_max_tokens or req.max_tokens,
-        "difficulty_percentage": req.difficulty_percentage,
-        "use_cache": req.use_cache,
-        "force_refresh": req.force_refresh,
-        "query_chars": len(req.resolved_topic),
-        "correlation_id": correlation_id,
-        "distribution_version": distribution_version,
-    }
-    if extra_metadata:
-        metadata.update(extra_metadata)
-    return metadata
 
 
 def _resolve_effective_max_tokens(req: GenerateRequest) -> int:
@@ -743,251 +754,6 @@ def _resolve_category_name(
     return None
 
 
-async def _publish_event_to_stats(request: Request, payload: dict[str, Any]) -> None:
-    """Push observability event to ai-stats without breaking generation flow."""
-    stats_url = getattr(request.app.state, "stats_url", None)
-    if not isinstance(stats_url, str) or not stats_url.strip():
-        return
-
-    endpoint = f"{stats_url.rstrip('/')}/events"
-    headers: dict[str, str] = {}
-    stats_api_key = getattr(request.app.state, "stats_api_key", None)
-    if isinstance(stats_api_key, str) and stats_api_key.strip():
-        headers["X-API-Key"] = stats_api_key.strip()
-
-    try:
-        async with httpx.AsyncClient(timeout=2.0) as client:
-            await client.post(endpoint, json=payload, headers=headers)
-    except Exception:
-        logger.warning("Failed to push observability event to ai-stats", exc_info=True)
-
-
-async def _record_observability_event(
-    request: Request,
-    *,
-    prompt: str,
-    response: str,
-    latency_ms: float,
-    max_tokens: int,
-    json_mode: bool,
-    success: bool,
-    game_type: str,
-    metadata: dict[str, Any],
-    error: str | None = None,
-) -> None:
-    """Record event locally and forward it to ai-stats."""
-    _get_collector(request).record_call(
-        prompt=prompt,
-        response=response,
-        latency_ms=latency_ms,
-        max_tokens=max_tokens,
-        json_mode=json_mode,
-        success=success,
-        game_type=game_type,
-        error=error,
-        metadata=metadata,
-    )
-    await _publish_event_to_stats(
-        request,
-        {
-            "prompt": prompt,
-            "response": response,
-            "latency_ms": latency_ms,
-            "max_tokens": max_tokens,
-            "json_mode": json_mode,
-            "success": success,
-            "game_type": game_type,
-            "error": error,
-            "metadata": metadata,
-        },
-    )
-
-
-class _FixedWindowRateLimiter:
-    """Thread-safe fixed-window limiter keyed by client identity."""
-
-    _CLEANUP_THRESHOLD = 10_000
-
-    def __init__(self, max_requests: int, window_seconds: int) -> None:
-        self._max_requests = max_requests
-        self._window_seconds = window_seconds
-        self._lock = threading.Lock()
-        self._buckets: dict[str, tuple[float, int]] = {}
-
-    def allow(self, identity: str) -> bool:
-        """Return True when request is allowed, else False."""
-        now = time.time()
-        with self._lock:
-            window_start, count = self._buckets.get(identity, (now, 0))
-            if now - window_start >= self._window_seconds:
-                self._buckets[identity] = (now, 1)
-                self._maybe_cleanup(now)
-                return True
-
-            if count >= self._max_requests:
-                return False
-
-            self._buckets[identity] = (window_start, count + 1)
-            return True
-
-    def _maybe_cleanup(self, now: float) -> None:
-        """Evict expired buckets when the map grows too large (called under lock)."""
-        if len(self._buckets) < self._CLEANUP_THRESHOLD:
-            return
-        expired = [
-            k
-            for k, (ws, _) in self._buckets.items()
-            if now - ws >= self._window_seconds
-        ]
-        for k in expired:
-            del self._buckets[k]
-
-
-class _GenerationCapacityLimiter:
-    """Bound actively executing generation requests and a small waiting queue."""
-
-    def __init__(self, max_in_flight: int, max_queue_size: int) -> None:
-        self._max_in_flight = max_in_flight
-        self._max_queue_size = max_queue_size
-        self._semaphore = asyncio.Semaphore(max_in_flight)
-        self._lock = threading.Lock()
-        self._active = 0
-        self._interactive_queued = 0
-
-    async def acquire(self, caller_tier: str = "interactive") -> bool:
-        """Reserve execution capacity using a tier-aware admission policy."""
-        normalized_tier = (
-            caller_tier.strip().lower()
-            if isinstance(caller_tier, str)
-            else "interactive"
-        )
-        if normalized_tier == "background":
-            return await self._acquire_background()
-        return await self._acquire_interactive()
-
-    async def _acquire_background(self) -> bool:
-        """Allow background callers only when a slot is immediately available."""
-        with self._lock:
-            if self._active >= self._max_in_flight or self._interactive_queued > 0:
-                return False
-            self._active += 1
-
-        try:
-            await self._semaphore.acquire()
-        except BaseException:
-            with self._lock:
-                if self._active > 0:
-                    self._active -= 1
-            raise
-        return True
-
-    async def _acquire_interactive(self) -> bool:
-        """Reserve execution capacity or queue briefly for interactive callers."""
-        immediate_slot = False
-        with self._lock:
-            if self._active < self._max_in_flight and self._interactive_queued == 0:
-                self._active += 1
-                immediate_slot = True
-            elif self._interactive_queued >= self._max_queue_size:
-                return False
-            else:
-                self._interactive_queued += 1
-
-        try:
-            await self._semaphore.acquire()
-        except BaseException:
-            with self._lock:
-                if immediate_slot and self._active > 0:
-                    self._active -= 1
-                elif not immediate_slot and self._interactive_queued > 0:
-                    self._interactive_queued -= 1
-            raise
-
-        if not immediate_slot:
-            with self._lock:
-                if self._interactive_queued > 0:
-                    self._interactive_queued -= 1
-                self._active += 1
-        return True
-
-    def release(self) -> None:
-        """Release one in-flight execution slot."""
-        self._semaphore.release()
-        with self._lock:
-            if self._active > 0:
-                self._active -= 1
-
-    def stats(self) -> dict[str, int]:
-        """Return current limiter counters for diagnostics."""
-        with self._lock:
-            return {
-                "max_in_flight": self._max_in_flight,
-                "max_queue_size": self._max_queue_size,
-                "active": self._active,
-                "queued": self._interactive_queued,
-                "interactive_queued": self._interactive_queued,
-                "background_queue_size": 0,
-            }
-
-
-def _get_rate_limiter(request: Request) -> _FixedWindowRateLimiter | None:
-    """Return generation rate limiter from app state when enabled."""
-    limiter = getattr(request.app.state, "rate_limiter", None)
-    return limiter if isinstance(limiter, _FixedWindowRateLimiter) else None
-
-
-def _get_generation_capacity_limiter(
-    request: Request,
-) -> _GenerationCapacityLimiter | None:
-    """Return generation capacity limiter from app state when configured."""
-    limiter = getattr(request.app.state, "generation_capacity_limiter", None)
-    return limiter if isinstance(limiter, _GenerationCapacityLimiter) else None
-
-
-def _resolve_generation_caller_tier(request: Request) -> str:
-    """Classify generation callers into interactive or background capacity tiers."""
-    auth_scope = getattr(request.state, "auth_scope", "")
-    if auth_scope == "games":
-        return "background"
-    return "interactive"
-
-
-def _resolve_rate_limit_identity(request: Request) -> str:
-    """Build a stable limiter identity using API key first, then client IP."""
-    api_key = request.headers.get("X-API-Key")
-    if api_key:
-        return f"api_key:{api_key}"
-    client_host = request.client.host if request.client is not None else "unknown"
-    return f"ip:{client_host}"
-
-
-def _enforce_generation_rate_limit(request: Request) -> None:
-    """Raise HTTP 429 when generation rate limit is exceeded."""
-    limiter = _get_rate_limiter(request)
-    if limiter is None:
-        return
-
-    identity = _resolve_rate_limit_identity(request)
-    if not limiter.allow(identity):
-        raise HTTPException(status_code=429, detail="Rate limit exceeded.")
-
-
-async def _acquire_generation_capacity(
-    request: Request,
-) -> _GenerationCapacityLimiter | None:
-    """Reserve a generation capacity slot or reject early when the queue is full."""
-    limiter = _get_generation_capacity_limiter(request)
-    if limiter is None:
-        return None
-    admitted = await limiter.acquire(_resolve_generation_caller_tier(request))
-    if not admitted:
-        raise HTTPException(
-            status_code=503,
-            detail="Generation service is busy. Please retry shortly.",
-        )
-    return limiter
-
-
 def _get_correlation_id(request: Request) -> str:
     """Return request correlation ID from state or fallback header/value."""
     state_value = getattr(request.state, "correlation_id", None)
@@ -1058,22 +824,6 @@ def _health_dependencies(request: Request) -> dict[str, Any]:
                 "namespace": None,
             }
 
-    capacity_limiter = _get_generation_capacity_limiter(request)
-    capacity_status: dict[str, Any] = {
-        "status": "unavailable",
-        "max_in_flight": 0,
-        "max_queue_size": 0,
-        "active": 0,
-        "queued": 0,
-        "interactive_queued": 0,
-        "background_queue_size": 0,
-    }
-    if capacity_limiter is not None:
-        capacity_status = {
-            "status": "ready",
-            **capacity_limiter.stats(),
-        }
-
     return {
         "generator": {
             "status": "ready" if generator is not None else "unavailable",
@@ -1088,7 +838,7 @@ def _health_dependencies(request: Request) -> dict[str, Any]:
         },
         "llm": llm_status,
         "cache": cache_status,
-        "generation_capacity": capacity_status,
+        "generation_capacity": get_capacity_limiter_stats(request),
     }
 
 
@@ -1331,6 +1081,28 @@ def create_app(
         else None
     )
 
+    # Sentry error tracking — opt-in via AI_ENGINE_SENTRY_DSN.
+    if settings.sentry_dsn:
+        try:
+            import sentry_sdk  # type: ignore[import-untyped]
+
+            sentry_sdk.init(dsn=settings.sentry_dsn, traces_sample_rate=0.1)
+            logger.info("Sentry initialised")
+        except ImportError:
+            logger.warning(
+                "sentry_dsn is set but sentry-sdk is not installed; "
+                "install it with: pip install sentry-sdk[fastapi]"
+            )
+
+    # CORS — allow origins from AI_ENGINE_CORS_ALLOWED_ORIGINS (default: open).
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_allowed_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["X-API-Key", "X-Correlation-ID", "Content-Type"],
+    )
+
     # Attach route-scoped API key middleware for service-to-service integrations.
     add_api_key_middleware(
         app,
@@ -1500,7 +1272,6 @@ def create_app(
     ) -> dict[str, Any]:
         """Execute generation request and return normalized payload."""
         _enforce_generation_rate_limit(request)
-
         await _enforce_prompt_safety(
             request,
             req,
@@ -1508,23 +1279,18 @@ def create_app(
             distribution_version=_get_distribution_version(request),
         )
 
-        gen = _get_generator(request)
-        if gen is None:
+        if _get_generator(request) is None:
             raise HTTPException(status_code=503, detail="Generator not initialised.")
-
         optimizer = _get_optimizer(request)
         if optimizer is None:
             raise HTTPException(status_code=503, detail="Generator not initialised.")
 
         capacity_limiter = await _acquire_generation_capacity(request)
-
         try:
             if req.force_refresh:
                 req = req.model_copy(update={"use_cache": False})
-
             effective_max_tokens = _resolve_effective_max_tokens(req)
             effective_req = req.model_copy(update={"max_tokens": effective_max_tokens})
-
             correlation_id = _get_correlation_id(request)
             distribution_version = _get_distribution_version(request)
             logger.info(
@@ -1532,13 +1298,15 @@ def create_app(
                 correlation_id,
                 distribution_version,
             )
-
+            pv = get_prompt_version(req.game_type)
+            started = time.perf_counter()
             try:
                 result = await optimizer.generate(
                     effective_req, correlation_id=correlation_id
                 )
                 result.metrics["requested_max_tokens"] = req.max_tokens
                 result.metrics["effective_max_tokens"] = effective_max_tokens
+                result.metrics["prompt_version"] = pv
                 await _record_observability_event(
                     request,
                     prompt=req.resolved_topic,
@@ -1549,124 +1317,20 @@ def create_app(
                     success=True,
                     game_type=req.game_type,
                     metadata=result.metrics,
+                    prompt_version=pv,
                 )
                 return result.payload
-            except ValueError as exc:
-                await _record_observability_event(
-                    request,
-                    prompt=req.resolved_topic,
-                    response="",
-                    latency_ms=0.0,
-                    max_tokens=req.max_tokens,
-                    json_mode=True,
-                    success=False,
-                    game_type=req.game_type,
-                    error=str(exc),
-                    metadata=_generation_failure_metadata(
-                        req,
-                        correlation_id=correlation_id,
-                        distribution_version=distribution_version,
-                        effective_max_tokens=effective_max_tokens,
-                    ),
-                )
-                raise HTTPException(status_code=422, detail=str(exc)) from exc
-            except httpx.TimeoutException as exc:
-                failure_metadata = _generation_failure_metadata(
-                    req,
-                    correlation_id=correlation_id,
-                    distribution_version=distribution_version,
-                    effective_max_tokens=effective_max_tokens,
-                    extra_metadata={
-                        **(getattr(exc, "generation_metrics", {}) or {}),
-                        "upstream_service": "llama",
-                        "error_type": exc.__class__.__name__,
-                    },
-                )
-                logger.warning(
-                    "generate upstream timeout correlation_id=%s game_type=%s max_tokens=%s",
-                    correlation_id,
-                    req.game_type,
-                    req.max_tokens,
-                    exc_info=True,
-                )
-                await _record_observability_event(
-                    request,
-                    prompt=req.resolved_topic,
-                    response="",
-                    latency_ms=float(failure_metadata.get("total_latency_ms", 0.0)),
-                    max_tokens=effective_max_tokens,
-                    json_mode=True,
-                    success=False,
-                    game_type=req.game_type,
-                    error=str(exc),
-                    metadata=failure_metadata,
-                )
-                raise HTTPException(
-                    status_code=504,
-                    detail="Upstream LLM request timed out.",
-                ) from exc
-            except httpx.RequestError as exc:
-                failure_metadata = _generation_failure_metadata(
-                    req,
-                    correlation_id=correlation_id,
-                    distribution_version=distribution_version,
-                    effective_max_tokens=effective_max_tokens,
-                    extra_metadata={
-                        **(getattr(exc, "generation_metrics", {}) or {}),
-                        "upstream_service": "llama",
-                        "error_type": exc.__class__.__name__,
-                    },
-                )
-                logger.warning(
-                    "generate upstream request error correlation_id=%s game_type=%s max_tokens=%s",
-                    correlation_id,
-                    req.game_type,
-                    req.max_tokens,
-                    exc_info=True,
-                )
-                await _record_observability_event(
-                    request,
-                    prompt=req.resolved_topic,
-                    response="",
-                    latency_ms=float(failure_metadata.get("total_latency_ms", 0.0)),
-                    max_tokens=effective_max_tokens,
-                    json_mode=True,
-                    success=False,
-                    game_type=req.game_type,
-                    error=str(exc),
-                    metadata=failure_metadata,
-                )
-                raise HTTPException(
-                    status_code=503,
-                    detail="Upstream LLM request failed.",
-                ) from exc
             except Exception as exc:
-                failure_metadata = _generation_failure_metadata(
-                    req,
+                await _handle_generation_failure(
+                    exc,
+                    request=request,
+                    req=req,
                     correlation_id=correlation_id,
                     distribution_version=distribution_version,
                     effective_max_tokens=effective_max_tokens,
-                    extra_metadata=getattr(exc, "generation_metrics", None),
+                    elapsed_ms=(time.perf_counter() - started) * 1000,
+                    log_label="generate",
                 )
-                logger.exception(
-                    "generate request failed correlation_id=%s game_type=%s max_tokens=%s",
-                    correlation_id,
-                    req.game_type,
-                    req.max_tokens,
-                )
-                await _record_observability_event(
-                    request,
-                    prompt=req.resolved_topic,
-                    response="",
-                    latency_ms=float(failure_metadata.get("total_latency_ms", 0.0)),
-                    max_tokens=effective_max_tokens,
-                    json_mode=True,
-                    success=False,
-                    game_type=req.game_type,
-                    error=str(exc),
-                    metadata=failure_metadata,
-                )
-                raise
         finally:
             if capacity_limiter is not None:
                 capacity_limiter.release()
@@ -1677,7 +1341,6 @@ def create_app(
     ) -> GenerateSDKResponse:
         """Execute generation request and return SDK-shaped response."""
         _enforce_generation_rate_limit(request)
-
         await _enforce_prompt_safety(
             request,
             req,
@@ -1685,23 +1348,18 @@ def create_app(
             distribution_version=_get_distribution_version(request),
         )
 
-        gen = _get_generator(request)
-        if gen is None:
+        if _get_generator(request) is None:
             raise HTTPException(status_code=503, detail="Generator not initialised.")
-
         optimizer = _get_optimizer(request)
         if optimizer is None:
             raise HTTPException(status_code=503, detail="Generator not initialised.")
 
         capacity_limiter = await _acquire_generation_capacity(request)
-
         try:
             if req.force_refresh:
                 req = req.model_copy(update={"use_cache": False})
-
             effective_max_tokens = _resolve_effective_max_tokens(req)
             effective_req = req.model_copy(update={"max_tokens": effective_max_tokens})
-
             correlation_id = _get_correlation_id(request)
             distribution_version = _get_distribution_version(request)
             logger.info(
@@ -1709,6 +1367,7 @@ def create_app(
                 correlation_id,
                 distribution_version,
             )
+            pv = get_prompt_version(req.game_type)
             started = time.perf_counter()
             try:
                 result = await optimizer.generate(
@@ -1716,6 +1375,7 @@ def create_app(
                 )
                 result.metrics["requested_max_tokens"] = req.max_tokens
                 result.metrics["effective_max_tokens"] = effective_max_tokens
+                result.metrics["prompt_version"] = pv
                 sdk_payload = result.sdk_payload
                 await _record_observability_event(
                     request,
@@ -1727,6 +1387,7 @@ def create_app(
                     success=True,
                     game_type=req.game_type,
                     metadata=result.metrics,
+                    prompt_version=pv,
                 )
                 sdk_metadata = sdk_payload.get("metadata", {})
                 return GenerateSDKResponse(
@@ -1739,123 +1400,17 @@ def create_app(
                     },
                     metrics=result.metrics,
                 )
-            except ValueError as exc:
-                elapsed_ms = (time.perf_counter() - started) * 1000
-                await _record_observability_event(
-                    request,
-                    prompt=req.resolved_topic,
-                    response="",
-                    latency_ms=elapsed_ms,
-                    max_tokens=req.max_tokens,
-                    json_mode=True,
-                    success=False,
-                    game_type=req.game_type,
-                    error=str(exc),
-                    metadata=_generation_failure_metadata(
-                        req,
-                        correlation_id=correlation_id,
-                        distribution_version=distribution_version,
-                        effective_max_tokens=effective_max_tokens,
-                    ),
-                )
-                raise HTTPException(status_code=422, detail=str(exc)) from exc
-            except httpx.TimeoutException as exc:
-                failure_metadata = _generation_failure_metadata(
-                    req,
-                    correlation_id=correlation_id,
-                    distribution_version=distribution_version,
-                    effective_max_tokens=effective_max_tokens,
-                    extra_metadata={
-                        **(getattr(exc, "generation_metrics", {}) or {}),
-                        "upstream_service": "llama",
-                        "error_type": exc.__class__.__name__,
-                    },
-                )
-                logger.warning(
-                    "generate_sdk upstream timeout correlation_id=%s game_type=%s max_tokens=%s",
-                    correlation_id,
-                    req.game_type,
-                    req.max_tokens,
-                    exc_info=True,
-                )
-                await _record_observability_event(
-                    request,
-                    prompt=req.resolved_topic,
-                    response="",
-                    latency_ms=float(failure_metadata.get("total_latency_ms", 0.0)),
-                    max_tokens=effective_max_tokens,
-                    json_mode=True,
-                    success=False,
-                    game_type=req.game_type,
-                    error=str(exc),
-                    metadata=failure_metadata,
-                )
-                raise HTTPException(
-                    status_code=504,
-                    detail="Upstream LLM request timed out.",
-                ) from exc
-            except httpx.RequestError as exc:
-                failure_metadata = _generation_failure_metadata(
-                    req,
-                    correlation_id=correlation_id,
-                    distribution_version=distribution_version,
-                    effective_max_tokens=effective_max_tokens,
-                    extra_metadata={
-                        **(getattr(exc, "generation_metrics", {}) or {}),
-                        "upstream_service": "llama",
-                        "error_type": exc.__class__.__name__,
-                    },
-                )
-                logger.warning(
-                    "generate_sdk upstream request error correlation_id=%s game_type=%s max_tokens=%s",
-                    correlation_id,
-                    req.game_type,
-                    req.max_tokens,
-                    exc_info=True,
-                )
-                await _record_observability_event(
-                    request,
-                    prompt=req.resolved_topic,
-                    response="",
-                    latency_ms=float(failure_metadata.get("total_latency_ms", 0.0)),
-                    max_tokens=effective_max_tokens,
-                    json_mode=True,
-                    success=False,
-                    game_type=req.game_type,
-                    error=str(exc),
-                    metadata=failure_metadata,
-                )
-                raise HTTPException(
-                    status_code=503,
-                    detail="Upstream LLM request failed.",
-                ) from exc
             except Exception as exc:
-                failure_metadata = _generation_failure_metadata(
-                    req,
+                await _handle_generation_failure(
+                    exc,
+                    request=request,
+                    req=req,
                     correlation_id=correlation_id,
                     distribution_version=distribution_version,
                     effective_max_tokens=effective_max_tokens,
-                    extra_metadata=getattr(exc, "generation_metrics", None),
+                    elapsed_ms=(time.perf_counter() - started) * 1000,
+                    log_label="generate_sdk",
                 )
-                logger.exception(
-                    "generate_sdk request failed correlation_id=%s game_type=%s max_tokens=%s",
-                    correlation_id,
-                    req.game_type,
-                    req.max_tokens,
-                )
-                await _record_observability_event(
-                    request,
-                    prompt=req.resolved_topic,
-                    response="",
-                    latency_ms=float(failure_metadata.get("total_latency_ms", 0.0)),
-                    max_tokens=effective_max_tokens,
-                    json_mode=True,
-                    success=False,
-                    game_type=req.game_type,
-                    error=str(exc),
-                    metadata=failure_metadata,
-                )
-                raise
         finally:
             if capacity_limiter is not None:
                 capacity_limiter.release()
@@ -1883,6 +1438,11 @@ def create_app(
             )
             for d in req.documents
         ]
+        _normalize_rag_document_metadata(
+            docs,
+            default_source=ingest_source,
+            ingest_model=ingest_model,
+        )
         pipeline.ingest(docs)
         _invalidate_rag_stats_cache(request.app)
 

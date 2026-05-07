@@ -457,6 +457,21 @@ class AIEngineSettings(BaseSettings):
         alias="AI_ENGINE_RELEASE_VERSION",
         validation_alias="AI_ENGINE_RELEASE_VERSION",
     )
+    cors_allowed_origins: list[str] = Field(
+        default=["*"],
+        alias="AI_ENGINE_CORS_ALLOWED_ORIGINS",
+        validation_alias="AI_ENGINE_CORS_ALLOWED_ORIGINS",
+    )
+    trust_proxy: bool = Field(
+        default=False,
+        alias="AI_ENGINE_TRUST_PROXY",
+        validation_alias="AI_ENGINE_TRUST_PROXY",
+    )
+    sentry_dsn: str | None = Field(
+        default=None,
+        alias="AI_ENGINE_SENTRY_DSN",
+        validation_alias="AI_ENGINE_SENTRY_DSN",
+    )
 
     @property
     def distribution_version_tag(self) -> str:

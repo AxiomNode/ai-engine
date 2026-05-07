@@ -311,17 +311,17 @@ def test_generation_request_helpers_normalize_metadata_and_headers() -> None:
 def test_rate_limit_and_request_identity_helpers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from ai_engine.api.app import (
+    from ai_engine.api.app import _get_correlation_id
+    from ai_engine.api.limiters import (
         _FixedWindowRateLimiter,
         _GenerationCapacityLimiter,
-        _get_correlation_id,
         _resolve_generation_caller_tier,
         _resolve_rate_limit_identity,
     )
 
     limiter = _FixedWindowRateLimiter(max_requests=2, window_seconds=10)
     time_values = iter([0.0, 1.0, 2.0, 20.0])
-    monkeypatch.setattr("ai_engine.api.app.time.time", lambda: next(time_values))
+    monkeypatch.setattr("ai_engine.api.limiters.time.time", lambda: next(time_values))
 
     assert limiter.allow("client-1") is True
     assert limiter.allow("client-1") is True
@@ -440,7 +440,41 @@ def test_prime_runtime_content_ingests_examples_and_runs_optional_warmup(
 
     rag_pipeline.ingest.assert_called_once_with(docs)
     optimizer.on_ingest.assert_called_once_with(docs)
+    optimizer.rebuild_kbd_from_rag_store.assert_called_once_with()
+    assert docs[0].metadata == {
+        "source": "ai-engine-curated-corpus",
+        "language": "en",
+        "ingest_model": "bootstrap",
+    }
     assert warmup_calls == [optimizer]
+
+
+def test_normalize_rag_document_metadata_replaces_unknown_source() -> None:
+    import ai_engine.api.app as app_module
+
+    docs = [
+        types.SimpleNamespace(
+            content="water",
+            metadata={"source": "unknown", "title": "Water"},
+        ),
+        types.SimpleNamespace(content="science", metadata={"source": "trusted"}),
+    ]
+
+    app_module._normalize_rag_document_metadata(
+        docs,
+        default_source="quiz-ingest",
+        ingest_model="quiz",
+    )
+
+    assert docs[0].metadata == {
+        "source": "quiz-ingest",
+        "title": "Water",
+        "language": "en",
+        "game_type": "quiz",
+        "ingest_model": "quiz",
+    }
+    assert docs[1].metadata["source"] == "trusted"
+    assert docs[1].metadata["game_type"] == "quiz"
 
 
 def test_prime_runtime_content_stops_after_bootstrap_failure(
@@ -509,7 +543,7 @@ def test_install_api_key_openapi_marks_only_protected_routes() -> None:
 def test_publish_and_record_observability_event_bridge(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import ai_engine.api.app as app_module
+    import ai_engine.api.events as events_module
 
     posted: list[dict[str, object]] = []
 
@@ -528,7 +562,7 @@ def test_publish_and_record_observability_event_bridge(
         ) -> None:
             posted.append({"url": url, "json": json, "headers": headers})
 
-    monkeypatch.setattr(app_module.httpx, "AsyncClient", _FakeAsyncClient)
+    monkeypatch.setattr(events_module.httpx, "AsyncClient", _FakeAsyncClient)
 
     request = MagicMock()
     request.app.state = types.SimpleNamespace(
@@ -538,7 +572,7 @@ def test_publish_and_record_observability_event_bridge(
     )
 
     asyncio.run(
-        app_module._record_observability_event(
+        events_module._record_observability_event(
             request,
             prompt="prompt",
             response="response",
@@ -568,6 +602,9 @@ def test_publish_and_record_observability_event_bridge(
                 "game_type": "quiz",
                 "error": "boom",
                 "metadata": {"correlation_id": "corr-1"},
+                "prompt_version": None,
+                "input_tokens": None,
+                "output_tokens": None,
             },
             "headers": {"X-API-Key": "stats-secret"},
         }
@@ -575,13 +612,13 @@ def test_publish_and_record_observability_event_bridge(
 
 
 def test_publish_event_to_stats_noops_without_url() -> None:
-    import ai_engine.api.app as app_module
+    import ai_engine.api.events as events_module
 
     request = MagicMock()
     request.app.state = types.SimpleNamespace(stats_url=" ", stats_api_key=None)
 
     asyncio.run(
-        app_module._publish_event_to_stats(request, {"event_type": "generation"})
+        events_module._publish_event_to_stats(request, {"event_type": "generation"})
     )
 
 

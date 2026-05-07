@@ -15,6 +15,7 @@ from ai_engine.api.schemas import GenerateRequest
 from ai_engine.games.catalog import get_game_type_profile
 from ai_engine.kbd.entry import KnowledgeEntry
 from ai_engine.kbd.knowledge_base import KnowledgeBase
+from ai_engine.rag.document import Document
 from ai_engine.sdk.models import parse_generate_response
 
 _TinyDBKnowledgeBase: Any
@@ -195,6 +196,54 @@ class GenerationOptimizationService:
                         metadata={"kind": "ingested_document", **dict(metadata)},
                     )
                 )
+
+    def rebuild_kbd_from_rag_store(self) -> int:
+        """Rebuild the in-memory KBD index from the current RAG vector store."""
+        documents = self._documents_from_rag_store()
+        with self._persistent_lock:
+            self._kbd = KnowledgeBase()
+        self.on_ingest(documents)
+        return len(documents)
+
+    def _documents_from_rag_store(self) -> list[Document]:
+        store = getattr(self._rag_pipeline, "vector_store", None)
+        if store is None:
+            return []
+
+        documents = getattr(store, "_documents", None)
+        if isinstance(documents, list):
+            return [doc for doc in documents if isinstance(doc, Document)]
+
+        collection = getattr(store, "_collection", None)
+        if collection is None:
+            return []
+
+        try:
+            result = collection.get(include=["documents", "metadatas"])
+        except Exception:
+            return []
+
+        raw_contents = result.get("documents") or []
+        raw_metadatas = result.get("metadatas") or []
+        rebuilt: list[Document] = []
+        for index, content in enumerate(raw_contents):
+            raw_meta = raw_metadatas[index] if index < len(raw_metadatas) else {}
+            safe_meta = raw_meta if isinstance(raw_meta, dict) else {}
+            doc_content = str(safe_meta.get("_content", content))
+            doc_id_value = safe_meta.get("_doc_id")
+            metadata = {
+                key: value
+                for key, value in safe_meta.items()
+                if key not in ("_content", "_doc_id")
+            }
+            rebuilt.append(
+                Document(
+                    content=doc_content,
+                    metadata=metadata,
+                    doc_id=str(doc_id_value) if doc_id_value is not None else None,
+                )
+            )
+        return rebuilt
 
     async def generate(
         self,

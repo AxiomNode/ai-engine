@@ -81,6 +81,8 @@ def compute_rag_stats(rag_pipeline: Any) -> dict[str, Any]:
     retriever = rag_pipeline.retriever
 
     documents, embeddings_list = _store_snapshot(store)
+    vector_store_type = type(store).__name__
+    vector_store_collection = getattr(store, "collection_name", None)
 
     total_chunks = len(documents)
     embedding_dim = len(embeddings_list[0]) if embeddings_list else 0
@@ -158,6 +160,12 @@ def compute_rag_stats(rag_pipeline: Any) -> dict[str, Any]:
         "avg_chunk_chars": avg_chunk_chars,
         "coverage_level": coverage_level,
         "coverage_message": coverage_message,
+        "vector_store_type": vector_store_type,
+        "vector_store_collection": (
+            vector_store_collection
+            if isinstance(vector_store_collection, str)
+            else None
+        ),
         "retriever_config": retriever_config,
         "sources": sources_breakdown,
     }

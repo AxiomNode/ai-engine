@@ -48,6 +48,9 @@ class GenerationEvent:
     game_type: str | None = None
     error: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    prompt_version: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize the event to a plain dictionary."""
@@ -117,25 +120,11 @@ class StatsCollector:
         game_type: str | None = None,
         error: str | None = None,
         metadata: dict[str, Any] | None = None,
+        prompt_version: str | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
     ) -> GenerationEvent:
-        """Build a :class:`GenerationEvent` from raw values and record it.
-
-        This is a shortcut for creating the event manually and calling
-        :meth:`record`.
-
-        Args:
-            prompt: The prompt string sent to the LLM.
-            response: The text returned by the LLM.
-            latency_ms: Wall-clock latency in milliseconds.
-            max_tokens: Token budget for this call.
-            json_mode: Whether JSON grammar was active.
-            success: Whether the call succeeded.
-            game_type: Optional game type identifier.
-            error: Optional error message.
-
-        Returns:
-            The newly created :class:`GenerationEvent`.
-        """
+        """Build a :class:`GenerationEvent` from raw values and record it."""
         event = GenerationEvent(
             timestamp=time.time(),
             prompt_chars=len(prompt),
@@ -147,6 +136,9 @@ class StatsCollector:
             game_type=game_type,
             error=error,
             metadata=dict(metadata or {}),
+            prompt_version=prompt_version,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
         )
         self.record(event)
         return event
