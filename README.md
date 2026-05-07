@@ -1,6 +1,6 @@
 # ai-engine
 
-Last updated: 2026-05-03.
+Last updated: 2026-05-08.
 
 [![codecov](https://codecov.io/gh/AxiomNode/ai-engine/branch/main/graph/badge.svg)](https://codecov.io/gh/AxiomNode/ai-engine)
 
@@ -11,6 +11,8 @@ AI Engine — RAG, local LLM inference and structured educational game generatio
 `ai-engine` provides the shared AI runtime capability for AxiomNode: retrieval-augmented generation, structured educational game generation, local or split llama execution, and observability of AI activity.
 
 It owns AI-specific generation, ingest, cache-aware behavior, and model-target selection. It does not own the domain validity or persistence rules enforced later by quiz and word-pass services.
+
+Current platform status: `ai-engine-api` and `ai-engine-stats` can be deployed in-cluster for staging while the llama runtime remains external or workstation-hosted. Runtime target state is visible through Backoffice diagnostics and may differ from static environment defaults.
 
 ## Runtime role
 
