@@ -85,8 +85,23 @@ def write_outputs(output_dir: Path, result: dict[str, Any]) -> None:
     print(f"Wrote {markdown_path}")
 
 
+def extract_task_snapshot(payload: Any) -> dict[str, Any]:
+    if isinstance(payload, dict):
+        nested_task = payload.get("task")
+        if isinstance(nested_task, dict):
+            return nested_task
+        return payload
+    return {}
+
+
+def extract_task_id(payload: Any) -> str | None:
+    snapshot = extract_task_snapshot(payload)
+    task_id = snapshot.get("taskId")
+    return task_id if isinstance(task_id, str) and task_id else None
+
+
 def render_markdown(result: dict[str, Any]) -> str:
-    final_snapshot = result.get("finalSnapshot") or {}
+    final_snapshot = extract_task_snapshot(result.get("finalSnapshot"))
     rows = [
         "# Runtime generation evaluation",
         "",
@@ -143,7 +158,7 @@ def main() -> int:
         args.token,
         request_body,
     )
-    task_id = start_response.get("taskId") if isinstance(start_response, dict) else None
+    task_id = extract_task_id(start_response)
     polls: list[dict[str, Any]] = []
 
     if task_id:
@@ -155,7 +170,7 @@ def main() -> int:
                 args.token,
             )
             polls.append({"statusCode": poll_status, "body": poll_response})
-            if isinstance(poll_response, dict) and poll_response.get("status") in {"completed", "failed"}:
+            if extract_task_snapshot(poll_response).get("status") in {"completed", "failed"}:
                 break
 
     result = {
