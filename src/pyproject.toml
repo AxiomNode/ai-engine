@@ -69,6 +69,7 @@ testpaths = ["tests"]
 cache_dir = ".cache/pytest"
 markers = [
     "eval: LLMOps eval harness (ADR 0009); excluded from default coverage gate",
+    "integration: tests that require real external services, models, or network/cache state",
 ]
 
 [tool.ruff]

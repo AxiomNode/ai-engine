@@ -1,5 +1,6 @@
 """Tests for the SentenceTransformers embedder integration."""
 
+import os
 import sys
 from types import ModuleType
 from unittest.mock import patch
@@ -102,11 +103,18 @@ class TestSentenceTransformersEmbedder:
 
 
 # ---------------------------------------------------------------------------
-# Integration tests (skipped when sentence_transformers is not installed)
+# Optional real-model integration tests
 # ---------------------------------------------------------------------------
 
 
+def _require_real_model_integration() -> None:
+    if os.getenv("AI_ENGINE_RUN_REAL_SENTENCE_TRANSFORMER_TESTS") != "1":
+        pytest.skip("real sentence-transformers model integration is opt-in")
+
+
+@pytest.mark.integration
 def test_sentence_transformers_embedder_available():
+    _require_real_model_integration()
     pytest.importorskip("sentence_transformers")
     from ai_engine.rag.embedders.sentence_transformers import (
         SentenceTransformersEmbedder,
@@ -118,7 +126,9 @@ def test_sentence_transformers_embedder_available():
     assert len(vec) > 0
 
 
+@pytest.mark.integration
 def test_embed_documents_batch():
+    _require_real_model_integration()
     pytest.importorskip("sentence_transformers")
     from ai_engine.rag.embedders.sentence_transformers import (
         SentenceTransformersEmbedder,
