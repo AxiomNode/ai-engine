@@ -163,3 +163,38 @@ def test_add_api_key_middleware_registers_when_any_key_exists(
             },
         )
     ]
+
+
+def test_dispatch_rejects_non_ascii_key_with_403_not_error() -> None:
+    middleware = APIKeyMiddleware(lambda scope, receive, send: None, api_key="secret")
+
+    async def call_next(_request):
+        return JSONResponse({"ok": True})
+
+    request = _request("/generate", headers=[(b"x-api-key", "clavé-ñ".encode())])
+    response = _run(middleware.dispatch(request, call_next))
+
+    assert response.status_code == 403
+
+
+def test_add_api_key_middleware_warns_when_no_key_configured(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    class _App:
+        def add_middleware(self, middleware_class, **kwargs):  # pragma: no cover
+            raise AssertionError("middleware must not be added")
+
+    monkeypatch.setattr(
+        "ai_engine.api.middleware.get_settings",
+        lambda: SimpleNamespace(
+            api_key=None,
+            games_api_key=None,
+            bridge_api_key=None,
+            stats_api_key=None,
+        ),
+    )
+
+    with caplog.at_level("WARNING", logger="ai_engine.api.middleware"):
+        add_api_key_middleware(_App(), service="generation")
+
+    assert "unauthenticated" in caplog.text

@@ -116,7 +116,7 @@ For the tracked STG workstation profile, this means:
 The recommended STG target host is the VPS relay host IP, not the public
 gateway domain, because the gateway domain may sit behind an HTTP proxy that
 does not pass arbitrary TCP ports. In the tracked profile this host is
-`195.35.48.40`.
+`203.0.113.10` (documentation address; use your VPS address).
 
 If you deliberately choose direct Windows exposure instead of the VPS relay,
 run the script from an elevated PowerShell session so those host-level rules
@@ -138,8 +138,8 @@ docker stats
 For the VPS relay mode, validate from the VPS relay host:
 
 ```bash
-curl -sS http://195.35.48.40:27000/health
-curl -sS http://195.35.48.40:27001/health
+curl -sS http://<vps-public-ip>:27000/health
+curl -sS http://<vps-public-ip>:27001/health
 ```
 
 During real generation runs, also watch:
