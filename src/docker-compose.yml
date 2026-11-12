@@ -18,12 +18,19 @@
 #   docker compose --profile cpu up --build
 # ──────────────────────────────────────────────────────────────────────────────
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
 
   # ---------------------------------------------------------------------------
   # Redis cache backend for ai-api generation cache persistence.
   # ---------------------------------------------------------------------------
   ai-cache:
+    logging: *default-logging
     image: redis:7-alpine
     container_name: "ai_engine_cache_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
     command: ["redis-server", "--appendonly", "yes", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
@@ -50,6 +57,7 @@ services:
   #   --mlock            – always on: pins model weights in RAM (no page faults)
   # ---------------------------------------------------------------------------
   llama-server-cpu:
+    logging: *default-logging
     profiles: ["cpu"]
     image: ghcr.io/ggml-org/llama.cpp:server
     container_name: "ai_engine_llama_cpu_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
@@ -96,6 +104,7 @@ services:
   # llama.cpp GPU profile (vps-gpu).
   # ---------------------------------------------------------------------------
   llama-server-gpu:
+    logging: *default-logging
     profiles: ["gpu"]
     image: "${LLAMA_GPU_IMAGE:-ghcr.io/ggerganov/llama.cpp:server-cuda-b4719}"
     container_name: "ai_engine_llama_gpu_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
@@ -145,6 +154,7 @@ services:
   #          GET /cache/stats  POST /cache/reset  GET /metrics
   # ---------------------------------------------------------------------------
   ai-stats:
+    logging: *default-logging
     image: "ai_engine_stats_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
     container_name: "ai_engine_stats_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
     build:
@@ -202,6 +212,7 @@ services:
   #          GET /internal/cache/stats  POST /internal/cache/reset
   # ---------------------------------------------------------------------------
   ai-api:
+    logging: *default-logging
     image: "ai_engine_api_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
     container_name: "ai_engine_api_${AI_ENGINE_DISTRIBUTION:-dev}_${AI_ENGINE_RELEASE_VERSION:-v1}"
     build:
