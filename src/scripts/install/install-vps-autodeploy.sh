@@ -3,18 +3,34 @@ set -euo pipefail
 
 # Install a systemd timer that keeps ai-engine updated on a single VPS.
 # Usage from repo root:
-#   ./src/scripts/install/install-vps-autodeploy.sh <stg|pro> <vps-cpu|vps-gpu> [branch] [interval]
+#   ./src/scripts/install/install-vps-autodeploy.sh <stg|pro> <vps-cpu|vps-gpu> [branch] [interval] [mode]
+#
+# mode:
+#   image  (default) Pull the pinned GHCR images listed in src/.env.images and run
+#          `docker compose pull` + `up -d --no-build`. No git pull, no build on the host.
+#          The checkout is only updated by hand (git pull) when compose/scripts change.
+#   build  Legacy path: git pull --ff-only the branch and `docker compose up -d --build`
+#          on the host (competes with llama.cpp for CPU/RAM). Kept as a fallback.
+#
+# Running this script only installs and enables the timer when you run it by hand;
+# merging changes to this file never touches a host.
 
-if [[ $# -lt 2 || $# -gt 4 ]]; then
-  echo "Usage: $0 <stg|pro> <vps-cpu|vps-gpu> [branch] [interval]"
-  echo "Example: $0 pro vps-cpu main 5min"
+if [[ $# -lt 2 || $# -gt 5 ]]; then
+  echo "Usage: $0 <stg|pro> <vps-cpu|vps-gpu> [branch] [interval] [image|build]"
+  echo "Example: $0 pro vps-cpu main 15min image"
   exit 1
 fi
 
 STAGE="$1"
 ENVIRONMENT="$2"
 BRANCH="${3:-main}"
-INTERVAL="${4:-5min}"
+MODE="${5:-image}"
+
+case "${MODE}" in
+  image) INTERVAL="${4:-15min}" ;;
+  build) INTERVAL="${4:-5min}" ;;
+  *) echo "Invalid mode: ${MODE} (expected image or build)"; exit 1 ;;
+esac
 
 case "${STAGE}" in
   stg|pro) ;;
@@ -44,7 +60,8 @@ LOCK_PATH="/tmp/${SERVICE_NAME}.lock"
 echo "Installing ai-engine VPS autodeploy:"
 echo "  repo: ${REPO_ROOT}"
 echo "  stage/environment: ${STAGE}/${ENVIRONMENT}"
-echo "  branch: ${BRANCH}"
+echo "  mode: ${MODE}"
+echo "  branch: ${BRANCH} (only used in build mode)"
 echo "  interval: ${INTERVAL}"
 echo "  service user: ${RUN_USER}:${RUN_GROUP}"
 
@@ -60,10 +77,12 @@ flock -n 9 || {
 
 cd "${REPO_ROOT}"
 
-echo "Fetching ${BRANCH}..."
-git fetch origin "${BRANCH}"
-git checkout "${BRANCH}"
-git pull --ff-only origin "${BRANCH}"
+if [[ "${MODE}" == "build" ]]; then
+  echo "Fetching ${BRANCH}..."
+  git fetch origin "${BRANCH}"
+  git checkout "${BRANCH}"
+  git pull --ff-only origin "${BRANCH}"
+fi
 
 if [[ -d "../secrets" && -f "../secrets/scripts/prepare-runtime-secrets.mjs" ]]; then
   echo "Preparing runtime secrets for ${STAGE}/ai-engine..."
@@ -72,7 +91,7 @@ else
   echo "Secrets repo not found next to ai-engine; keeping existing src/.env.secrets."
 fi
 
-./src/scripts/install/deploy.sh "${STAGE}" "${ENVIRONMENT}"
+AI_ENGINE_DEPLOY_MODE="${MODE}" ./src/scripts/install/deploy.sh "${STAGE}" "${ENVIRONMENT}"
 EOF
 
 sudo chmod 0755 "${RUNNER_PATH}"

@@ -169,12 +169,17 @@ Use the unified installers:
 ./src/scripts/install/deploy.sh pro vps-cpu
 ```
 
-For a standalone VPS that should update itself periodically from a Git branch,
-install the systemd timer after the first manual deploy:
+For a standalone VPS that should keep itself up to date, install the systemd timer
+after the first manual deploy. The recommended `image` mode pulls the pinned GHCR
+images that CI already builds (no build on the host that runs llama.cpp):
 
 ```bash
-./src/scripts/install/install-vps-autodeploy.sh pro vps-cpu main 5min
+./src/scripts/install/install-vps-autodeploy.sh pro vps-cpu main 15min image
 ```
+
+The previous behavior (`git pull` + `docker compose up -d --build` on the host) is
+still available as `... main 5min build`. Pins, prerequisites and the fallback are
+described in [vps-autodeploy.md](vps-autodeploy.md).
 
 That autodeploy path is for direct Docker Compose VPS deployments. Kubernetes
 rollouts remain owned by `platform-infra`.
@@ -525,7 +530,7 @@ Examples:
 | `API_MEMORY_LIMIT` | `8g` | Hard memory limit for `ai-api`. |
 | `API_MEMORY_RESERVATION` | `4g` | Soft memory reservation for `ai-api`. |
 | `API_SHM_SIZE` | `1g` | Shared memory available to `ai-api`. |
-| `API_WORKERS` | `2` | Number of Uvicorn workers used by `ai-api`. |
+| `API_WORKERS` | `1` | Number of Uvicorn workers used by `ai-api`. Keep `1` unless measured otherwise: each worker loads its own embedding model (estimate: 0.5-1 GB RAM each) and re-embeds the curated corpus at boot, and the rate limiter and generation capacity gate are per process, so N workers multiply those limits by N. |
 | `STATS_WORKERS` | `1` | Number of Uvicorn workers used by `ai-stats`. |
 | `AI_ENGINE_STATS_URL` | `http://ai-stats:8000` | Base URL used by `ai-api` to push observability events into `ai-stats` (`POST /events`). |
 | `AI_ENGINE_GAMES_API_KEY` | *(unset)* | API key required on generation routes (`/generate*`) for game microservices. |
