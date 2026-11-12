@@ -262,7 +262,7 @@ services:
       AI_ENGINE_STATS_API_KEY: "${AI_ENGINE_STATS_API_KEY:-}"
       PYTHONUNBUFFERED: "1"
       PORT: "8001"
-      UVICORN_WORKERS: "${API_WORKERS:-2}"
+      UVICORN_WORKERS: "${API_WORKERS:-1}"
     volumes:
       - ./models:/app/models:ro
       - ./data:/app/data
@@ -277,7 +277,7 @@ services:
       - "--port"
       - "8001"
       - "--workers"
-      - "${API_WORKERS:-2}"
+      - "${API_WORKERS:-1}"
     healthcheck:
       test: ["CMD", "python", "-c",
              "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]

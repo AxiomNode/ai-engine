@@ -93,6 +93,8 @@ COPY --from=builder-api /install /usr/local
 
 # Default command for generation API.
 # Use a shell form so Kubernetes/runtime env vars can control workers/port.
+# UVICORN_WORKERS defaults to 1 on purpose: each worker loads its own embedding
+# model and re-embeds the corpus at boot, and rate/capacity limits are per process.
 CMD uvicorn ai_engine.api.app:app --host 0.0.0.0 --port ${PORT:-8001} --workers ${UVICORN_WORKERS:-1}
 
 

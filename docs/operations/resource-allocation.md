@@ -26,7 +26,7 @@ API gateway, 2 BFF proxies, and a static frontend.
 | Service | CPU | RAM limit | RAM reserv. | Justification |
 |---------|-----|-----------|-------------|---------------|
 | **llama-server** | 4.0 | 10 GB | 6 GB | Heaviest workload: matrix multiplications for token generation. 4 threads = half the cores, leaving room for ai-api embedding work. 10 GB covers Qwen2.5-3B Q4_K_M (~2 GB weights) + KV cache (2 slots × 2048 ctx) + OS buffers. |
-| **ai-api** | 1.5 | 4 GB | 2 GB | Runs FastAPI + sentence-transformers (`paraphrase-multilingual-MiniLM-L12-v2`, ~120 MB). 2 Uvicorn workers handle concurrent requests while llama-server does the heavy lifting. 4 GB headroom for RAG vector store in memory. |
+| **ai-api** | 1.5 | 4 GB | 2 GB | Runs FastAPI + sentence-transformers (`paraphrase-multilingual-MiniLM-L12-v2`, ~120 MB). A single Uvicorn worker (`API_WORKERS=1`, the default) is enough because the API is I/O bound on llama-server; a second worker would load another copy of the embedding model (estimate: 0.5-1 GB RAM) and double the per-process rate limit and capacity gate. 4 GB headroom for RAG vector store in memory. |
 | **ai-stats** | 0.5 | 512 MB | 256 MB | Lightweight FastAPI collecting observability events. Minimal CPU — only JSON serialization and Redis writes. |
 | **ai-cache** (Redis) | 0.25 | 256 MB | 128 MB | In-memory cache with LRU eviction at 128 MB. Stores serialized game JSON (~2-5 KB each). 128 MB ≈ 25,000+ cached games — more than enough. |
 
@@ -107,7 +107,7 @@ When the VPS gets more resources, adjust these knobs in order:
 | 3 | `LLAMA_BATCH` 1024 → 2048 | More RAM headroom |
 | 4 | `LLAMA_MODEL_FILE` → 7B | 48+ GB RAM, need better quality |
 | 5 | `LLAMA_CTX_SIZE` 2048 → 4096 | Longer prompts needed |
-| 6 | `API_WORKERS` 2 → 4 | API becomes bottleneck |
+| 6 | `API_WORKERS` 1 → 2 | API CPU is measurably saturated (see the per-process caveats in [Uvicorn workers](../../src/distributions/README.md#uvicorn-workers)) |
 
 ### Switching to 7B model
 

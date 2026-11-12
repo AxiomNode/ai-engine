@@ -99,9 +99,30 @@ Primary knobs adjusted per env file:
 
 - model profile (`LLAMA_MODEL_FILE`, `LLAMA_CTX_SIZE`, `LLAMA_BATCH`)
 - container capacity (`LLAMA_*`, `API_*`, `STATS_*` CPU/RAM)
-- processing headroom (`API_WORKERS`)
+- processing headroom (`API_WORKERS`, default `1`: see [Uvicorn workers](#uvicorn-workers))
 - generation budget (`AI_ENGINE_LLAMA_TIMEOUT_SECONDS`)
 - persistent RAG backend (`AI_ENGINE_VECTOR_STORE_BACKEND`, `AI_ENGINE_VECTOR_STORE_PATH`)
+
+## Uvicorn workers
+
+`API_WORKERS` defaults to `1` in compose, in the image (`UVICORN_WORKERS`) and in the
+VPS/stg/dev distribution files. It stays configurable; raise it only after measuring.
+
+Why one worker:
+
+- Every `ai-api` worker is a separate process that loads the sentence-transformers
+  model and re-embeds the curated corpus at boot. Dropping from 2 workers to 1 saves
+  roughly 0.5-1 GB of RAM (estimate, not measured here) and one corpus embedding pass.
+- The in-process rate limiter and the generation capacity gate
+  (`AI_ENGINE_LLAMA_MAX_CONCURRENT_REQUESTS`, `AI_ENGINE_GENERATION_MAX_IN_FLIGHT`,
+  `AI_ENGINE_GENERATION_MAX_QUEUE_SIZE`, `AI_ENGINE_RATE_LIMIT_REQUESTS`) are **per process**.
+  With N workers the effective limits are N times the configured values. Account for
+  that if you set `API_WORKERS` above 1.
+- The API is I/O bound on llama.cpp (async HTTP) and CPU-bound embeddings already run
+  in a thread, so a single worker rarely limits throughput.
+
+The `pro/vps-gpu` and `pro/windows` files keep their explicit values (3); review them
+against the caveats above before the next production change.
 
 ## Docker Image and Container Naming
 
