@@ -1049,6 +1049,7 @@ def create_app(
     app.state.bootstrap_task = None
     app.state.warmup_task = None
     app.state.stats_url = settings.stats_url
+    app.state.stats_push_timeout_seconds = settings.stats_push_timeout_seconds
     app.state.llama_env_url = settings.llama_url
     app.state.llama_url = settings.llama_url
     app.state.llama_target_store = LlamaTargetStore(settings.llama_target_state_file)

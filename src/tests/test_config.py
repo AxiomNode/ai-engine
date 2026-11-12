@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import sys
 
+import pytest
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -165,6 +167,34 @@ class TestAIEngineSettingsDefaults:
         assert settings.vector_store_backend == "memory"
         assert settings.vector_store_path == "data/chroma"
         assert settings.vector_store_collection == "ai_engine_default"
+
+    def test_bridge_timeout_defaults(self, monkeypatch):
+        for name in (
+            "AI_ENGINE_GENERATION_API_TIMEOUT_SECONDS",
+            "AI_ENGINE_GENERATION_API_STATS_TIMEOUT_SECONDS",
+            "AI_ENGINE_STATS_PUSH_TIMEOUT_SECONDS",
+        ):
+            monkeypatch.delenv(name, raising=False)
+        cfg = _reload_config(monkeypatch)
+        settings = cfg.AIEngineSettings()
+        assert settings.generation_api_timeout_seconds == 5.0
+        assert settings.generation_api_stats_timeout_seconds == 2.0
+        assert settings.stats_push_timeout_seconds == 2.0
+
+    def test_bridge_timeouts_are_configurable_and_validated(self, monkeypatch):
+        monkeypatch.setenv("AI_ENGINE_GENERATION_API_TIMEOUT_SECONDS", "12.5")
+        monkeypatch.setenv("AI_ENGINE_GENERATION_API_STATS_TIMEOUT_SECONDS", "3")
+        monkeypatch.setenv("AI_ENGINE_STATS_PUSH_TIMEOUT_SECONDS", "0.5")
+        cfg = _reload_config(monkeypatch)
+        settings = cfg.AIEngineSettings()
+        assert settings.generation_api_timeout_seconds == 12.5
+        assert settings.generation_api_stats_timeout_seconds == 3.0
+        assert settings.stats_push_timeout_seconds == 0.5
+
+        monkeypatch.setenv("AI_ENGINE_STATS_PUSH_TIMEOUT_SECONDS", "0")
+        cfg = _reload_config(monkeypatch)
+        with pytest.raises(Exception):
+            cfg.AIEngineSettings()
 
     def test_distribution_default(self, monkeypatch):
         monkeypatch.delenv("AI_ENGINE_DISTRIBUTION", raising=False)

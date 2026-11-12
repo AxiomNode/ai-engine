@@ -121,6 +121,18 @@ def _build_generation_api_headers(request: Request) -> dict[str, str]:
     return headers
 
 
+def _generation_api_timeout(state: Any) -> float:
+    """Return the total timeout (seconds) for ai-stats -> ai-api mutating calls."""
+    value = getattr(state, "generation_api_timeout_seconds", None)
+    return float(value) if isinstance(value, (int, float)) and value > 0 else 5.0
+
+
+def _generation_api_stats_timeout(state: Any) -> float:
+    """Return the timeout (seconds) for the read-only cache stats call."""
+    value = getattr(state, "generation_api_stats_timeout_seconds", None)
+    return float(value) if isinstance(value, (int, float)) and value > 0 else 2.0
+
+
 def _get_generation_api_client(request: Request) -> httpx.AsyncClient:
     """Return a reusable AsyncClient stored on the FastAPI app state."""
     client = getattr(request.app.state, "generation_api_client", None)
@@ -129,7 +141,7 @@ def _get_generation_api_client(request: Request) -> httpx.AsyncClient:
     ):
         return client
 
-    client = httpx.AsyncClient()
+    client = httpx.AsyncClient(timeout=_generation_api_timeout(request.app.state))
     request.app.state.generation_api_client = client
     return client
 
@@ -168,7 +180,7 @@ async def _fetch_generation_cache_stats(request: Request) -> dict[str, Any]:
         response = await client.get(
             endpoint,
             headers=_build_generation_api_headers(request),
-            timeout=2.0,
+            timeout=_generation_api_stats_timeout(request.app.state),
         )
         response.raise_for_status()
         payload = response.json()
@@ -204,7 +216,7 @@ async def _reset_generation_cache(
                 "namespace": namespace,
                 "all_namespaces": str(all_namespaces).lower(),
             },
-            timeout=5.0,
+            timeout=_generation_api_timeout(request.app.state),
         )
         response.raise_for_status()
         payload = response.json()
@@ -328,7 +340,13 @@ def create_app(collector: StatsCollector | None = None) -> FastAPI:
     app.state.distribution_version = distribution_version
     app.state.generation_api_url = settings.generation_api_url
     app.state.generation_monitor_api_key = settings.bridge_api_key or settings.api_key
-    app.state.generation_api_client = httpx.AsyncClient()
+    app.state.generation_api_timeout_seconds = settings.generation_api_timeout_seconds
+    app.state.generation_api_stats_timeout_seconds = (
+        settings.generation_api_stats_timeout_seconds
+    )
+    app.state.generation_api_client = httpx.AsyncClient(
+        timeout=settings.generation_api_timeout_seconds
+    )
 
     @app.on_event("shutdown")
     async def close_generation_api_client() -> None:
