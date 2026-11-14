@@ -22,9 +22,13 @@ Responses:
 
 from __future__ import annotations
 
+import hmac
+import logging
 from collections.abc import Iterable
 
 from ai_engine.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 try:
     from fastapi import FastAPI
@@ -184,7 +188,11 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 status_code=401,
                 content={"detail": "Missing X-API-Key header."},
             )
-        if provided not in allowed_keys:
+        provided_bytes = provided.encode("utf-8")
+        if not any(
+            hmac.compare_digest(provided_bytes, key.encode("utf-8"))
+            for key in allowed_keys
+        ):
             return JSONResponse(
                 status_code=403,
                 content={"detail": "Invalid API key."},
@@ -220,7 +228,14 @@ def add_api_key_middleware(
         settings.bridge_api_key,
         settings.stats_api_key,
     ]
-    if any(isinstance(key, str) and key.strip() for key in keys):
+    if not any(isinstance(key, str) and key.strip() for key in keys):
+        logger.warning(
+            "No API key configured (AI_ENGINE_API_KEY and related keys are "
+            "unset): the %s API accepts unauthenticated requests. Set "
+            "AI_ENGINE_API_KEY outside local development.",
+            service,
+        )
+    else:
         app.add_middleware(
             APIKeyMiddleware,
             api_key=settings.api_key,

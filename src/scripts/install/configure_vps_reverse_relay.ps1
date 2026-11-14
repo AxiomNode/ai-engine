@@ -113,7 +113,16 @@ $scpPath = (Get-Command scp -ErrorAction Stop).Source
 
 $sshHost = Get-ConfigValue -Key "VPS_RELAY_SSH_HOST" -DefaultValue "sebss@amksandbox.cloud"
 $sshKey = Resolve-UserPath (Get-ConfigValue -Key "VPS_RELAY_SSH_KEY" -DefaultValue "~/.ssh/axiomnode_k3s_ci")
-$publicHost = Get-ConfigValue -Key "VPS_RELAY_PUBLIC_HOST" -DefaultValue "195.35.48.40"
+$publicHost = Get-ConfigValue -Key "VPS_RELAY_PUBLIC_HOST"
+if (-not $publicHost) {
+    throw "VPS_RELAY_PUBLIC_HOST is required (public IP or hostname of the VPS). Set it in the distribution env file."
+}
+# The relay has no authentication. It binds to loopback unless a bind host is
+# configured explicitly; remote exposure must be restricted by a VPS firewall.
+$bindHost = Get-ConfigValue -Key "VPS_RELAY_BIND_HOST" -DefaultValue "127.0.0.1"
+if ($bindHost -notin @("127.0.0.1", "::1", "localhost")) {
+    Write-Warning "VPS relay will bind to $bindHost without authentication. Restrict the relay ports with a VPS firewall and set AI_ENGINE_API_KEY on ai-engine."
+}
 $statsPublicPort = Get-ConfigValue -Key "VPS_RELAY_STATS_PUBLIC_PORT" -DefaultValue "27000"
 $apiPublicPort = Get-ConfigValue -Key "VPS_RELAY_API_PUBLIC_PORT" -DefaultValue "27001"
 $statsTunnelPort = Get-ConfigValue -Key "VPS_RELAY_STATS_TUNNEL_PORT" -DefaultValue "27100"
@@ -126,8 +135,8 @@ Invoke-NativeCommand -FilePath $scpPath -Arguments @("-i", $sshKey, "-o", "Stric
 $remoteCommand = @"
 pkill -f 'python3 /tmp/axiomnode_ai_engine_tcp_relay.py $statsPublicPort $statsTunnelPort' >/dev/null 2>&1 || true
 pkill -f 'python3 /tmp/axiomnode_ai_engine_tcp_relay.py $apiPublicPort $apiTunnelPort' >/dev/null 2>&1 || true
-nohup python3 /tmp/axiomnode_ai_engine_tcp_relay.py $statsPublicPort $statsTunnelPort >/tmp/axiomnode-ai-relay-stats.log 2>&1 & echo \$! >/tmp/axiomnode-ai-relay-stats.pid
-nohup python3 /tmp/axiomnode_ai_engine_tcp_relay.py $apiPublicPort $apiTunnelPort >/tmp/axiomnode-ai-relay-api.log 2>&1 & echo \$! >/tmp/axiomnode-ai-relay-api.pid
+nohup python3 /tmp/axiomnode_ai_engine_tcp_relay.py $statsPublicPort $statsTunnelPort --bind $bindHost >/tmp/axiomnode-ai-relay-stats.log 2>&1 & echo \$! >/tmp/axiomnode-ai-relay-stats.pid
+nohup python3 /tmp/axiomnode_ai_engine_tcp_relay.py $apiPublicPort $apiTunnelPort --bind $bindHost >/tmp/axiomnode-ai-relay-api.log 2>&1 & echo \$! >/tmp/axiomnode-ai-relay-api.pid
 curl -fsS http://127.0.0.1:$statsPublicPort/health >/dev/null
 curl -fsS http://127.0.0.1:$apiPublicPort/health >/dev/null
 "@

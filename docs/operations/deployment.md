@@ -382,6 +382,15 @@ Relevant VPS relay variables in the env file:
 - `AUTO_EXPOSE_VPS_RELAY=true` enables reverse-tunnel + VPS relay automation.
 - `VPS_RELAY_SSH_HOST` sets the SSH destination of the VPS.
 - `VPS_RELAY_PUBLIC_HOST` is the host that STG should use as ai-engine target.
+- `VPS_RELAY_BIND_HOST` is the address the VPS relay listens on. It defaults to
+  `127.0.0.1` (loopback only). The relay is a raw TCP forwarder with no
+  authentication, so setting a non-loopback value such as `0.0.0.0` (needed when
+  cluster pods reach it through the VPS address) logs a warning: restrict the
+  relay ports with a VPS firewall to the cluster networks, or reach them
+  through an authenticated tunnel, and set `AI_ENGINE_API_KEY` so ai-engine
+  rejects unauthenticated callers. `VPS_RELAY_PUBLIC_HOST` has no default and
+  is required when `AUTO_EXPOSE_VPS_RELAY=true`.
+  The relay script also accepts `--bind HOST` or `AI_ENGINE_RELAY_BIND_HOST`.
 - `VPS_RELAY_STATS_PUBLIC_PORT=27000` publishes stats on the VPS.
 - `VPS_RELAY_API_PUBLIC_PORT=27001` publishes api on the VPS.
 - `VPS_RELAY_STATS_TUNNEL_PORT=27100` and `VPS_RELAY_API_TUNNEL_PORT=27101`
