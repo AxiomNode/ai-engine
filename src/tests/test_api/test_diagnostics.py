@@ -132,6 +132,9 @@ def test_compute_rag_stats_groups_sources_and_unique_documents() -> None:
 
 
 def test_compute_rag_stats_reads_chroma_store() -> None:
+    # The vectorstores module imports without chromadb; the constructor is what
+    # needs it, so skip on the optional dependency itself (core_api has no rag extra).
+    pytest.importorskip("chromadb")
     chroma_module = pytest.importorskip("ai_engine.rag.vectorstores.chroma")
     store = chroma_module.ChromaVectorStore(collection_name="diag-test", path=None)
     store.add(
