@@ -2,8 +2,15 @@
 # Usage:
 #   docker compose --env-file distributions/stg/windows-gpu.env -f docker-compose.llama-tunnel.yml up -d
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   llama-server:
+    logging: *default-logging
     image: "${LLAMA_GPU_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda}"
     container_name: "${LLAMA_TUNNEL_LLAMA_CONTAINER:-axiomnode-llama-server}"
     restart: unless-stopped
@@ -43,6 +50,7 @@ services:
       retries: 30
 
   cloudflare-tunnel:
+    logging: *default-logging
     image: cloudflare/cloudflared:latest
     container_name: "${CLOUDFLARE_LLAMA_TUNNEL_CONTAINER:-axiomnode-llama-cloudflared}"
     restart: unless-stopped

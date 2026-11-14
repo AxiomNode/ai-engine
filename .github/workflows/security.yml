@@ -15,6 +15,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -22,6 +26,7 @@ jobs:
   codeql:
     name: CodeQL (python)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # CodeQL needs to upload SARIF results (`security-events: write`) and read
     # workflow metadata (`actions: read`), but no broader repository writes.
     permissions:
@@ -42,6 +47,7 @@ jobs:
   pip-audit:
     name: pip-audit (SCA)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: src
@@ -60,6 +66,7 @@ jobs:
   trivy-fs:
     name: Trivy filesystem scan
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       - name: Run Trivy filesystem scan
