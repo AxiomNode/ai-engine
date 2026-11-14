@@ -1,0 +1,20 @@
+# Compose override: run ai-api and ai-stats from the images CI already publishes
+# to GHCR instead of building them on the host (see docs/operations/vps-autodeploy.md).
+#
+# Usage (what deploy.sh does when AI_ENGINE_DEPLOY_MODE=image):
+#   docker compose --env-file distributions/<stage>/<env>.env \
+#     --env-file .env.secrets --env-file .env.images --profile cpu \
+#     -f docker-compose.yml -f docker-compose.ghcr.yml pull ai-api ai-stats
+#   docker compose ... up -d --no-build
+#
+# The image references come from .env.images (git-ignored, see
+# distributions/examples/images.env.example). Pin a tag or, better, a digest.
+# `--no-build` guarantees nothing is compiled on the inference host: if an image
+# is missing the command fails instead of falling back to a local build.
+services:
+  ai-api:
+    image: "${AI_ENGINE_API_IMAGE:?Set AI_ENGINE_API_IMAGE in .env.images (e.g. ghcr.io/axiomnode/ai-engine-api:<tag> or ...@sha256:<digest>)}"
+    pull_policy: missing
+  ai-stats:
+    image: "${AI_ENGINE_STATS_IMAGE:?Set AI_ENGINE_STATS_IMAGE in .env.images (e.g. ghcr.io/axiomnode/ai-engine-stats:<tag> or ...@sha256:<digest>)}"
+    pull_policy: missing

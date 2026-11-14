@@ -3,6 +3,11 @@ set -euo pipefail
 
 # Unified deploy script for Linux hosts.
 # Usage from repo root: ./src/scripts/install/deploy.sh <dev|stg|pro> <windows|windows-gpu|vps-cpu|vps-gpu>
+#
+# AI_ENGINE_DEPLOY_MODE (default: build)
+#   build  Build ai-api/ai-stats on this host (`up -d --build`). Legacy path, kept as fallback.
+#   image  Pull the pinned GHCR images from src/.env.images (override the path with
+#          AI_ENGINE_IMAGES_FILE) and start them with `up -d --no-build`. Nothing is built here.
 
 if [[ $# -ne 2 ]]; then
   echo "Usage: $0 <dev|stg|pro> <windows|windows-gpu|vps-cpu|vps-gpu>"
@@ -44,7 +49,26 @@ if [[ "${ENVIRONMENT}" == "vps-gpu" || "${ENVIRONMENT}" == "windows-gpu" ]]; the
   PROFILE="gpu"
 fi
 
-COMPOSE_ARGS=(--env-file "${ENV_FILE}" --env-file "${SECRETS_FILE}" --profile "${PROFILE}" -f docker-compose.yml)
+DEPLOY_MODE="${AI_ENGINE_DEPLOY_MODE:-build}"
+case "${DEPLOY_MODE}" in
+  build|image) ;;
+  *) echo "Invalid AI_ENGINE_DEPLOY_MODE: ${DEPLOY_MODE} (expected build or image)"; exit 1 ;;
+esac
+
+COMPOSE_ARGS=(--env-file "${ENV_FILE}" --env-file "${SECRETS_FILE}")
+if [[ "${DEPLOY_MODE}" == "image" ]]; then
+  IMAGES_FILE="${AI_ENGINE_IMAGES_FILE:-.env.images}"
+  if [[ ! -f "${IMAGES_FILE}" ]]; then
+    echo "Image pin file not found: ${IMAGES_FILE}"
+    echo "Copy distributions/examples/images.env.example to ${IMAGES_FILE} and set the image tags or digests."
+    exit 1
+  fi
+  COMPOSE_ARGS+=(--env-file "${IMAGES_FILE}")
+fi
+COMPOSE_ARGS+=(--profile "${PROFILE}" -f docker-compose.yml)
+if [[ "${DEPLOY_MODE}" == "image" ]]; then
+  COMPOSE_ARGS+=(-f docker-compose.ghcr.yml)
+fi
 
 file_env_value() {
   local file="$1"
@@ -151,8 +175,18 @@ API_PORT_VALUE="$(env_value API_PORT 7001)"
 echo "Validating compose config for ${STAGE}/${ENVIRONMENT} (profile=${PROFILE})..."
 docker compose "${COMPOSE_ARGS[@]}" config >/dev/null
 
-echo "Starting stack for ${STAGE}/${ENVIRONMENT}..."
-docker compose "${COMPOSE_ARGS[@]}" up -d --build
+if [[ "${DEPLOY_MODE}" == "image" ]]; then
+  echo "Pulling pinned images for ${STAGE}/${ENVIRONMENT}..."
+  if ! docker compose "${COMPOSE_ARGS[@]}" pull ai-api ai-stats; then
+    echo "Image pull failed. If the GHCR packages are private, run: docker login ghcr.io (token with read:packages)."
+    exit 1
+  fi
+  echo "Starting stack for ${STAGE}/${ENVIRONMENT} from pulled images (no build)..."
+  docker compose "${COMPOSE_ARGS[@]}" up -d --no-build
+else
+  echo "Starting stack for ${STAGE}/${ENVIRONMENT} (building on this host)..."
+  docker compose "${COMPOSE_ARGS[@]}" up -d --build
+fi
 
 echo "Services status:"
 docker compose "${COMPOSE_ARGS[@]}" ps

@@ -61,7 +61,10 @@ async def _publish_event_to_stats(request: Request, payload: dict[str, Any]) -> 
         headers["X-API-Key"] = stats_api_key.strip()
 
     try:
-        async with httpx.AsyncClient(timeout=2.0) as client:
+        timeout = getattr(request.app.state, "stats_push_timeout_seconds", None)
+        if not isinstance(timeout, (int, float)) or timeout <= 0:
+            timeout = 2.0
+        async with httpx.AsyncClient(timeout=float(timeout)) as client:
             await client.post(endpoint, json=payload, headers=headers)
     except Exception:
         logger.warning("Failed to push observability event to ai-stats", exc_info=True)

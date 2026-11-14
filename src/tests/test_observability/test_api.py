@@ -495,6 +495,78 @@ class TestCacheMonitoringBridge:
         }
 
 
+class TestBridgeTimeouts:
+    """ai-stats -> ai-api calls use explicit, configurable timeouts."""
+
+    def _capture(self, monkeypatch) -> dict[str, object]:
+        from ai_engine.observability import api as obs_api
+
+        captured: dict[str, object] = {"client_kwargs": []}
+
+        class _FakeResponse:
+            status_code = 200
+
+            @staticmethod
+            def raise_for_status() -> None:
+                return None
+
+            @staticmethod
+            def json() -> dict[str, object]:
+                return {"removed_memory": 0, "removed_persistent": 0}
+
+        class _FakeAsyncClient:
+            def __init__(self, **kwargs) -> None:
+                captured["client_kwargs"].append(kwargs)
+
+            async def get(self, *args, **kwargs):
+                captured["get_kwargs"] = kwargs
+                return _FakeResponse()
+
+            async def post(self, *args, **kwargs):
+                captured["post_kwargs"] = kwargs
+                return _FakeResponse()
+
+            async def aclose(self) -> None:
+                return None
+
+        monkeypatch.setattr(obs_api.httpx, "AsyncClient", _FakeAsyncClient)
+        return captured
+
+    def test_defaults_are_explicit(self, monkeypatch) -> None:
+        for name in (
+            "AI_ENGINE_GENERATION_API_TIMEOUT_SECONDS",
+            "AI_ENGINE_GENERATION_API_STATS_TIMEOUT_SECONDS",
+        ):
+            monkeypatch.delenv(name, raising=False)
+        _clear_all_settings_caches()
+        captured = self._capture(monkeypatch)
+
+        client, _ = _make_client()
+        client.get("/cache/stats")
+        client.post("/cache/reset")
+
+        assert captured["client_kwargs"] == [{"timeout": 5.0}]
+        assert captured["get_kwargs"]["timeout"] == 2.0
+        assert captured["post_kwargs"]["timeout"] == 5.0
+
+    def test_env_overrides_are_applied(self, monkeypatch) -> None:
+        monkeypatch.setenv("AI_ENGINE_GENERATION_API_TIMEOUT_SECONDS", "9")
+        monkeypatch.setenv("AI_ENGINE_GENERATION_API_STATS_TIMEOUT_SECONDS", "1.5")
+        _clear_all_settings_caches()
+        captured = self._capture(monkeypatch)
+        try:
+            client, _ = _make_client()
+            client.get("/cache/stats")
+            client.post("/cache/reset")
+        finally:
+            monkeypatch.undo()
+            _clear_all_settings_caches()
+
+        assert captured["client_kwargs"] == [{"timeout": 9.0}]
+        assert captured["get_kwargs"]["timeout"] == 1.5
+        assert captured["post_kwargs"]["timeout"] == 9.0
+
+
 class TestOpenAPISecurity:
     """Tests for generated OpenAPI security metadata."""
 

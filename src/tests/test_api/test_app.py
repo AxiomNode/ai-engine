@@ -540,6 +540,43 @@ def test_install_api_key_openapi_marks_only_protected_routes() -> None:
     assert app.openapi() is schema
 
 
+def test_publish_event_uses_configured_stats_push_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import ai_engine.api.events as events_module
+
+    timeouts: list[float] = []
+
+    class _FakeAsyncClient:
+        def __init__(self, timeout: float) -> None:
+            timeouts.append(timeout)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def post(self, url, json, headers) -> None:
+            return None
+
+    monkeypatch.setattr(events_module.httpx, "AsyncClient", _FakeAsyncClient)
+
+    request = MagicMock()
+    request.app.state = types.SimpleNamespace(
+        stats_url="http://stats.local",
+        stats_push_timeout_seconds=0.75,
+    )
+    asyncio.run(events_module._publish_event_to_stats(request, {"k": "v"}))
+
+    request.app.state = types.SimpleNamespace(
+        stats_url="http://stats.local", stats_push_timeout_seconds=-1
+    )
+    asyncio.run(events_module._publish_event_to_stats(request, {"k": "v"}))
+
+    assert timeouts == [0.75, 2.0]
+
+
 def test_publish_and_record_observability_event_bridge(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

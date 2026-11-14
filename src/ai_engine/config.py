@@ -56,6 +56,20 @@ Environment variables
     Base URL for the generation API used by the observability service
     to query monitoring/cache runtime data (e.g. ``http://ai-api:8001``).
 
+``AI_ENGINE_GENERATION_API_TIMEOUT_SECONDS``
+    Total timeout (seconds) for ai-stats -> ai-api monitoring calls that
+    change state (cache reset) and the default for the shared HTTP client.
+    Defaults to ``5.0``.
+
+``AI_ENGINE_GENERATION_API_STATS_TIMEOUT_SECONDS``
+    Timeout (seconds) for the read-only cache statistics call from ai-stats
+    to ai-api. Defaults to ``2.0``.
+
+``AI_ENGINE_STATS_PUSH_TIMEOUT_SECONDS``
+    Timeout (seconds) for ai-api -> ai-stats event pushes. Events are
+    best-effort, so a short value keeps generation requests unaffected.
+    Defaults to ``2.0``.
+
 ``AI_ENGINE_OBSERVABILITY_HISTORY_PATH``
     File path used by the observability service to persist ingested event
     history across restarts. Defaults to ``"data/observability-history.jsonl"``.
@@ -191,6 +205,9 @@ class AIEngineSettings(BaseSettings):
         stats_api_key: API key for internal ai-api -> ai-stats events.
         stats_url: Base URL for observability event ingestion.
         generation_api_url: Base URL for generation API monitoring queries.
+        generation_api_timeout_seconds: Timeout for ai-stats -> ai-api mutating calls.
+        generation_api_stats_timeout_seconds: Timeout for ai-stats -> ai-api stats reads.
+        stats_push_timeout_seconds: Timeout for ai-api -> ai-stats event pushes.
         models_dir: Directory where GGUF model files are stored.
         generation_cache_path: Path to persistent generation cache file.
         generation_cache_backend: Persistent cache backend (tinydb/redis).
@@ -297,6 +314,27 @@ class AIEngineSettings(BaseSettings):
         default="http://ai-api:8001",
         alias="AI_ENGINE_GENERATION_API_URL",
         validation_alias="AI_ENGINE_GENERATION_API_URL",
+    )
+    generation_api_timeout_seconds: float = Field(
+        default=5.0,
+        gt=0.0,
+        le=600.0,
+        alias="AI_ENGINE_GENERATION_API_TIMEOUT_SECONDS",
+        validation_alias="AI_ENGINE_GENERATION_API_TIMEOUT_SECONDS",
+    )
+    generation_api_stats_timeout_seconds: float = Field(
+        default=2.0,
+        gt=0.0,
+        le=600.0,
+        alias="AI_ENGINE_GENERATION_API_STATS_TIMEOUT_SECONDS",
+        validation_alias="AI_ENGINE_GENERATION_API_STATS_TIMEOUT_SECONDS",
+    )
+    stats_push_timeout_seconds: float = Field(
+        default=2.0,
+        gt=0.0,
+        le=600.0,
+        alias="AI_ENGINE_STATS_PUSH_TIMEOUT_SECONDS",
+        validation_alias="AI_ENGINE_STATS_PUSH_TIMEOUT_SECONDS",
     )
     observability_history_path: str = Field(
         default="data/observability-history.jsonl",
