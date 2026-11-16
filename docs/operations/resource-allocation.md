@@ -1,8 +1,9 @@
-# Resource Allocation — VPS 8 cores / 32 GB RAM
+# Resource Allocation — 8 cores / 32 GB RAM
 
-Baseline resource distribution for the minimum production VPS target.
+Baseline resource distribution for an 8 core / 32 GB host (originally sized for the
+minimum production VPS target).
 All values are configurable via the corresponding `.env` file in
-`src/distributions/<env>/vps-cpu.env`.
+`src/distributions/<stage>/<environment>.env`.
 
 ---
 
@@ -98,7 +99,7 @@ The native server:
 
 ## 6. Scaling Guide
 
-When the VPS gets more resources, adjust these knobs in order:
+When the host gets more resources, adjust these knobs in order:
 
 | Priority | Action | When |
 |----------|--------|------|

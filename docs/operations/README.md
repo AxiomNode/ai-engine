@@ -19,11 +19,10 @@ This is the place to document differences between:
 ## Navigation
 
 - [deployment.md](deployment.md) — Build and run the stack with Docker and distribution matrix.
-- [vps-autodeploy.md](vps-autodeploy.md) — systemd timer setup for standalone VPS Compose autodeploy.
-- [resource-allocation.md](resource-allocation.md) — CPU/RAM distribution per service for VPS 8c/32GB with justification.
+- [resource-allocation.md](resource-allocation.md) — CPU/RAM distribution per service for an 8 core / 32 GB host (the former VPS sizing) with justification.
 - [resource-allocation-workstation-gpu.md](resource-allocation-workstation-gpu.md) — Starting CPU/RAM/GPU budget for RTX 4080 SUPER / 7950X class Windows workstations.
 - [incident-runbook.md](incident-runbook.md) — Incident response and rollback playbooks.
-- [../../src/distributions/README.md](../../src/distributions/README.md) — Distribution matrix (`dev|stg|pro` x `windows|windows-gpu|vps-cpu|vps-gpu`).
+- [../../src/distributions/README.md](../../src/distributions/README.md) — Distribution matrix (`dev|stg|pro` x `windows|windows-gpu`).
 
 ## Local run
 
@@ -41,8 +40,8 @@ cp src/distributions/examples/.env.example src/.env
 
 - The deployment flow is centralized in `src/docker-compose.yml`.
 - Compose profiles are auto-selected by install scripts:
-  - `windows` and `vps-cpu` map to `cpu`.
-  - `windows-gpu` and `vps-gpu` map to `gpu`.
+  - `windows` maps to `cpu`.
+  - `windows-gpu` maps to `gpu`.
 - Built image/container names follow:
   - `<APP_NAME>_<SERVICE_NAME>_<AI_ENGINE_DISTRIBUTION>_<AI_ENGINE_RELEASE_VERSION>`.
 

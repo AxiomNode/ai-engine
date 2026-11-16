@@ -14,7 +14,7 @@ This document describes the current folder distribution and conventions.
 - `ai_engine/`: source package.
 - `tests/`: unit/integration test suites.
 - `scripts/`: operational scripts grouped by purpose.
-- `distributions/`: deployment matrix (`dev|stg|pro` x `windows|vps-cpu|vps-gpu`).
+- `distributions/`: deployment matrix (`dev|stg|pro` x `windows|windows-gpu`).
 - `docker-compose.yml`, `Dockerfile`: container orchestration/build files.
 - `models/`: local GGUF models (runtime artifacts, not versioned by default).
 - `data/`: runtime data (cache and generated artifacts).
