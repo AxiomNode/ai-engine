@@ -2,7 +2,7 @@ param(
     [ValidateSet("dev", "stg", "pro")]
     [string]$Stage = "dev",
 
-    [ValidateSet("windows", "windows-gpu", "vps-cpu", "vps-gpu")]
+    [ValidateSet("windows", "windows-gpu")]
     [string]$Environment = "windows",
 
     [switch]$UseCpuProfile,

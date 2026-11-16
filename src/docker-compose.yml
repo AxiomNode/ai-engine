@@ -101,7 +101,7 @@ services:
       retries: 8
 
   # ---------------------------------------------------------------------------
-  # llama.cpp GPU profile (vps-gpu).
+  # llama.cpp GPU profile (windows-gpu).
   # ---------------------------------------------------------------------------
   llama-server-gpu:
     logging: *default-logging

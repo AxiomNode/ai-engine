@@ -2,7 +2,7 @@ param(
     [ValidateSet("dev", "stg", "pro")]
     [string]$Stage = "dev",
 
-    [ValidateSet("windows", "windows-gpu", "vps-cpu", "vps-gpu")]
+    [ValidateSet("windows", "windows-gpu")]
     [string]$Environment = "windows"
 )
 
@@ -55,7 +55,7 @@ $StatsPort = if ($Config.ContainsKey("STATS_PORT") -and $Config["STATS_PORT"]) {
 $ApiPort = if ($Config.ContainsKey("API_PORT") -and $Config["API_PORT"]) { $Config["API_PORT"] } else { "7001" }
 
 $ComposeMode = "cpu"
-if ($Environment -eq "vps-gpu" -or $Environment -eq "windows-gpu") {
+if ($Environment -eq "windows-gpu") {
     $ComposeMode = "gpu"
 }
 
@@ -89,10 +89,3 @@ try {
 }
 
 Write-Host "Published host ports: llama=$LlamaPort stats=$StatsPort api=$ApiPort"
-
-if ($Environment -like "windows*") {
-    $autoExposeVpsRelay = if ($Config.ContainsKey("AUTO_EXPOSE_VPS_RELAY")) { $Config["AUTO_EXPOSE_VPS_RELAY"] } else { "false" }
-    if ($autoExposeVpsRelay -in @("true", "1", "yes", "on")) {
-        & (Join-Path $ScriptDir "configure_vps_reverse_relay.ps1") -Stage $Stage -Environment $Environment -StatsPort $StatsPort -ApiPort $ApiPort -Config $Config
-    }
-}

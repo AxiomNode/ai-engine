@@ -154,7 +154,7 @@ The repository ships a production-ready multi-stage `Dockerfile` and a
 The repository now defines deployment distributions by stage and environment:
 
 - stages: `dev`, `stg`, `pro`
-- environments: `windows`, `vps-cpu`, `vps-gpu`
+- environments: `windows`, `windows-gpu`
 
 Files live in:
 
@@ -164,24 +164,11 @@ Use the unified installers:
 
 ```bash
 # Linux/macOS shells
-./src/scripts/install/deploy.sh dev vps-cpu
-./src/scripts/install/deploy.sh stg vps-gpu
-./src/scripts/install/deploy.sh pro vps-cpu
+./src/scripts/install/deploy.sh dev windows
+./src/scripts/install/deploy.sh stg windows-gpu
 ```
 
-For a standalone VPS that should keep itself up to date, install the systemd timer
-after the first manual deploy. The recommended `image` mode pulls the pinned GHCR
-images that CI already builds (no build on the host that runs llama.cpp):
-
-```bash
-./src/scripts/install/install-vps-autodeploy.sh pro vps-cpu main 15min image
-```
-
-The previous behavior (`git pull` + `docker compose up -d --build` on the host) is
-still available as `... main 5min build`. Pins, prerequisites and the fallback are
-described in [vps-autodeploy.md](vps-autodeploy.md).
-
-That autodeploy path is for direct Docker Compose VPS deployments. Kubernetes
+Deployments with these scripts are manual: there is no autodeploy timer. Kubernetes
 rollouts remain owned by `platform-infra`.
 
 The Linux deploy script also verifies the deployed RAG index by polling
@@ -191,8 +178,7 @@ is healthy and the vector store reports non-empty coverage.
 ```powershell
 # Windows PowerShell
 ./src/scripts/install/deploy.ps1 -Stage dev -Environment windows
-./src/scripts/install/deploy.ps1 -Stage stg -Environment vps-cpu
-./src/scripts/install/deploy.ps1 -Stage pro -Environment vps-gpu
+./src/scripts/install/deploy.ps1 -Stage stg -Environment windows-gpu
 ```
 
 All distributions now propagate deployment tags through runtime channels:
@@ -208,7 +194,7 @@ The label value is computed from env vars:
 - `AI_ENGINE_DISTRIBUTION`
 - `AI_ENGINE_RELEASE_VERSION`
 
-For CPU-only VPS deployments, the Docker setup is optimized to avoid GPU
+For CPU-only deployments, the Docker setup is optimized to avoid GPU
 runtime dependencies:
 
 - `ai-api` uses a dedicated image target with `api + rag` dependencies and
@@ -278,11 +264,9 @@ configure stable public TCP listeners through firewall rules plus
 `netsh interface portproxy` when `AUTO_EXPOSE_PUBLIC_PORTS=true` is set in the
 distribution env file.
 
-For the staging topology where ai-engine runs on a workstation and the rest of
-the platform runs on the VPS Kubernetes cluster, prefer `AUTO_EXPOSE_VPS_RELAY`
-instead. That mode opens a reverse SSH tunnel from the workstation to the VPS
-and starts a tiny TCP relay on the VPS, so STG reaches ai-engine through the
-VPS relay host instead of requiring inbound access directly to the workstation.
+To let another machine reach a workstation-hosted ai-engine, use the public port
+exposure above or an authenticated tunnel of your own; the repository no longer
+ships a relay.
 
 When the API runtime is deployed separately from the llama runtime, also verify the active llama target override state used by `ai-engine-api` if generation requests do not reach the expected model host.
 
@@ -382,32 +366,11 @@ Relevant Windows exposure variables in the env file:
 - `API_PUBLIC_PORT=27001` exposes `ai-api` externally on TCP 27001.
 - `LLAMA_PUBLIC_PORT` is optional and usually not needed for backoffice flows.
 
-Relevant VPS relay variables in the env file:
-
-- `AUTO_EXPOSE_VPS_RELAY=true` enables reverse-tunnel + VPS relay automation.
-- `VPS_RELAY_SSH_HOST` sets the SSH destination of the VPS.
-- `VPS_RELAY_PUBLIC_HOST` is the host that STG should use as ai-engine target.
-- `VPS_RELAY_BIND_HOST` is the address the VPS relay listens on. It defaults to
-  `127.0.0.1` (loopback only). The relay is a raw TCP forwarder with no
-  authentication, so setting a non-loopback value such as `0.0.0.0` (needed when
-  cluster pods reach it through the VPS address) logs a warning: restrict the
-  relay ports with a VPS firewall to the cluster networks, or reach them
-  through an authenticated tunnel, and set `AI_ENGINE_API_KEY` so ai-engine
-  rejects unauthenticated callers. `VPS_RELAY_PUBLIC_HOST` has no default and
-  is required when `AUTO_EXPOSE_VPS_RELAY=true`.
-  The relay script also accepts `--bind HOST` or `AI_ENGINE_RELAY_BIND_HOST`.
-- `VPS_RELAY_STATS_PUBLIC_PORT=27000` publishes stats on the VPS.
-- `VPS_RELAY_API_PUBLIC_PORT=27001` publishes api on the VPS.
-- `VPS_RELAY_STATS_TUNNEL_PORT=27100` and `VPS_RELAY_API_TUNNEL_PORT=27101`
-  are loopback-only ports on the VPS used by the reverse tunnel.
-
 Those settings configure the Windows host only. If the workstation is behind a
 router or carrier NAT, you still need upstream forwarding or a tunnel so the
 internet can reach the machine.
 
-In the current staging topology, the relay mode is the preferred tunnel.
-
-### Linux VPS (CPU-only) optimized profile
+### CPU-only optimized profile
 
 The repository uses a centralized single `src/docker-compose.yml` with
 runtime profiles (`cpu`, `gpu`).
@@ -416,7 +379,7 @@ runtime profiles (`cpu`, `gpu`).
 
 ```bash
 docker compose \
-  --env-file src/distributions/stg/vps-cpu.env \
+  --env-file src/distributions/stg/windows.env \
   --profile cpu \
   -f src/docker-compose.yml \
   up -d --build
@@ -440,7 +403,7 @@ Notes:
 - Start with Qwen 3B quantized model on CPU-only hosts, then scale resources
   and context size conservatively.
 
-### Linux VPS (GPU) optimized profile
+### GPU optimized profile
 
 GPU deployments use the same centralized compose file with `gpu` profile.
 
@@ -448,7 +411,7 @@ GPU deployments use the same centralized compose file with `gpu` profile.
 
 ```bash
 docker compose \
-  --env-file src/distributions/pro/vps-gpu.env \
+  --env-file src/distributions/pro/windows-gpu.env \
   --profile gpu \
   -f src/docker-compose.yml \
   up -d --build
@@ -470,8 +433,6 @@ publishes a stable `server-cuda` floating tag.
 
 You can run one command per target environment:
 
-- Linux VPS (CPU): `src/scripts/install/install_vps_linux_cpu.sh`
-- Linux VPS (GPU): `src/scripts/install/install_vps_linux_gpu.sh`
 - Windows (Docker Desktop CPU): `src/scripts/install/install_windows.ps1 -Stage <stage> -Environment windows`
 - Windows (Docker Desktop GPU): `src/scripts/install/install_windows.ps1 -Stage <stage> -Environment windows-gpu`
 
@@ -479,25 +440,12 @@ These wrappers now map to the distribution matrix system.
 
 Examples with stage:
 
-```bash
-./src/scripts/install/install_vps_linux_cpu.sh dev
-./src/scripts/install/install_vps_linux_gpu.sh pro
-```
-
 ```powershell
 ./src/scripts/install/install_windows.ps1 -Stage stg -Environment windows
 ./src/scripts/install/install_windows.ps1 -Stage stg -Environment windows-gpu
 ```
 
 Examples:
-
-```bash
-# Linux CPU
-./src/scripts/install/install_vps_linux_cpu.sh
-
-# Linux GPU
-./src/scripts/install/install_vps_linux_gpu.sh
-```
 
 ```powershell
 # Windows CPU (defaults LLAMA port to 18080)

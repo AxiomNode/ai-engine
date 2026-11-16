@@ -3,7 +3,7 @@
 This folder defines deployment distributions by:
 
 - stage: `dev`, `stg`, `pro`
-- environment: `windows`, `windows-gpu`, `vps-cpu`, `vps-gpu`
+- environment: `windows`, `windows-gpu`
 
 Each combination is a dedicated env file (from repository root):
 
@@ -19,8 +19,8 @@ General local template:
 Examples:
 
 - `src/distributions/dev/windows.env`
-- `src/distributions/stg/vps-cpu.env`
-- `src/distributions/pro/vps-gpu.env`
+- `src/distributions/stg/windows-gpu.env`
+- `src/distributions/pro/windows.env`
 
 ## Usage
 
@@ -29,10 +29,7 @@ Use the unified installers under `src/scripts/install/`:
 - Linux: `src/scripts/install/deploy.sh <stage> <environment>`
 - Windows: `src/scripts/install/deploy.ps1 -Stage <stage> -Environment <environment>`
 
-For standalone VPS hosts, install a systemd timer after the first successful
-manual deploy:
-
-- `src/scripts/install/install-vps-autodeploy.sh <stg|pro> <vps-cpu|vps-gpu> [branch] [interval]`
+Deployments are manual: run the installers yourself after pulling the branch you want.
 
 Before running installers, inject the matching runtime secrets:
 
@@ -44,8 +41,6 @@ The installers automatically map environment to a centralized compose profile:
 
 - `windows` -> `cpu`
 - `windows-gpu` -> `gpu`
-- `vps-cpu` -> `cpu`
-- `vps-gpu` -> `gpu`
 
 So all deployments run from a single `src/docker-compose.yml`.
 
@@ -75,7 +70,7 @@ Installers now load two env files in order:
 Valid values:
 
 - stage: `dev|stg|pro`
-- environment: `windows|windows-gpu|vps-cpu|vps-gpu`
+- environment: `windows|windows-gpu`
 
 Each env file should define a deployment tag pair used by logs, metrics,
 and monitoring endpoints:
@@ -106,7 +101,7 @@ Primary knobs adjusted per env file:
 ## Uvicorn workers
 
 `API_WORKERS` defaults to `1` in compose, in the image (`UVICORN_WORKERS`) and in the
-VPS/stg/dev distribution files. It stays configurable; raise it only after measuring.
+stg/dev distribution files. It stays configurable; raise it only after measuring.
 
 Why one worker:
 
@@ -121,8 +116,8 @@ Why one worker:
 - The API is I/O bound on llama.cpp (async HTTP) and CPU-bound embeddings already run
   in a thread, so a single worker rarely limits throughput.
 
-The `pro/vps-gpu` and `pro/windows` files keep their explicit values (3); review them
-against the caveats above before the next production change.
+The `pro/windows` file keeps its explicit value (3); review it against the caveats
+above before the next production change.
 
 ## Docker Image and Container Naming
 
